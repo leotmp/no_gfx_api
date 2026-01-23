@@ -1,5 +1,5 @@
 
-package main
+package example3
 
 import log "core:log"
 import "../../gpu"
@@ -20,16 +20,20 @@ Example_Name :: "3D"
 
 Sponza_Scene :: #load("../shared/assets/sponza.glb")
 
+Total_Max_Frames := max(u64)
+
 main :: proc()
 {
-    fmt.println("Right-click + WASD for first-person controls.")
-
     ok_i := sdl.Init({ .VIDEO })
     assert(ok_i)
+    defer sdl.Quit()
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)
     context.logger = console_logger
+
+    log.info("Right-click + WASD for first-person controls.")
+
 
     ts_freq := sdl.GetPerformanceFrequency()
     max_delta_time: f32 = 1.0 / 10.0  // 10fps
@@ -75,7 +79,7 @@ main :: proc()
 
     upload_cmd_buf := gpu.commands_begin(queue)
 
-	scene, _, gltf_data := shared.load_scene_gltf(
+	scene, texture_infos, gltf_data := shared.load_scene_gltf(
 		Sponza_Scene,
 		&upload_arena,
 		upload_cmd_buf,
@@ -83,6 +87,7 @@ main :: proc()
 	defer {
 		shared.destroy_scene(&scene)
 		gltf2.unload(gltf_data)
+        delete(texture_infos)
 	}
 
     gpu.cmd_barrier(upload_cmd_buf, .Transfer, .All, {})
@@ -96,7 +101,7 @@ main :: proc()
     next_frame := u64(1)
     frame_sem := gpu.semaphore_create(0)
     defer gpu.semaphore_destroy(&frame_sem)
-    for true
+    for next_frame < Total_Max_Frames
     {
         proceed := shared.handle_window_events(window)
         if !proceed do break

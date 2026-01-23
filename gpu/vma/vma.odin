@@ -6,10 +6,10 @@ when ODIN_OS == .Linux || ODIN_OS == .Darwin {
 
 when ODIN_OS == .Windows {
 	when ODIN_ARCH == .amd64 {
-		@(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt")
+		@(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt /DEFAULTLIB:ucrt")
 		foreign import _lib_ "vma_windows_x86_64.lib"
 	} else when ODIN_ARCH == .arm64 {
-		@(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt")
+		@(extra_linker_flags="/NODEFAULTLIB:libcmt /NODEFAULTLIB:libucrt /DEFAULTLIB:ucrt")
 		foreign import _lib_ "vma_windows_ARM64.lib"
 	} else {
 		#panic("Unsupported architecture for VMA library on Windows")

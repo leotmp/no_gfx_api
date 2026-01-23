@@ -1,5 +1,5 @@
 
-package main
+package example1
 
 import log "core:log"
 import "core:math"
@@ -14,10 +14,14 @@ Start_Window_Size_Y :: 1000
 Frames_In_Flight :: 3
 Example_Name :: "Triangle"
 
+Total_Max_Frames := max(u64)
+
 main :: proc()
 {
     ok_i := sdl.Init({ .VIDEO })
     assert(ok_i)
+    // Ensure SDL shuts down cleanly between test runs.
+    defer sdl.Quit()
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)
@@ -90,7 +94,7 @@ main :: proc()
     next_frame := u64(1)
     frame_sem := gpu.semaphore_create(0)
     defer gpu.semaphore_destroy(&frame_sem)
-    for true
+    for next_frame < Total_Max_Frames
     {
         proceed := handle_window_events(window)
         if !proceed do break

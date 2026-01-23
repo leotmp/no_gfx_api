@@ -2,6 +2,7 @@
 package gpu
 
 import "core:slice"
+import "core:log"
 import "base:runtime"
 
 import sdl "vendor:sdl3"
@@ -47,6 +48,9 @@ Address_Mode :: enum { Repeat = 0, Mirrored_Repeat, Clamp_To_Edge }
 // Constants
 All_Mips: u8 : max(u8)
 All_Layers: u16 : max(u16)
+
+// Optional hook for capturing GPU debug messages (e.g. validation errors).
+Hook_Debug_Log: proc(level: log.Level, message: cstring)
 
 // Structs
 Texture_Desc :: struct

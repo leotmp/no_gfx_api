@@ -152,6 +152,14 @@ Queue_Info :: struct
 @(private="file")
 ctx: Context
 
+@(private="file")
+// Allow multiple init/cleanup pairs in tests.
+init_ref_count: i32
+
+@(private="file")
+// Vulkan global proc addresses only need loading once per process.
+vk_globals_loaded: bool
+
 @(private="file") @(thread_local)
 tls_ctx: ^Thread_Local_Context
 
@@ -160,12 +168,21 @@ vk_logger: log.Logger
 
 _init :: proc()
 {
+    if init_ref_count > 0 {
+        init_ref_count += 1
+        return
+    }
+    init_ref_count = 1
+
     init_scratch_arenas()
 
     scratch, _ := acquire_scratch()
 
     // Load vulkan function pointers
-    vk.load_proc_addresses_global(cast(rawptr) get_instance_proc_address)
+    if !vk_globals_loaded {
+        vk.load_proc_addresses_global(cast(rawptr) get_instance_proc_address)
+        vk_globals_loaded = true
+    }
 
     vk_logger = context.logger
 
@@ -203,6 +220,7 @@ _init :: proc()
             messageType = { .VALIDATION, .PERFORMANCE },
             pfnUserCallback = vk_debug_callback
         }
+
 
         when ODIN_DEBUG
         {
@@ -666,6 +684,14 @@ tls_init :: proc()
 
 _cleanup :: proc()
 {
+    if init_ref_count <= 0 {
+        return
+    }
+    init_ref_count -= 1
+    if init_ref_count > 0 {
+        return
+    }
+
     sync.guard(&ctx.lock)
 
     // Cleanup all TLS contexts
@@ -684,12 +710,22 @@ _cleanup :: proc()
     }
     delete(ctx.tls_contexts)
     ctx.tls_contexts = {}
+    // Ensure TLS contexts are rebuilt after cleanup.
+    tls_ctx = nil
 
     for &sampler in ctx.samplers {
         vk.DestroySampler(ctx.device, sampler.sampler, nil)
     }
+    delete(ctx.samplers)
+    ctx.samplers = {}
+
+    delete(ctx.current_workgroup_size)
+    ctx.current_workgroup_size = {}
+    delete(ctx.cmd_buf_compute_shader)
+    ctx.cmd_buf_compute_shader = {}
 
     destroy_swapchain(&ctx.swapchain)
+    pool_destroy(&ctx.textures)
 
     vk.DestroyDescriptorSetLayout(ctx.device, ctx.textures_desc_layout, nil)
     vk.DestroyDescriptorSetLayout(ctx.device, ctx.textures_rw_desc_layout, nil)
@@ -698,6 +734,20 @@ _cleanup :: proc()
     vk.DestroyDescriptorSetLayout(ctx.device, ctx.indirect_data_desc_layout, nil)
     vk.DestroyPipelineLayout(ctx.device, ctx.common_pipeline_layout_graphics, nil)
     vk.DestroyPipelineLayout(ctx.device, ctx.common_pipeline_layout_compute, nil)
+
+    // Ensure any outstanding allocations are released before tearing down VMA.
+    for &meta in ctx.gpu_allocs {
+        if meta.buf_handle != {} {
+            vma.destroy_buffer(ctx.vma_allocator, meta.buf_handle, meta.allocation)
+        }
+    }
+    delete(ctx.gpu_allocs)
+    ctx.gpu_allocs = {}
+    delete(ctx.cpu_ptr_to_alloc)
+    ctx.cpu_ptr_to_alloc = {}
+    delete(ctx.gpu_ptr_to_alloc)
+    ctx.gpu_ptr_to_alloc = {}
+    ctx.alloc_tree = {}
 
     vma.destroy_allocator(ctx.vma_allocator)
 
@@ -1028,16 +1078,18 @@ _mem_free :: proc(ptr: rawptr, loc := #caller_location)
 
     if cpu_found
     {
-        meta := ctx.gpu_allocs[cpu_alloc]
+        meta := &ctx.gpu_allocs[cpu_alloc]
         rbt.remove_key(&ctx.alloc_tree, Alloc_Range { u64(meta.device_address), u32(meta.buf_size) })
         vma.destroy_buffer(ctx.vma_allocator, meta.buf_handle, meta.allocation)
+        meta^ = {}
         delete_key(&ctx.cpu_ptr_to_alloc, ptr)
     }
     else if gpu_found
     {
-        meta := ctx.gpu_allocs[gpu_alloc]
+        meta := &ctx.gpu_allocs[gpu_alloc]
         rbt.remove_key(&ctx.alloc_tree, Alloc_Range { u64(meta.device_address), u32(meta.buf_size) })
         vma.destroy_buffer(ctx.vma_allocator, meta.buf_handle, meta.allocation)
+        meta^ = {}
         delete_key(&ctx.gpu_ptr_to_alloc, ptr)
     }
 }
@@ -2118,6 +2170,9 @@ vk_debug_callback :: proc "system" (severity: vk.DebugUtilsMessageSeverityFlagsE
     else if .INFO in severity    do level = .Info
     else                         do level = .Debug
     log.log(level, callback_data.pMessage)
+    if Hook_Debug_Log != nil {
+        Hook_Debug_Log(level, callback_data.pMessage)
+    }
 
     return false
 }
@@ -2146,8 +2201,17 @@ align_up :: proc(x, align: u64) -> (aligned: u64)
 scratch_arenas: [4]vmem.Arena
 
 @(private="file")
+// Avoid reinitializing scratch arenas between tests.
+scratch_arenas_initialized: bool
+
+@(private="file")
 init_scratch_arenas :: proc()
 {
+    if scratch_arenas_initialized {
+        return
+    }
+    scratch_arenas_initialized = true
+
     for &scratch in scratch_arenas
     {
         error := vmem.arena_init_growing(&scratch)
@@ -2296,6 +2360,13 @@ create_swapchain :: proc(width: u32, height: u32, frames_in_flight: u32) -> Swap
 destroy_swapchain :: proc(swapchain: ^Swapchain)
 {
     delete(swapchain.images)
+    for key in swapchain.texture_keys {
+        tex_info := get_resource(key, ctx.textures)
+        delete(tex_info.views)
+        tex_info.views = {}
+        pool_free_idx(&ctx.textures, u32(key.idx))
+    }
+    delete(swapchain.texture_keys)
     for semaphore in swapchain.present_semaphores {
         vk.DestroySemaphore(ctx.device, semaphore, nil)
     }

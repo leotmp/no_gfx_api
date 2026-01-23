@@ -1,5 +1,5 @@
 
-package main
+package example5
 
 import log "core:log"
 import "core:math"
@@ -16,18 +16,21 @@ Frames_In_Flight :: 3
 Example_Name :: "Compute Shader"
 
 // Whether to use indirect dispatch (group counts) or direct dispatch (thread counts)
-Use_Indirect :: true
+Use_Indirect := true
+
+Total_Max_Frames := max(u64)
 
 main :: proc()
 {
-    fmt.println("CREDITS: Shader \"Clearly a bug\" by Glow on https://www.shadertoy.com/view/33cGDj")
-
     ok_i := sdl.Init({ .VIDEO })
     assert(ok_i)
-
+    defer sdl.Quit()
+    
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)
     context.logger = console_logger
+
+    log.info("CREDITS: Shader \"Clearly a bug\" by Glow on https://www.shadertoy.com/view/33cGDj")
 
     ts_freq := sdl.GetPerformanceFrequency()
     max_delta_time: f32 = 1.0 / 10.0  // 10fps
@@ -159,7 +162,7 @@ main :: proc()
     next_frame := u64(1)
     frame_sem := gpu.semaphore_create(0)
     defer gpu.semaphore_destroy(&frame_sem)
-    for true
+    for next_frame < Total_Max_Frames
     {
         proceed := handle_window_events(window)
         if !proceed do break

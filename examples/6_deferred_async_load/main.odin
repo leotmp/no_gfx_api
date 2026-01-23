@@ -5,7 +5,7 @@
 // - Asynchronous texture loading by rendering a default texture and swapping it out for the actual textures once loaded
 // - Multithreaded texture loading
 
-package main
+package example6
 
 import "../../gpu"
 import intr "base:intrinsics"
@@ -37,11 +37,13 @@ Example_Name_Format :: "Right-click + WASD for first-person controls. Left click
 Sponza_Scene :: #load("../shared/assets/sponza.glb")
 
 // Whether to load textures in parallel in the background or preload them in main thread before running the screne
-Load_Textures_Async :: true
+Load_Textures_Async := true
 Num_Async_Worker_Threads := clamp(info.cpu.logical_cores - 1, 2, 6)
 
 // How many textures to load in a single batch / command buffer
 Loader_Chunk_Size :: 16
+
+Total_Max_Frames := max(u64)
 
 // G-buffer texture indices in texture heap
 GBUFFER_ALBEDO_IDX :: 1000
@@ -56,25 +58,27 @@ GBuffer_Texture_Type :: enum u32 {
 }
 
 // Currently selected gbuffer texture type to display
-selected_texture_type: GBuffer_Texture_Type = .Albedo
+Selected_Texture_Type: GBuffer_Texture_Type = .Albedo
 
-// Textures can be loaded/unloaded on different threads, so we need to synchronize access to loaded_textures, image_to_texture and image_uploaded
-mutex: sync.Mutex
-// Every texture from loaded_textures array needs to be freed when we are done
-loaded_textures: [dynamic]gpu.Owned_Texture
+// Textures can be loaded/unloaded on different threads, so we need to synchronize access to
+// Loaded_Textures, Image_To_Texture, and Image_Uploaded.
+Texture_Load_Mutex: sync.Mutex
+// Every texture from Loaded_Textures array needs to be freed when we are done
+Loaded_Textures: [dynamic]gpu.Owned_Texture
 // Enables asynchronous cancellation of texture loading
-cancel_loading_textures: bool
-next_texture_idx: u32 = shared.MISSING_TEXTURE_ID + 1
+Cancel_Loading_Textures: bool
+Next_Texture_Idx: u32 = shared.MISSING_TEXTURE_ID + 1
 // Cache for image_index -> texture mapping, reused across texture loading chunks
-image_to_texture: map[int]struct {
+Image_To_Texture: map[int]struct {
 	texture:     gpu.Owned_Texture,
 	texture_idx: u32,
 }
-image_uploaded: map[int]^sync.One_Shot_Event
+Image_Uploaded: map[int]^sync.One_Shot_Event
 
 main :: proc() {
 	ok_i := sdl.Init({.VIDEO})
 	assert(ok_i)
+	defer sdl.Quit()
 
 	console_logger := log.create_console_logger()
 	defer log.destroy_console_logger(console_logger)
@@ -85,7 +89,7 @@ main :: proc() {
 
 	window_flags :: sdl.WindowFlags{.HIGH_PIXEL_DENSITY, .VULKAN, .RESIZABLE}
 	window_title := strings.clone_to_cstring(
-		fmt.tprintf(Example_Name_Format, selected_texture_type),
+		fmt.tprintf(Example_Name_Format, Selected_Texture_Type),
 	)
 	defer delete(window_title)
 	window := sdl.CreateWindow(
@@ -160,24 +164,33 @@ main :: proc() {
 		shared.destroy_scene(&scene)
 		gltf2.unload(gltf_data)
 	}
+	defer delete(texture_infos)
 
     defer {
         // Clean up loaded textures
-        sync.guard(&mutex)
-        for &tex in loaded_textures {
+        sync.guard(&Texture_Load_Mutex)
+        for &tex in Loaded_Textures {
             gpu.free_and_destroy_texture(&tex)
         }
     }
 
-	when Load_Textures_Async {
-		worker_threads: [dynamic]^thread.Thread
-		defer {
-			cancel_loading_textures = true
-			for t in worker_threads {
-				thread.terminate(t, 0)
-			}
-		}
+    defer {
+        for i, event in Image_Uploaded {
+            free(event)
+        }
+    }
 
+    worker_threads: [dynamic]^thread.Thread
+    defer {
+        Cancel_Loading_Textures = true
+        for t in worker_threads {
+            thread.terminate(t, 0)
+            thread.join(t)
+            thread.destroy(t)
+        }
+        delete(worker_threads)
+    }
+	if Load_Textures_Async {
 		Texture_Loader_Data :: struct {
 			texture_infos: []shared.Gltf_Texture_Info,
 			gltf_data:     ^gltf2.Data,
@@ -195,11 +208,15 @@ main :: proc() {
             current_chunk = new(int),
         }
 
+        defer {
+            free(loader_data.current_chunk)
+        }
+
         texture_loader_thread_proc :: proc(thread: ^thread.Thread) {
             data := cast(^Texture_Loader_Data)thread.data
             context.logger = data.logger
 
-            for !cancel_loading_textures {
+            for !Cancel_Loading_Textures {
                 current_chunk_start := sync.atomic_add(data.current_chunk, Loader_Chunk_Size)
                 current_chunk_end := min(current_chunk_start + Loader_Chunk_Size, len(data.texture_infos))
 
@@ -262,15 +279,15 @@ main :: proc() {
 	next_frame := u64(1)
 	frame_sem := gpu.semaphore_create(0)
 	defer gpu.semaphore_destroy(&frame_sem)
-	for true {
+	for next_frame < Total_Max_Frames {
 		proceed := shared.handle_window_events(window)
 		if !proceed do break
 
 		// Toggle gbuffer texture type on left mouse button click
 		if shared.INPUT.left_click_pressed {
-			selected_texture_type = GBuffer_Texture_Type((u32(selected_texture_type) + 1) % 3)
+			Selected_Texture_Type = GBuffer_Texture_Type((u32(Selected_Texture_Type) + 1) % 3)
 			title := strings.clone_to_cstring(
-				fmt.tprintf(Example_Name_Format, selected_texture_type),
+				fmt.tprintf(Example_Name_Format, Selected_Texture_Type),
 			)
 			sdl.SetWindowTitle(window, title)
 			delete(title)
@@ -524,7 +541,7 @@ render_pass_final :: proc(
 		gbuffer_normal_sampler             = 0,
 		gbuffer_metallic_roughness         = GBUFFER_METALLIC_ROUGHNESS_IDX,
 		gbuffer_metallic_roughness_sampler = 0,
-		selected_texture_type              = i32(selected_texture_type),
+		selected_texture_type              = i32(Selected_Texture_Type),
 	}
 
 	// Render fullscreen quad
@@ -714,7 +731,7 @@ load_scene_textures_from_gltf :: proc(
 	defer gpu.arena_destroy(&upload_arena)
 
 	for info in texture_infos {
-		if cancel_loading_textures {
+		if Cancel_Loading_Textures {
 			return
 		}
 
@@ -729,16 +746,16 @@ load_scene_textures_from_gltf :: proc(
 			continue
 		}
 
-		sync.mutex_lock(&mutex)
-		if event, ok := image_uploaded[info.image_index]; ok {
-			sync.mutex_unlock(&mutex)
+		sync.mutex_lock(&Texture_Load_Mutex)
+		if event, ok := Image_Uploaded[info.image_index]; ok {
+			sync.mutex_unlock(&Texture_Load_Mutex)
 			sync.one_shot_event_wait(event)
 		} else {
-			texture_idx := next_texture_idx
-			next_texture_idx += 1
+			texture_idx := Next_Texture_Idx
+			Next_Texture_Idx += 1
 			event := new(sync.One_Shot_Event)
-			image_uploaded[info.image_index] = event
-			sync.mutex_unlock(&mutex)
+			Image_Uploaded[info.image_index] = event
+			sync.mutex_unlock(&Texture_Load_Mutex)
 
 			upload_cmd_buf := gpu.commands_begin(transfer_queue)
 
@@ -753,7 +770,7 @@ load_scene_textures_from_gltf :: proc(
 			gpu.cmd_barrier(upload_cmd_buf, .Transfer, .All, {})
 			gpu.queue_submit(transfer_queue, {upload_cmd_buf})
 
-			if sync.guard(&mutex) do image_to_texture[info.image_index] = {texture, texture_idx}
+			if sync.guard(&Texture_Load_Mutex) do Image_To_Texture[info.image_index] = {texture, texture_idx}
 
 			sync.one_shot_event_signal(event)
 
@@ -771,8 +788,8 @@ load_scene_textures_from_gltf :: proc(
 	gpu.queue_wait_idle(transfer_queue)
 
 	for info in texture_infos {
-		sync.guard(&mutex)
-		texture := image_to_texture[info.image_index]
+		sync.guard(&Texture_Load_Mutex)
+		texture := Image_To_Texture[info.image_index]
 
 		switch info.texture_type {
 		case .Base_Color:
@@ -871,7 +888,7 @@ load_texture_from_gltf :: proc(
 		},
 		queue,
 	)
-	if sync.guard(&mutex) do append(&loaded_textures, texture)
+	if sync.guard(&Texture_Load_Mutex) do append(&Loaded_Textures, texture)
 
 	gpu.cmd_copy_to_texture(cmd_buf, texture, staging_gpu, texture.mem)
 	return texture
