@@ -650,11 +650,11 @@ _init :: proc()
 
     // Resource pools
     // NOTE: Reserve slot 0 for all resources as key 0 is invalid.
-    pool_append(&ctx.textures, Texture_Info {})
-    pool_append(&ctx.bvhs, BVH_Info {})
-    pool_append(&ctx.shaders, Shader_Info {})
-    pool_append(&ctx.command_buffers, Command_Buffer_Info {})
-    pool_append(&ctx.semaphore_commands, Semaphore_Command {})
+    pool_init(&ctx.textures)
+    pool_init(&ctx.bvhs)
+    pool_init(&ctx.shaders)
+    pool_init(&ctx.command_buffers)
+    pool_init(&ctx.semaphore_commands)
 
     // Tree init
     rbt.init_cmp(&ctx.alloc_tree, proc(range_a: Alloc_Range, range_b: Alloc_Range) -> rbt.Ordering {
@@ -1287,7 +1287,6 @@ _texture_create :: proc(desc: Texture_Desc, storage: rawptr, queue: Queue_Type =
 
         vk_check(vk.EndCommandBuffer(vk_cmd_buf))
         if vk_signal_sem != {} {
-            sync.guard(&ctx.lock)
             idx := pool_append(
                 &ctx.semaphore_commands,
                 Semaphore_Command {
@@ -1302,7 +1301,6 @@ _texture_create :: proc(desc: Texture_Desc, storage: rawptr, queue: Queue_Type =
     }
 
     tex_info := Texture_Info { image, {} }
-    sync.guard(&ctx.lock)
     return {
         dimensions = desc.dimensions,
         format = desc.format,
@@ -1314,7 +1312,6 @@ _texture_create :: proc(desc: Texture_Desc, storage: rawptr, queue: Queue_Type =
 _texture_destroy :: proc(texture: ^Texture)
 {
     tex_key := transmute(Key) texture.handle
-    sync.guard(&ctx.lock)
     tex_info := get_resource(texture.handle, ctx.textures)
     vk_image := tex_info.handle
 
@@ -1361,7 +1358,6 @@ _texture_size_and_align :: proc(desc: Texture_Desc) -> (size: u64, align: u64)
 @(private="file")
 get_or_add_image_view :: proc(texture: Texture_Handle, info: vk.ImageViewCreateInfo) -> vk.ImageView
 {
-    sync.guard(&ctx.lock)
     tex_info := get_resource(texture, ctx.textures)
 
     for view in tex_info.views
@@ -1374,15 +1370,14 @@ get_or_add_image_view :: proc(texture: Texture_Handle, info: vk.ImageViewCreateI
     image_view: vk.ImageView
     view_ci := info
     vk_check(vk.CreateImageView(ctx.device, &view_ci, nil, &image_view))
+    sync.guard(&ctx.lock)
     append(&tex_info.views, Image_View_Info { info, image_view })
     return image_view
 }
 
 _texture_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc) -> Texture_Descriptor
 {
-    sync.lock(&ctx.lock)
     tex_info := get_resource(texture.handle, ctx.textures)
-    sync.unlock(&ctx.lock)
     vk_image := tex_info.handle
 
     format := view_desc.format
@@ -1417,9 +1412,7 @@ _texture_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc)
 
 _texture_rw_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc) -> Texture_Descriptor
 {
-    sync.lock(&ctx.lock)
     tex_info := get_resource(texture.handle, ctx.textures)
-    sync.unlock(&ctx.lock)
     vk_image := tex_info.handle
 
     format := view_desc.format
@@ -1627,7 +1620,6 @@ _shader_create_internal :: proc(code: []u32, is_compute: bool, vk_stage: vk.Shad
     shader.current_workgroup_size = { group_size_x, group_size_y, group_size_z }
     shader.is_compute = is_compute
 
-    sync.guard(&ctx.lock)
     return transmute(Shader) Key { idx = cast(u64) pool_append(&ctx.shaders, shader) }
 }
 
@@ -1645,7 +1637,6 @@ _shader_create_compute :: proc(code: []u32, group_size_x: u32, group_size_y: u32
 _shader_destroy :: proc(shader: Shader)
 {
     tls := get_tls()
-    sync.guard(&ctx.lock)
     shader := get_resource(shader, ctx.shaders)
     vk_shader := transmute(vk.ShaderEXT) (shader.handle)
     vk.DestroyShaderEXT(ctx.device, vk_shader, nil)
@@ -1738,7 +1729,6 @@ _blas_create :: proc(desc: BLAS_Desc, storage: rawptr) -> BVH
         shapes = cloned_shapes,
         blas_desc = desc,
     }
-    sync.guard(&ctx.lock)
     return transmute(BVH) u64(pool_append(&ctx.bvhs, bvh_info))
 }
 
@@ -1779,7 +1769,6 @@ _tlas_create :: proc(desc: TLAS_Desc, storage: rawptr) -> BVH
         is_blas = false,
         tlas_desc = desc
     }
-    sync.guard(&ctx.lock)
     return transmute(BVH) u64(pool_append(&ctx.bvhs, bvh_info))
 }
 
@@ -1790,7 +1779,6 @@ _tlas_build_scratch_buffer_size_and_align :: proc(desc: TLAS_Desc) -> (size: u64
 
 _bvh_root_ptr :: proc(bvh: BVH) -> rawptr
 {
-    sync.guard(&ctx.lock)
     bvh_info := get_resource(bvh, ctx.bvhs)
 
     return transmute(rawptr) vk.GetAccelerationStructureDeviceAddressKHR(ctx.device, & {
@@ -1801,7 +1789,6 @@ _bvh_root_ptr :: proc(bvh: BVH) -> rawptr
 
 _bvh_descriptor :: proc(bvh: BVH) -> BVH_Descriptor
 {
-    sync.guard(&ctx.lock)
     bvh_info := get_resource(bvh, ctx.bvhs)
 
     bvh_addr := vk.GetAccelerationStructureDeviceAddressKHR(ctx.device, &{
@@ -1826,7 +1813,6 @@ _get_bvh_descriptor_size :: proc() -> u32
 
 _bvh_destroy :: proc(bvh: ^BVH)
 {
-    sync.guard(&ctx.lock)
     bvh_key := transmute(Key) (bvh^)
     bvh_info := get_resource(bvh^, ctx.bvhs)
 
@@ -1897,9 +1883,7 @@ _queue_submit :: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer)
 {
     for cmd_buf in cmd_bufs
     {
-        sync.lock(&ctx.lock)
         cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
-        sync.unlock(&ctx.lock)
 
         // Validate that the provided queue matches the command buffer's associated queue
         ensure(cmd_buf_info.queue_type == queue, "queue_submit: provided queue does not match the queue associated with command buffer")
@@ -1915,9 +1899,7 @@ _queue_submit :: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer)
 
 _cmd_mem_copy :: proc(cmd_buf: Command_Buffer, src, dst: rawptr, #any_int bytes: i64)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     src_buf, src_offset, ok_s := compute_buf_offset_from_gpu_ptr(src)
     dst_buf, dst_offset, ok_d := compute_buf_offset_from_gpu_ptr(dst)
@@ -1940,10 +1922,8 @@ _cmd_mem_copy :: proc(cmd_buf: Command_Buffer, src, dst: rawptr, #any_int bytes:
 // TODO: dst is ignored atm.
 _cmd_copy_to_texture :: proc(cmd_buf: Command_Buffer, texture: Texture, src, dst: rawptr)
 {
-    sync.lock(&ctx.lock)
     cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
     tex_info := get_resource(texture.handle, ctx.textures)
-    sync.unlock(&ctx.lock)
 
     vk_image := tex_info.handle
 
@@ -1973,8 +1953,6 @@ _cmd_copy_to_texture :: proc(cmd_buf: Command_Buffer, texture: Texture, src, dst
 _cmd_blit_texture :: proc(cmd_buf: Command_Buffer, src, dst: Texture, src_rects: []Blit_Rect, dst_rects: []Blit_Rect, filter: Filter)
 {
     assert(len(src_rects) == len(dst_rects))
-
-    sync.guard(&ctx.lock)
 
     cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
     src_info := get_resource(src.handle, ctx.textures)
@@ -2092,9 +2070,7 @@ _cmd_copy_mips_to_texture :: proc(
 
 _cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, textures, textures_rw, samplers, bvhs: rawptr)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2225,7 +2201,6 @@ _cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, textures, textures_rw, sampl
 
 _cmd_add_wait_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_value: u64)
 {
-    sync.guard(&ctx.lock)
     cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
     ensure(cmd_buf_info.recording, "cmd_add_wait_semaphore called on non-recording command buffer")
     idx := pool_append(
@@ -2241,7 +2216,6 @@ _cmd_add_wait_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_va
 
 _cmd_add_signal_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, signal_value: u64)
 {
-    sync.guard(&ctx.lock)
     cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
     ensure(cmd_buf_info.recording, "cmd_add_signal_semaphore called on non-recording command buffer")
     idx := pool_append(
@@ -2257,9 +2231,7 @@ _cmd_add_signal_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, signa
 
 _cmd_barrier :: proc(cmd_buf: Command_Buffer, before: Stage, after: Stage, hazards: Hazard_Flags = {})
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2316,11 +2288,9 @@ _cmd_wait_before :: proc() {}
 
 _cmd_set_shaders :: proc(cmd_buf: Command_Buffer, vert_shader: Shader, frag_shader: Shader)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
     vert_shader := get_resource(vert_shader, ctx.shaders)
     frag_shader := get_resource(frag_shader, ctx.shaders)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
     vk_vert_shader := vert_shader.handle
@@ -2334,9 +2304,7 @@ _cmd_set_shaders :: proc(cmd_buf: Command_Buffer, vert_shader: Shader, frag_shad
 
 _cmd_set_depth_state :: proc(cmd_buf: Command_Buffer, state: Depth_State)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2350,9 +2318,7 @@ _cmd_set_depth_state :: proc(cmd_buf: Command_Buffer, state: Depth_State)
 
 _cmd_set_blend_state :: proc(cmd_buf: Command_Buffer, state: Blend_State)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2374,9 +2340,7 @@ _cmd_set_blend_state :: proc(cmd_buf: Command_Buffer, state: Blend_State)
 
 _cmd_set_compute_shader :: proc(cmd_buf: Command_Buffer, compute_shader: Shader)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2388,15 +2352,12 @@ _cmd_set_compute_shader :: proc(cmd_buf: Command_Buffer, compute_shader: Shader)
     assert(len(shader_stages) == len(to_bind))
     vk.CmdBindShadersEXT(vk_cmd_buf, u32(len(shader_stages)), raw_data(shader_stages), raw_data(to_bind))
 
-    sync.guard(&ctx.lock)
     cmd_buf.compute_shader = compute_shader
 }
 
 _cmd_dispatch :: proc(cmd_buf: Command_Buffer, compute_data: rawptr, num_groups_x: u32, num_groups_y: u32 = 1, num_groups_z: u32 = 1)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2417,9 +2378,7 @@ _cmd_dispatch :: proc(cmd_buf: Command_Buffer, compute_data: rawptr, num_groups_
 
 _cmd_dispatch_indirect :: proc(cmd_buf: Command_Buffer, compute_data: rawptr, arguments: rawptr)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2447,9 +2406,7 @@ _cmd_dispatch_indirect :: proc(cmd_buf: Command_Buffer, compute_data: rawptr, ar
 
 _cmd_begin_render_pass :: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Desc)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     ensure(cmd_buf.queue_type == .Main, "cmd_begin_render_pass called on a non-graphics command buffer")
     vk_cmd_buf := cmd_buf.handle
@@ -2556,9 +2513,7 @@ _cmd_begin_render_pass :: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Desc)
 
 _cmd_end_render_pass :: proc(cmd_buf: Command_Buffer)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
     vk.CmdEndRendering(vk_cmd_buf)
@@ -2567,9 +2522,7 @@ _cmd_end_render_pass :: proc(cmd_buf: Command_Buffer)
 _cmd_draw_indexed_instanced :: proc(cmd_buf: Command_Buffer, vertex_data: rawptr, fragment_data: rawptr,
                                     indices: rawptr, index_count: u32, instance_count: u32 = 1)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2594,9 +2547,7 @@ _cmd_draw_indexed_instanced :: proc(cmd_buf: Command_Buffer, vertex_data: rawptr
 _cmd_draw_indexed_instanced_indirect :: proc(cmd_buf: Command_Buffer, vertex_data: rawptr, fragment_data: rawptr,
                                             indices: rawptr, indirect_arguments: rawptr)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2628,9 +2579,7 @@ _cmd_draw_indexed_instanced_indirect :: proc(cmd_buf: Command_Buffer, vertex_dat
 _cmd_draw_indexed_instanced_indirect_multi :: proc(cmd_buf: Command_Buffer, data_vertex: rawptr, data_pixel: rawptr,
                                                     indices: rawptr, indirect_arguments: rawptr, stride: u32, draw_count: rawptr)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2680,15 +2629,11 @@ _cmd_draw_indexed_instanced_indirect_multi :: proc(cmd_buf: Command_Buffer, data
 
 _cmd_build_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, bvh_storage: rawptr, scratch_storage: rawptr, shapes: []BVH_Shape)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
-    sync.lock(&ctx.lock)
     bvh_info := get_resource(bvh, ctx.bvhs)
-    sync.unlock(&ctx.lock)
 
     if !bvh_info.is_blas
     {
@@ -2757,10 +2702,8 @@ _cmd_build_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, bvh_storage: rawptr, 
 
 _cmd_build_tlas :: proc(cmd_buf: Command_Buffer, bvh: BVH, bvh_storage: rawptr, scratch_storage: rawptr, instances: rawptr)
 {
-    sync.lock(&ctx.lock)
     cmd_buf := get_resource(cmd_buf, ctx.command_buffers)
     bvh_info := get_resource(bvh, ctx.bvhs)
-    sync.unlock(&ctx.lock)
 
     vk_cmd_buf := cmd_buf.handle
 
@@ -2973,7 +2916,6 @@ create_swapchain :: proc(width: u32, height: u32, frames_in_flight: u32) -> Swap
 
         tex_info := Texture_Info { handle = image }
         append(&tex_info.views, Image_View_Info { info = image_view_ci, view = res.image_views[i] })
-        sync.guard(&ctx.lock)
         idx := pool_append(&ctx.textures, tex_info)
         res.texture_keys[i] = { idx = u64(idx) }
     }
@@ -3100,10 +3042,8 @@ vk_acquire_cmd_buf :: proc(queue_type: Queue_Type) -> ^Command_Buffer_Info
 
     vk_check(vk.AllocateCommandBuffers(ctx.device, &cmd_buf_ai, &buf.handle))
 
-    sync.lock(&ctx.lock)
     idx := pool_append(&ctx.command_buffers, buf)
     buf_info := get_resource(Key { idx = cast(u64) idx }, ctx.command_buffers)
-    sync.unlock(&ctx.lock)
 
     buf_info.pool_handle = transmute(Command_Buffer) Key { idx = cast(u64) idx }
     append(&tls_ctx.buffers[queue_type], buf_info.pool_handle)
@@ -3179,7 +3119,6 @@ vk_submit_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info)
 @(private="file")
 clear_semaphore_commands :: proc(head: ^Semaphore_Command_Handle)
 {
-    sync.guard(&ctx.lock)
     handle := head^
     for handle != nil {
         cmd := get_resource(handle, ctx.semaphore_commands)
@@ -3283,9 +3222,7 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
     view_desc := attach.view
     texture := attach.texture
 
-    sync.lock(&ctx.lock)
     tex_info := get_resource(texture.handle, ctx.textures)
-    sync.unlock(&ctx.lock)
 
     vk_image := tex_info.handle
 
@@ -3596,11 +3533,22 @@ Pool :: struct($T: typeid)
 {
     array: [dynamic]T,
     free_list: [dynamic]u32,
+    lock: sync.Atomic_Mutex,
+}
+
+@(private="file")
+pool_init :: proc(using pool: ^Pool($T), allocated_elements: u32 = 2 >> 24)
+{
+    sync.guard(&pool.lock)
+    array = make([dynamic]T, 0, allocated_elements)
+    free_list = make([dynamic]u32, 0, allocated_elements)
+    append(&array, T {})
 }
 
 @(private="file")
 pool_append :: proc(using pool: ^Pool($T), el: T) -> u32
 {
+    sync.guard(&pool.lock)
     free_idx: u32
     if len(free_list) > 0 {
         free_idx = pop(&free_list)
@@ -3616,6 +3564,7 @@ pool_append :: proc(using pool: ^Pool($T), el: T) -> u32
 @(private="file")
 pool_free_idx :: proc(using pool: ^Pool($T), idx: u32)
 {
+    sync.guard(&pool.lock)
     if idx == u32(len(array)) {
         pop(&array)
     } else {
@@ -3626,6 +3575,7 @@ pool_free_idx :: proc(using pool: ^Pool($T), idx: u32)
 @(private="file")
 pool_destroy :: proc(using pool: ^Pool($T))
 {
+    sync.guard(&pool.lock)
     delete(array)
     delete(free_list)
     array = {}
