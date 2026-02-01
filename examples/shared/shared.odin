@@ -9,6 +9,9 @@ import "core:math/linalg"
 import "core:mem"
 import "core:slice"
 import "gltf2"
+import "core:image"
+import "core:image/jpeg"
+import "core:image/png"
 import intr "base:intrinsics"
 
 import sdl "vendor:sdl3"
@@ -773,6 +776,65 @@ load_scene_gltf :: proc(
 	}
 
 	return {instances = instances, meshes = meshes}, texture_infos[:], data
+}
+
+load_texture_from_gltf :: proc(
+	image_index: int,
+	gltf_data: ^gltf2.Data,
+) -> ^image.Image {
+	image_bytes: []byte
+
+	image_data := gltf_data.images[image_index]
+
+	if image_data.buffer_view != nil {
+		buffer_view_idx := image_data.buffer_view.?
+		buffer_view := gltf_data.buffer_views[buffer_view_idx]
+		buffer := gltf_data.buffers[buffer_view.buffer]
+
+		switch v in buffer.uri {
+		case []byte:
+			start_byte := buffer_view.byte_offset
+			end_byte := start_byte + buffer_view.byte_length
+			image_bytes = v[start_byte:end_byte]
+		case string:
+			log.error("String URIs not supported for buffer_view images")
+			panic("String URIs not supported for buffer_view images")
+		case:
+			log.error("Unknown buffer URI type")
+			panic("Unknown buffer URI type")
+		}
+	} else {
+		switch v in image_data.uri {
+		case []byte:
+			image_bytes = v
+		case string:
+			log.error(fmt.tprintf("String URIs not supported for texture loading: %v", v))
+			panic("String URIs not supported for texture loading")
+		case:
+			log.error("Image has neither buffer_view nor valid URI")
+			panic("Image has neither buffer_view nor valid URI")
+		}
+	}
+
+	if len(image_bytes) == 0 {
+		log.error("Image bytes are empty")
+		panic("Image bytes are empty")
+	}
+
+	options := image.Options{.alpha_add_if_missing}
+	img, err := image.load_from_bytes(image_bytes, options)
+	if err != nil {
+		log.error(
+			fmt.tprintf(
+				"Failed to load image from bytes: %v, image size: %v bytes",
+				err,
+				len(image_bytes),
+			),
+		)
+		panic("Could not load texture from GLTF image.")
+	}
+
+	return img
 }
 
 to_vec4_array :: proc(array: [][3]f32, allocator: runtime.Allocator) -> [][4]f32 {
