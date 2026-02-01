@@ -123,7 +123,7 @@ main :: proc() {
 	upload_arena := gpu.arena_init(128 * 1024 * 1024)
 	defer gpu.arena_destroy(&upload_arena)
 
-	queue := gpu.get_queue(.Main)
+	queue := gpu.Queue_Type.Main
 	upload_cmd_buf := gpu.commands_begin(queue)
 
 	full_screen_quad_verts_gpu, full_screen_quad_indices_gpu := create_fullscreen_quad(
@@ -730,7 +730,7 @@ load_scene_textures_from_gltf :: proc(
 	// not mistaken there currently isn't any form of cross queue
 	// GPU-GPU synchronization so using 2 separate queues wouldn't be
 	// that easy, currently.
-	transfer_queue := gpu.get_queue(.Main)
+	transfer_queue := gpu.Queue_Type.Main
 
 	upload_arena := gpu.arena_init(Loader_Chunk_Size * 8 * 1024 * 1024)
 	defer gpu.arena_destroy(&upload_arena)
@@ -821,7 +821,7 @@ load_texture_from_gltf :: proc(
 	data: ^gltf2.Data,
 	upload_arena: ^gpu.Arena,
 	cmd_buf: gpu.Command_Buffer,
-	queue: gpu.Queue = nil,
+	queue: gpu.Queue_Type = .Main,
 ) -> gpu.Owned_Texture {
 	image_bytes: []byte
 

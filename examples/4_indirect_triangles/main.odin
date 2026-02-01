@@ -128,7 +128,7 @@ main :: proc()
         gpu.mem_free(indirect_data_local)
     }
 
-    queue := gpu.get_queue(.Main)
+    queue := gpu.Queue_Type.Main
 
     upload_cmd_buf := gpu.commands_begin(queue)
     gpu.cmd_mem_copy(upload_cmd_buf, verts.gpu, verts_local, 3 * size_of(Vertex))

@@ -81,7 +81,7 @@ Context :: struct
     common_pipeline_layout_compute: vk.PipelineLayout,
 
     // Resource pools
-    queues: [len(Queue_Type) + 1]Queue_Info,  // Reserve slot 0 for invalid queue.
+    queues: [Queue_Type]Queue_Info,
     textures: Pool(Texture_Info),
     samplers: [dynamic]Sampler_Info,  // Samplers are interned but have permanent lifetime
     bvhs: Pool(BVH_Info),
@@ -188,7 +188,6 @@ Command_Buffer_Info :: struct  {
     handle: vk.CommandBuffer,
     timeline_value: u64,
     thread_id: int,
-    queue: Queue,
     queue_type: Queue_Type,
     compute_shader: Maybe(Shader),
     recording: bool,
@@ -412,23 +411,26 @@ _init :: proc()
         families[.Compute] = find_queue_family(graphics = false, compute = true, transfer = true)
         families[.Transfer] = find_queue_family(graphics = false, compute = false, transfer = true)
 
-        main: for &queue, i in ctx.queues[1:] {
-            type := Queue_Type(i)
-
-            for &queue2 in ctx.queues[1:i + 1] {
-                if queue2.family_idx == families[type] {
-                    queue = queue2
+        main: for type, type_idx in Queue_Type {
+            family := families[type]
+            for prev_type, prev_type_idx in Queue_Type {
+                if prev_type_idx >= type_idx do break
+                if ctx.queues[prev_type].family_idx == family {
+                    ctx.queues[type] = ctx.queues[prev_type]
+                    ctx.queues[type].queue_type = type
                     continue main
                 }
             }
 
-            queue.queue_type = type
-            queue.family_idx = families[type]
-            queue.queue_idx = 0
+            ctx.queues[type] = {
+                queue_type = type,
+                family_idx = family,
+                queue_idx = 0,
+            }
 
             append(&queue_create_infos, vk.DeviceQueueCreateInfo {
                 sType = .DEVICE_QUEUE_CREATE_INFO,
-                queueFamilyIndex = families[type],
+                queueFamilyIndex = family,
                 queueCount = 1,
                 pQueuePriorities = &priority,
             })
@@ -523,7 +525,7 @@ _init :: proc()
         if vk.BeginCommandBuffer == nil do fatal_error("Failed to load Vulkan device API")
     }
 
-    for &queue in ctx.queues[1:] {
+    for &queue, type in ctx.queues {
         vk.GetDeviceQueue(ctx.device, queue.family_idx, queue.queue_idx, &queue.handle)
     }
 
@@ -748,10 +750,9 @@ get_tls :: proc() -> ^Thread_Local_Context
 
     for type in Queue_Type
     {
-        queue := get_queue(type)
         cmd_pool_ci := vk.CommandPoolCreateInfo {
             sType = .COMMAND_POOL_CREATE_INFO,
-            queueFamilyIndex = get_resource(queue, &ctx.queues).family_idx,
+            queueFamilyIndex = ctx.queues[type].family_idx,
             flags = { .TRANSIENT, .RESET_COMMAND_BUFFER }
         }
         vk_check(vk.CreateCommandPool(ctx.device, &cmd_pool_ci, nil, &tls_ctx.pools[type]))
@@ -855,7 +856,7 @@ _swapchain_init :: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_fli
 
 _swapchain_resize :: proc(size: [2]u32)
 {
-    queue_wait_idle(get_queue(.Main))
+    queue_wait_idle(.Main)
     recreate_swapchain(size)
 }
 
@@ -896,7 +897,7 @@ _swapchain_acquire_next :: proc() -> Texture
 
     // Transition layout from swapchain
     {
-        cmd_buf := vk_acquire_cmd_buf(get_queue(.Main))
+        cmd_buf := vk_acquire_cmd_buf(.Main)
 
         vk_cmd_buf := transmute(vk.CommandBuffer) cmd_buf.handle
 
@@ -940,13 +941,11 @@ _swapchain_acquire_next :: proc() -> Texture
     }
 }
 
-_swapchain_present :: proc(queue: Queue, sem_wait: Semaphore, wait_value: u64)
+_swapchain_present :: proc(queue: Queue_Type, sem_wait: Semaphore, wait_value: u64)
 {
     tls_ctx := get_tls()
 
-    sync.lock(&ctx.lock)
-    vk_queue := get_resource(queue, &ctx.queues).handle
-    sync.unlock(&ctx.lock)
+    vk_queue := ctx.queues[queue].handle
 
     vk_sem_wait := transmute(vk.Semaphore) sem_wait
 
@@ -1207,14 +1206,11 @@ _host_to_device_ptr :: proc(ptr: rawptr) -> rawptr
 }
 
 // Textures
-_texture_create :: proc(desc: Texture_Desc, storage: rawptr, queue: Queue = nil, signal_sem: Semaphore = {}, signal_value: u64 = 0) -> Texture
+_texture_create :: proc(desc: Texture_Desc, storage: rawptr, queue: Queue_Type = .Main, signal_sem: Semaphore = {}, signal_value: u64 = 0) -> Texture
 {
     vk_signal_sem := transmute(vk.Semaphore) signal_sem
 
     queue_to_use := queue
-    if queue == nil {
-        queue_to_use = get_queue(.Main)
-    }
 
     alloc_idx, ok_s := search_alloc_from_gpu_ptr(storage)
     if !ok_s
@@ -1850,18 +1846,13 @@ get_vk_tlas_size_info :: proc(desc: TLAS_Desc) -> vk.AccelerationStructureBuildS
 
 // Command buffer
 
-_get_queue :: proc(queue_type: Queue_Type) -> Queue
-{
-    return transmute(Queue) Key { idx = cast(u64) queue_type + 1 }
-}
-
-_queue_wait_idle :: proc(queue: Queue)
+_queue_wait_idle :: proc(queue: Queue_Type)
 {
     sync.guard(&ctx.lock)
-    vk.QueueWaitIdle(get_resource(queue, &ctx.queues).handle)
+    vk.QueueWaitIdle(ctx.queues[queue].handle)
 }
 
-_commands_begin :: proc(queue: Queue) -> Command_Buffer
+_commands_begin :: proc(queue: Queue_Type) -> Command_Buffer
 {
     cmd_buf := vk_acquire_cmd_buf(queue)
 
@@ -1875,24 +1866,18 @@ _commands_begin :: proc(queue: Queue) -> Command_Buffer
     return cmd_buf.pool_handle
 }
 
-_queue_submit :: proc(queue: Queue, cmd_bufs: []Command_Buffer, signal_sem: Semaphore = {}, signal_value: u64 = 0)
+_queue_submit :: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer, signal_sem: Semaphore = {}, signal_value: u64 = 0)
 {
     vk_signal_sem := transmute(vk.Semaphore) signal_sem
-
-    sync.lock(&ctx.lock)
-    provided_queue_info := get_resource(queue, &ctx.queues)
-    sync.unlock(&ctx.lock)
 
     for cmd_buf in cmd_bufs
     {
         sync.lock(&ctx.lock)
         cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
-        cmd_buf_queue_info := get_resource(cmd_buf_info.queue, &ctx.queues)
         sync.unlock(&ctx.lock)
 
         // Validate that the provided queue matches the command buffer's associated queue
-        ensure(cmd_buf_info.queue == queue, "queue_submit: provided queue does not match the queue associated with command buffer")
-        ensure(cmd_buf_queue_info.queue_type == provided_queue_info.queue_type, "queue_submit: queue type mismatch")
+        ensure(cmd_buf_info.queue_type == queue, "queue_submit: provided queue does not match the queue associated with command buffer")
 
         vk_cmd_buf := cmd_buf_info.handle
         vk_check(vk.EndCommandBuffer(vk_cmd_buf))
@@ -3016,15 +3001,9 @@ get_buf_size_from_gpu_ptr :: proc(ptr: rawptr) -> (size: vk.DeviceSize, ok: bool
 
 // Command buffers
 @(private="file")
-vk_acquire_cmd_buf :: proc(queue: Queue) -> ^Command_Buffer_Info
+vk_acquire_cmd_buf :: proc(queue_type: Queue_Type) -> ^Command_Buffer_Info
 {
     tls_ctx := get_tls()
-
-    sync.lock(&ctx.lock)
-    queue_info := get_resource(queue, &ctx.queues)
-    sync.unlock(&ctx.lock)
-
-    queue_type := queue_info.queue_type
 
     // Check whether there is a free command buffer available with a timeline value that is less than or equal to the current semaphore value
     if handle, ok := priority_queue.pop_safe(&tls_ctx.free_buffers[queue_type]); ok {
@@ -3036,7 +3015,6 @@ vk_acquire_cmd_buf :: proc(queue: Queue) -> ^Command_Buffer_Info
 
         if current_semaphore_value >= buf.timeline_value {
             buf.recording = true
-            buf.queue = queue
             buf.queue_type = queue_type
 
             if buf.compute_shader != nil {
@@ -3055,7 +3033,6 @@ vk_acquire_cmd_buf :: proc(queue: Queue) -> ^Command_Buffer_Info
 
     buf: Command_Buffer_Info
     buf.recording = true
-    buf.queue = queue
     buf.queue_type = queue_type
     buf.compute_shader = {}
     buf.thread_id = sync.current_thread_id()
@@ -3086,9 +3063,7 @@ vk_submit_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info, signal_sem: vk.Semaphor
 {
     tls_ctx := get_tls()
 
-    sync.lock(&ctx.lock)
-    queue_info := get_resource(cmd_buf.queue, &ctx.queues)
-    sync.unlock(&ctx.lock)
+    queue_info := ctx.queues[cmd_buf.queue_type]
 
     vk_queue := queue_info.handle
     queue_type := queue_info.queue_type
@@ -3622,14 +3597,14 @@ _get_vulkan_device :: proc() -> vk.Device
     return ctx.device
 }
 
-_get_vulkan_queue :: proc(queue: Queue) -> vk.Queue
+_get_vulkan_queue :: proc(queue: Queue_Type) -> vk.Queue
 {
-    return get_resource(queue, &ctx.queues).handle
+    return ctx.queues[queue].handle
 }
 
-_get_vulkan_queue_family :: proc(queue: Queue) -> u32
+_get_vulkan_queue_family :: proc(queue: Queue_Type) -> u32
 {
-    return get_resource(queue, &ctx.queues).family_idx
+    return ctx.queues[queue].family_idx
 }
 
 _get_vulkan_command_buffer :: proc(cmd_buf: Command_Buffer) -> vk.CommandBuffer

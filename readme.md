@@ -1,9 +1,9 @@
-
 # "No Graphics API" Prototype
 
 I was feeling incredibly inspired by Sebastian Aaltonen's ["No Graphics API"](https://www.sebastianaaltonen.com/blog/no-graphics-api) blog post, so I started to implement the proposed API on top of Vulkan (except I also got rid of PSOs completely), to see how much of it is possible. It is still a proof of concept but there's a working example in this repository.
 
 ## API Usage
+
 The API is straightforward to use:
 
 ```odin
@@ -38,12 +38,11 @@ defer {
 }
 
 // --- Issue copy commands to GPU local memory
-queue := gpu.get_queue(.Main)
-upload_cmd_buf := gpu.commands_begin(queue)
+upload_cmd_buf := gpu.commands_begin(.Main)
 gpu.cmd_mem_copy(upload_cmd_buf, verts.gpu, verts_local, 3 * size_of(Vertex))
 // ...
 gpu.cmd_barrier(upload_cmd_buf, .Transfer, .All, {})
-gpu.queue_submit(queue, { upload_cmd_buf })
+gpu.queue_submit(.Main, { upload_cmd_buf })
 
 // --- Frame resources
 frame_arenas: [Frames_In_Flight]gpu.Arena
@@ -65,7 +64,7 @@ for true
     // --- Render frame
     swapchain := gpu.swapchain_acquire_next()  // Blocks CPU until at least one frame is available.
 
-    cmd_buf := gpu.commands_begin(queue)
+    cmd_buf := gpu.commands_begin(.Main)
     gpu.cmd_begin_render_pass(cmd_buf, {
         color_attachments = {
             { texture = swapchain, clear_color = { 1.0, 0.0, 0.0, 1.0 } }
@@ -83,9 +82,9 @@ for true
     // Just pass pointers to your data!
     gpu.cmd_draw_indexed_instanced(cmd_buf, verts_data.gpu, nil, indices_local, 3, 1)
     gpu.cmd_end_render_pass(cmd_buf)
-    gpu.queue_submit(queue, { cmd_buf }, frame_sem, next_frame)
+    gpu.queue_submit(.Main, { cmd_buf }, frame_sem, next_frame)
 
-    gpu.swapchain_present(queue, frame_sem, next_frame)
+    gpu.swapchain_present(.Main, frame_sem, next_frame)
     next_frame += 1
 
     gpu.arena_free_all(frame_arena)
@@ -135,7 +134,6 @@ main :: (vert_id: uint @vert_id, data: ^Data @data) -> Output
 
 The compiler itself just transpiles to GLSL.
 
-
 ## Building (Windows)
 
 - Update git submodules:
@@ -163,6 +161,7 @@ examples/build_shaders.bat
 ```bash
 examples/build.bat
 ```
+
 - Or run them directly:
 
 ```bash

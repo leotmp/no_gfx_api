@@ -89,7 +89,7 @@ main :: proc()
         gpu.mem_free(indices_local)
     }
 
-    queue := gpu.get_queue(.Main)
+    queue := gpu.Queue_Type.Main
 
     upload_cmd_buf := gpu.commands_begin(queue)
 

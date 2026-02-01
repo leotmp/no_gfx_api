@@ -83,7 +83,7 @@ main :: proc()
         delete(meshes_gpu)
     }
 
-    queue := gpu.get_queue(.Main)
+    queue := gpu.Queue_Type.Main
     upload_cmd_buf := gpu.commands_begin(queue)
     for mesh in scene.meshes {
         append(&meshes_gpu, upload_mesh(&upload_arena, upload_cmd_buf, mesh))
