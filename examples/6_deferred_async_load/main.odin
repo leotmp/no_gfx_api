@@ -375,7 +375,8 @@ main :: proc() {
 			full_screen_quad_indices_gpu,
 		)
 
-		gpu.queue_submit(queue, {cmd_buf}, frame_sem, next_frame)
+		gpu.cmd_add_signal_semaphore(cmd_buf, frame_sem, next_frame)
+		gpu.queue_submit(queue, {cmd_buf})
 
 		gpu.swapchain_present(queue, frame_sem, next_frame)
 		next_frame += 1

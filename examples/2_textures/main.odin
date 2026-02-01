@@ -178,7 +178,8 @@ main :: proc()
 
         gpu.cmd_draw_indexed_instanced(cmd_buf, verts_data.gpu, frag_data.gpu, indices_local, u32(len(indices.cpu)), 1)
         gpu.cmd_end_render_pass(cmd_buf)
-        gpu.queue_submit(queue, { cmd_buf }, frame_sem, next_frame)
+        gpu.cmd_add_signal_semaphore(cmd_buf, frame_sem, next_frame)
+        gpu.queue_submit(queue, { cmd_buf })
 
         gpu.swapchain_present(queue, frame_sem, next_frame)
         next_frame += 1

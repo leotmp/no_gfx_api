@@ -285,7 +285,7 @@ semaphore_destroy: proc(sem: ^Semaphore) : _semaphore_destroy
 
 // Queues
 queue_wait_idle: proc(queue: Queue_Type) : _queue_wait_idle
-queue_submit: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer, signal_sem: Semaphore = {}, signal_value: u64 = 0) : _queue_submit
+queue_submit: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer) : _queue_submit
 
 // Raytracing
 blas_size_and_align: proc(desc: BLAS_Desc) -> (size: u64, align: u64) : _blas_size_and_align
@@ -313,6 +313,9 @@ cmd_copy_mips_to_texture: proc(cmd_buf: Command_Buffer, texture: Texture, src_bu
 cmd_blit_texture: proc(cmd_buf: Command_Buffer, src, dst: Texture, src_rects: []Blit_Rect, dst_rects: []Blit_Rect, filter: Filter) : _cmd_blit_texture
 
 cmd_set_desc_heap: proc(cmd_buf: Command_Buffer, textures, textures_rw, samplers, bvhs: rawptr) : _cmd_set_desc_heap
+
+cmd_add_wait_semaphore: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_value: u64) : _cmd_add_wait_semaphore
+cmd_add_signal_semaphore: proc(cmd_buf: Command_Buffer, sem: Semaphore, signal_value: u64) : _cmd_add_signal_semaphore
 
 cmd_barrier: proc(cmd_buf: Command_Buffer, before: Stage, after: Stage, hazards: Hazard_Flags = {}) : _cmd_barrier
 //cmd_signal_after: proc() : _cmd_signal_after

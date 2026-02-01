@@ -87,6 +87,7 @@ Context :: struct
     bvhs: Pool(BVH_Info),
     shaders: Pool(Shader_Info),
     command_buffers: Pool(Command_Buffer_Info),
+    semaphore_commands: Pool(Semaphore_Command),
 
     cmd_bufs_timelines: [Queue_Type]Timeline,
 
@@ -146,6 +147,9 @@ Key :: struct
 #assert(size_of(Key) == 8)
 
 @(private="file")
+Semaphore_Command_Handle :: distinct rawptr
+
+@(private="file")
 Texture_Info :: struct
 {
     handle: vk.Image,
@@ -176,6 +180,14 @@ Queue_Info :: struct
 }
 
 @(private="file")
+Semaphore_Command :: struct
+{
+    sem: vk.Semaphore,
+    value: u64,
+    next: Semaphore_Command_Handle,
+}
+
+@(private="file")
 Shader_Info :: struct {
     handle: vk.ShaderEXT,
     command_buffers: map[Command_Buffer]Command_Buffer,
@@ -192,6 +204,8 @@ Command_Buffer_Info :: struct  {
     compute_shader: Maybe(Shader),
     recording: bool,
     pool_handle: Command_Buffer,
+    wait_semaphores: Semaphore_Command_Handle,
+    signal_semaphores: Semaphore_Command_Handle,
 }
 
 // Initialization
@@ -640,6 +654,7 @@ _init :: proc()
     pool_append(&ctx.bvhs, BVH_Info {})
     pool_append(&ctx.shaders, Shader_Info {})
     pool_append(&ctx.command_buffers, Command_Buffer_Info {})
+    pool_append(&ctx.semaphore_commands, Semaphore_Command {})
 
     // Tree init
     rbt.init_cmp(&ctx.alloc_tree, proc(range_a: Alloc_Range, range_b: Alloc_Range) -> rbt.Ordering {
@@ -1271,7 +1286,19 @@ _texture_create :: proc(desc: Texture_Desc, storage: rawptr, queue: Queue_Type =
         })
 
         vk_check(vk.EndCommandBuffer(vk_cmd_buf))
-        vk_submit_cmd_buf(cmd_buf, vk_signal_sem, signal_value)
+        if vk_signal_sem != {} {
+            sync.guard(&ctx.lock)
+            idx := pool_append(
+                &ctx.semaphore_commands,
+                Semaphore_Command {
+                    sem = vk_signal_sem,
+                    value = signal_value,
+                    next = cmd_buf.signal_semaphores,
+                },
+            )
+            cmd_buf.signal_semaphores = transmute(Semaphore_Command_Handle) Key { idx = cast(u64) idx }
+        }
+        vk_submit_cmd_buf(cmd_buf)
     }
 
     tex_info := Texture_Info { image, {} }
@@ -1866,10 +1893,8 @@ _commands_begin :: proc(queue: Queue_Type) -> Command_Buffer
     return cmd_buf.pool_handle
 }
 
-_queue_submit :: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer, signal_sem: Semaphore = {}, signal_value: u64 = 0)
+_queue_submit :: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer)
 {
-    vk_signal_sem := transmute(vk.Semaphore) signal_sem
-
     for cmd_buf in cmd_bufs
     {
         sync.lock(&ctx.lock)
@@ -1882,11 +1907,7 @@ _queue_submit :: proc(queue: Queue_Type, cmd_bufs: []Command_Buffer, signal_sem:
         vk_cmd_buf := cmd_buf_info.handle
         vk_check(vk.EndCommandBuffer(vk_cmd_buf))
 
-        vk_submit_cmd_buf(cmd_buf_info, vk_signal_sem, signal_value)
-
-        // Clear compute shader tracking for this command buffer
-        sync.guard(&ctx.lock)
-        cmd_buf_info.compute_shader = {}
+        vk_submit_cmd_buf(cmd_buf_info)
     }
 }
 
@@ -2200,6 +2221,38 @@ _cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, textures, textures_rw, sampl
         vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .COMPUTE, ctx.common_pipeline_layout_compute, 3, 1, &cursor, &buffer_offsets[3])
         cursor += 1
     }
+}
+
+_cmd_add_wait_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_value: u64)
+{
+    sync.guard(&ctx.lock)
+    cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
+    ensure(cmd_buf_info.recording, "cmd_add_wait_semaphore called on non-recording command buffer")
+    idx := pool_append(
+        &ctx.semaphore_commands,
+        Semaphore_Command {
+            sem = transmute(vk.Semaphore) sem,
+            value = wait_value,
+            next = cmd_buf_info.wait_semaphores,
+        },
+    )
+    cmd_buf_info.wait_semaphores = transmute(Semaphore_Command_Handle) Key { idx = cast(u64) idx }
+}
+
+_cmd_add_signal_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, signal_value: u64)
+{
+    sync.guard(&ctx.lock)
+    cmd_buf_info := get_resource(cmd_buf, ctx.command_buffers)
+    ensure(cmd_buf_info.recording, "cmd_add_signal_semaphore called on non-recording command buffer")
+    idx := pool_append(
+        &ctx.semaphore_commands,
+        Semaphore_Command {
+            sem = transmute(vk.Semaphore) sem,
+            value = signal_value,
+            next = cmd_buf_info.signal_semaphores,
+        },
+    )
+    cmd_buf_info.signal_semaphores = transmute(Semaphore_Command_Handle) Key { idx = cast(u64) idx }
 }
 
 _cmd_barrier :: proc(cmd_buf: Command_Buffer, before: Stage, after: Stage, hazards: Hazard_Flags = {})
@@ -3059,9 +3112,9 @@ vk_acquire_cmd_buf :: proc(queue_type: Queue_Type) -> ^Command_Buffer_Info
 }
 
 @(private="file")
-vk_submit_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info, signal_sem: vk.Semaphore = {}, signal_value: u64 = 0)
+vk_submit_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info)
 {
-    tls_ctx := get_tls()
+    scratch, _ := acquire_scratch()
 
     queue_info := ctx.queues[cmd_buf.queue_type]
 
@@ -3074,15 +3127,36 @@ vk_submit_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info, signal_sem: vk.Semaphor
     cmd_buf.timeline_value = sync.atomic_add(&ctx.cmd_bufs_timelines[queue_type].val, 1) + 1
     queue_sem := ctx.cmd_bufs_timelines[queue_type].sem
 
-    signal_sems: []vk.Semaphore = { queue_sem, signal_sem } if signal_sem != {} else { queue_sem }
-    signal_values: []u64 = { cmd_buf.timeline_value, signal_value } if signal_sem != {} else { cmd_buf.timeline_value }
+    wait_sems := make([dynamic]vk.Semaphore, 0, allocator = scratch)
+    wait_values := make([dynamic]u64, 0, allocator = scratch)
+    wait_stages := make([dynamic]vk.PipelineStageFlags, 0, allocator = scratch)
+    for handle := cmd_buf.wait_semaphores; handle != nil; {
+        cmd := get_resource(handle, ctx.semaphore_commands)
+        append(&wait_sems, cmd.sem)
+        append(&wait_values, cmd.value)
+        append(&wait_stages, vk.PipelineStageFlags { .ALL_COMMANDS })
+        handle = cmd.next
+    }
+
+    signal_sems := make([dynamic]vk.Semaphore, 0, allocator = scratch)
+    signal_values := make([dynamic]u64, 0, allocator = scratch)
+    append(&signal_sems, queue_sem)
+    append(&signal_values, cmd_buf.timeline_value)
+    for handle := cmd_buf.signal_semaphores; handle != nil; {
+        cmd := get_resource(handle, ctx.semaphore_commands)
+        append(&signal_sems, cmd.sem)
+        append(&signal_values, cmd.value)
+        handle = cmd.next
+    }
 
     next: rawptr
     next = &vk.TimelineSemaphoreSubmitInfo {
         sType = .TIMELINE_SEMAPHORE_SUBMIT_INFO,
         pNext = next,
+        waitSemaphoreValueCount = u32(len(wait_values)),
+        pWaitSemaphoreValues = raw_data(wait_values),
         signalSemaphoreValueCount = u32(len(signal_values)),
-        pSignalSemaphoreValues = raw_data(signal_values)
+        pSignalSemaphoreValues = raw_data(signal_values),
     }
     to_submit := []vk.CommandBuffer { transmute(vk.CommandBuffer) cmd_buf.handle }
     submit_info := vk.SubmitInfo {
@@ -3090,8 +3164,11 @@ vk_submit_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info, signal_sem: vk.Semaphor
         pNext = next,
         commandBufferCount = u32(len(to_submit)),
         pCommandBuffers = raw_data(to_submit),
+        waitSemaphoreCount = u32(len(wait_sems)),
+        pWaitSemaphores = raw_data(wait_sems),
+        pWaitDstStageMask = raw_data(wait_stages),
         signalSemaphoreCount = u32(len(signal_sems)),
-        pSignalSemaphores = raw_data(signal_sems)
+        pSignalSemaphores = raw_data(signal_sems),
     }
 
     if sync.guard(&ctx.lock) do vk_check(vk.QueueSubmit(vk_queue, 1, &submit_info, {}))
@@ -3100,10 +3177,34 @@ vk_submit_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info, signal_sem: vk.Semaphor
 }
 
 @(private="file")
+clear_semaphore_commands :: proc(head: ^Semaphore_Command_Handle)
+{
+    sync.guard(&ctx.lock)
+    handle := head^
+    for handle != nil {
+        cmd := get_resource(handle, ctx.semaphore_commands)
+        next := cmd.next
+        key := transmute(Key) handle
+        pool_free_idx(&ctx.semaphore_commands, u32(key.idx))
+        handle = next
+    }
+    head^ = {}
+}
+
+@(private="file")
 recycle_cmd_buf :: proc(cmd_buf: ^Command_Buffer_Info)
 {
     tls_ctx := get_tls()
     cmd_buf.recording = false
+
+    if cmd_buf.wait_semaphores != nil {
+        clear_semaphore_commands(&cmd_buf.wait_semaphores)
+    }
+
+    if cmd_buf.signal_semaphores != nil {
+        clear_semaphore_commands(&cmd_buf.signal_semaphores)
+    }
+
     priority_queue.push(&tls_ctx.free_buffers[cmd_buf.queue_type], Free_Command_Buffer { pool_handle = cmd_buf.pool_handle, timeline_value = cmd_buf.timeline_value })
 }
 
