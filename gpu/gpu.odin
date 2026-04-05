@@ -520,12 +520,6 @@ arena_alloc_raw :: proc(arena: ^Arena, #any_int el_size: i64, #any_int el_count:
 
     return suballoc_ptr
 
-    align_up :: proc(x, align: u64) -> (aligned: u64)
-    {
-        assert(0 == (align & (align - 1)), "must align to a power of two")
-        return (x + (align - 1)) &~ (align - 1)
-    }
-
     arena_next_block :: proc(arena: ^Arena, bytes: i64, align: i32) -> Arena_Block
     {
         arena.block_idx += 1
