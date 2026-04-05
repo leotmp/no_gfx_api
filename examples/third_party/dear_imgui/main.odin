@@ -171,7 +171,7 @@ main :: proc()
         }
         verts_data := gpu.arena_alloc(frame_arena, Vert_Data)
         verts_data.cpu.verts = verts_local.gpu.ptr
-        gpu.cmd_draw_indexed_instanced(cmd_buf, verts_data.gpu, {}, indices_local, 3, 1)
+        gpu.cmd_draw_indexed(cmd_buf, verts_data.gpu, {}, indices_local)
 
         // Render ImGui on top
         draw_data := imgui.get_draw_data()

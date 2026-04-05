@@ -450,13 +450,11 @@ render_pass_gbuffer :: proc(
 			normal_map_sampler             = sampler_id,
 		}
 
-		gpu.cmd_draw_indexed_instanced(
+		gpu.cmd_draw_indexed(
 			cmd_buf,
 			verts_data.gpu,
 			frag_data.gpu,
 			mesh.indices,
-			mesh.idx_count,
-			1,
 		)
 	}
 
@@ -515,7 +513,7 @@ render_pass_final :: proc(
 	}
 
 	// Render fullscreen quad
-	gpu.cmd_draw_indexed_instanced(cmd_buf, verts_data.gpu, frag_data.gpu, fsq_indices, 6, 1)
+	gpu.cmd_draw_indexed(cmd_buf, verts_data.gpu, frag_data.gpu, fsq_indices)
 
 	gpu.cmd_end_render_pass(cmd_buf)
 }

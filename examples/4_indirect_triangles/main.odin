@@ -196,10 +196,10 @@ main :: proc()
             //   indirect_data_local: GPU pointer to array of IndirectData (contains both draw command and per-draw data)
             //   stride: Byte stride between elements in the indirect data array (size of IndirectData struct)
             //   count_local: GPU pointer to u32 containing the number of draws to execute
-            gpu.cmd_draw_indexed_instanced_indirect_multi(cmd_buf, shared_vert_data.gpu, {}, indices_local, indirect_data_local, u32(size_of(IndirectData)), count_local)
+            gpu.cmd_draw_indexed_indirect_multi(cmd_buf, shared_vert_data, {}, indices_local, indirect_data_local, u32(size_of(IndirectData)), count_local)
         } else {
             // Renders only the first draw from the indirect data buffer
-            gpu.cmd_draw_indexed_instanced_indirect(cmd_buf, shared_vert_data.gpu, {}, indices_local, indirect_data_local)
+            gpu.cmd_draw_indexed_indirect(cmd_buf, shared_vert_data, {}, indices_local, indirect_data_local)
         }
 
         gpu.cmd_end_render_pass(cmd_buf)

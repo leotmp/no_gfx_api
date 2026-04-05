@@ -171,7 +171,7 @@ main :: proc()
         frag_data.cpu.sampler = linear_sampler
         frag_data.cpu.fade = changing_fade(delta_time)
 
-        gpu.cmd_draw_indexed_instanced(cmd_buf, verts_data.gpu, frag_data.gpu, indices_local, u32(len(indices.cpu)), 1)
+        gpu.cmd_draw_indexed(cmd_buf, verts_data, frag_data, indices_local)
         gpu.cmd_end_render_pass(cmd_buf)
         gpu.cmd_add_signal_semaphore(cmd_buf, frame_sem, next_frame)
         gpu.queue_submit(.Main, { cmd_buf })

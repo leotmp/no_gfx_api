@@ -161,7 +161,6 @@ main :: proc()
                 world_to_view: [16]f32,
                 view_to_proj: [16]f32,
             }
-            #assert(size_of(Vert_Data) == 8+8+64+64+64+64)
             verts_data := gpu.arena_alloc(frame_arena, Vert_Data)
             verts_data.cpu^ = {
                 positions = mesh.pos.gpu.ptr,
@@ -172,7 +171,7 @@ main :: proc()
                 view_to_proj = intr.matrix_flatten(view_to_proj),
             }
 
-            gpu.cmd_draw_indexed_instanced(cmd_buf, verts_data.gpu, {}, mesh.indices, mesh.idx_count, 1)
+            gpu.cmd_draw_indexed(cmd_buf, verts_data, {}, mesh.indices)
         }
 
         gpu.cmd_end_render_pass(cmd_buf)
@@ -192,7 +191,6 @@ Mesh_GPU :: struct
     normals: gpu.slice_t([4]f32),
     uvs: gpu.slice_t([2]f32),
     indices: gpu.slice_t(u32),
-    idx_count: u32,
 }
 
 upload_mesh :: proc(upload_arena: ^gpu.Arena, cmd_buf: gpu.Command_Buffer, mesh: shared.Mesh) -> Mesh_GPU
@@ -214,7 +212,6 @@ upload_mesh :: proc(upload_arena: ^gpu.Arena, cmd_buf: gpu.Command_Buffer, mesh:
     res.normals = gpu.mem_alloc([4]f32, len(mesh.normals), gpu.Memory.GPU)
     res.uvs = gpu.mem_alloc([2]f32, len(mesh.uvs), gpu.Memory.GPU)
     res.indices = gpu.mem_alloc(u32, len(mesh.indices), gpu.Memory.GPU)
-    res.idx_count = u32(len(mesh.indices))
     gpu.cmd_mem_copy(cmd_buf, res.pos, positions_staging, len(mesh.pos))
     gpu.cmd_mem_copy(cmd_buf, res.normals, normals_staging, len(mesh.normals))
     gpu.cmd_mem_copy(cmd_buf, res.uvs, uvs_staging, len(mesh.uvs))

@@ -371,18 +371,57 @@ cmd_begin_render_pass: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Desc, loc
 cmd_end_render_pass: proc(cmd_buf: Command_Buffer, loc := #caller_location) : _cmd_end_render_pass
 
 // Indices, vertex_data and fragment_data can be nil
-cmd_draw_indexed_instanced: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
-                                 index_count: u32, instance_count: u32 = 1, loc := #caller_location) : _cmd_draw_indexed_instanced
-cmd_draw_indexed_instanced_indirect: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices,
-                                          indirect_arguments: gpuptr, loc := #caller_location) : _cmd_draw_indexed_instanced_indirect
-cmd_draw_indexed_instanced_indirect_multi: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
-                                                indirect_arguments: gpuptr, stride: u32, draw_count: gpuptr, loc := #caller_location) : _cmd_draw_indexed_instanced_indirect_multi
+cmd_draw_indexed_raw: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
+                           index_count: u32, instance_count: u32 = 1, loc := #caller_location) : _cmd_draw_indexed_raw
+cmd_draw_indexed_indirect_raw: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices,
+                                    indirect_arguments: gpuptr, loc := #caller_location) : _cmd_draw_indexed_indirect_raw
+cmd_draw_indexed_indirect_multi_raw: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
+                                          indirect_arguments: gpuptr, stride: u32, draw_count: gpuptr, loc := #caller_location) : _cmd_draw_indexed_instanced_indirect_multi_raw
 
 cmd_build_blas: proc(cmd_buf: Command_Buffer, bvh: BVH, bvh_storage, scratch_storage: gpuptr, shapes: []BVH_Shape, loc := #caller_location) : _cmd_build_blas
 cmd_build_tlas: proc(cmd_buf: Command_Buffer, bvh: BVH, bvh_storage, scratch_storage: gpuptr, instances: gpuptr, loc := #caller_location) : _cmd_build_tlas
 
 /////////////////////////
 // Userland Utilities
+
+// Slice
+// end == -1 means "until the end"
+subslice :: #force_inline proc(s: slice_t($T), #any_int start: i64, #any_int end: i64 = -1) -> slice_t(T)
+{
+    end_clean := end if end != -1 else i64(len(s.cpu))
+    assert(start >= 0)
+    assert(start < i64(len(s.cpu)))
+    assert(end_clean >= 0)
+    assert(end_clean <= i64(len(s.cpu)))
+    res := s
+    res.cpu = res.cpu[start:end_clean]
+    res.gpu.ptr = rawptr(uintptr(res.gpu.ptr) + uintptr(start * size_of(T)))
+    return res
+}
+
+slice_len :: #force_inline proc(s: slice_t($T)) -> i64
+{
+    return i64(len(s.cpu))
+}
+
+// Type-safe variants of raw procedures
+cmd_draw_indexed :: #force_inline proc(cmd_buf: Command_Buffer, vertex_data, fragment_data: gpuptr, indices: slice_t(u32),
+                                       instance_count: u32 = 1, loc := #caller_location)
+{
+    cmd_draw_indexed_raw(cmd_buf, vertex_data, fragment_data, indices, u32(slice_len(indices)), instance_count, loc)
+}
+
+cmd_draw_indexed_indirect :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices,
+                                  indirect_arguments: gpuptr, loc := #caller_location)
+{
+    cmd_draw_indexed_indirect_raw(cmd_buf, vertex_data, fragment_data, indices, indirect_arguments, loc)
+}
+
+cmd_draw_indexed_indirect_multi :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
+                                        indirect_arguments: gpuptr, stride: u32, draw_count: gpuptr, loc := #caller_location)
+{
+    cmd_draw_indexed_indirect_multi_raw(cmd_buf, vertex_data, fragment_data, indices, indirect_arguments, stride, draw_count, loc)
+}
 
 // Memory
 

@@ -59,14 +59,19 @@ main :: proc()
     verts.cpu[0].pos = { -0.5,  0.5, 0.0 }
     verts.cpu[1].pos = {  0.0, -0.5, 0.0 }
     verts.cpu[2].pos = {  0.5,  0.5, 0.0 }
+    // verts.cpu[3].pos = {  -0.5,  -0.5, 0.0 }
     verts.cpu[0].color = { 1.0, 0.0, 0.0 }
     verts.cpu[1].color = { 0.0, 1.0, 0.0 }
     verts.cpu[2].color = { 0.0, 0.0, 1.0 }
+    // verts.cpu[3].color = { 0.0, 0.0, 1.0 }
 
     indices := gpu.arena_alloc(&arena, u32, 3)
     indices.cpu[0] = 0
     indices.cpu[1] = 2
     indices.cpu[2] = 1
+    // indices.cpu[3+0] = 0
+    // indices.cpu[3+1] = 3
+    // indices.cpu[3+2] = 1
 
     verts_local := gpu.mem_alloc(Vertex, 3, gpu.Memory.GPU)
     indices_local := gpu.mem_alloc(u32, 3, gpu.Memory.GPU)
@@ -131,7 +136,7 @@ main :: proc()
         verts_data := gpu.arena_alloc(frame_arena, Vert_Data)
         verts_data.cpu^ = { verts = verts_local.gpu.ptr }
 
-        gpu.cmd_draw_indexed_instanced(cmd_buf, verts_data, {}, indices_local, 3, 1)
+        gpu.cmd_draw_indexed(cmd_buf, verts_data, {}, indices_local)
         gpu.cmd_end_render_pass(cmd_buf)
         gpu.cmd_add_signal_semaphore(cmd_buf, frame_sem, next_frame)
         gpu.queue_submit(.Main, { cmd_buf })

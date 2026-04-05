@@ -2751,8 +2751,8 @@ _cmd_end_render_pass :: proc(cmd_buf: Command_Buffer, loc := #caller_location)
     vk.CmdEndRendering(vk_cmd_buf)
 }
 
-_cmd_draw_indexed_instanced :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
-                                    index_count: u32, instance_count: u32 = 1, loc := #caller_location)
+_cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
+                          index_count: u32, instance_count: u32 = 1, loc := #caller_location)
 {
     if ctx.validation
     {
@@ -2761,6 +2761,9 @@ _cmd_draw_indexed_instanced :: proc(cmd_buf: Command_Buffer, vertex_data, fragme
         ok &= check_ptr_allow_nil(vertex_data, "vertex_data", loc)
         ok &= check_ptr_allow_nil(fragment_data, "fragment_data", loc)
         ok &= check_ptr_allow_nil(indices, "indices", loc)
+        if index_count % 3 != 0 {
+            log.errorf("'index_count' must be a multiple of 3.", location = loc)
+        }
         if !ok do return
     }
 
@@ -2778,10 +2781,10 @@ _cmd_draw_indexed_instanced :: proc(cmd_buf: Command_Buffer, vertex_data, fragme
     vk.CmdPushConstants(vk_cmd_buf, ctx.common_pipeline_layout_graphics, { .VERTEX, .FRAGMENT }, 0, size_of(Graphics_Shader_Push_Constants), &push_constants)
 
     vk.CmdBindIndexBuffer(vk_cmd_buf, indices_buf, vk.DeviceSize(indices_offset), .UINT32)
-    vk.CmdDrawIndexed(vk_cmd_buf, index_count, instance_count, 0, 0, 0)
+    vk.CmdDrawIndexed(vk_cmd_buf, index_count - (index_count % 3), instance_count, 0, 0, 0)
 }
 
-_cmd_draw_indexed_instanced_indirect :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices, indirect_arguments: gpuptr, loc := #caller_location)
+_cmd_draw_indexed_indirect_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices, indirect_arguments: gpuptr, loc := #caller_location)
 {
     if ctx.validation
     {
@@ -2811,8 +2814,8 @@ _cmd_draw_indexed_instanced_indirect :: proc(cmd_buf: Command_Buffer, vertex_dat
     vk.CmdDrawIndexedIndirect(vk_cmd_buf, arguments_buf, vk.DeviceSize(arguments_offset), 1, 0)
 }
 
-_cmd_draw_indexed_instanced_indirect_multi :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
-                                                   indirect_arguments: gpuptr, stride: u32, draw_count: gpuptr, loc := #caller_location)
+_cmd_draw_indexed_instanced_indirect_multi_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
+                                                       indirect_arguments: gpuptr, stride: u32, draw_count: gpuptr, loc := #caller_location)
 {
     if ctx.validation
     {
