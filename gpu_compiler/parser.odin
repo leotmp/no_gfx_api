@@ -312,6 +312,7 @@ Ast_Type_Kind :: enum
     Unknown,  // For typeless initialization
     Label,
     Pointer,
+    Array,
     Slice,
     Proc,
     Primitive,
@@ -355,6 +356,9 @@ Ast_Type :: struct
 
     // Struct
     members: []^Ast_Decl,
+
+    // Array
+    array_len: u32,
 }
 
 parse_file :: proc(file: File, tokens: []Token, allocator: runtime.Allocator) -> (Ast, bool)
@@ -1034,13 +1038,30 @@ parse_type :: proc(using p: ^Parser) -> ^Ast_Type
     {
         if optional_token(p, .LBracket)
         {
-            slice_type := new(Ast_Type)
-            slice_type.kind = .Slice
-            if node != nil do node.base = slice_type
-            node = slice_type
-            if base == nil do base = node
+            if tokens[at].type == .IntLit
+            {
+                num_token := tokens[at]
+                at += 1
 
-            required_token(p, .RBracket)
+                array_type := new(Ast_Type)
+                array_type.kind = .Array
+                array_type.array_len = u32(get_token_lit_int_value(num_token))
+                if node != nil do node.base = array_type
+                node = array_type
+                if base == nil do base = node
+
+                required_token(p, .RBracket)
+            }
+            else
+            {
+                slice_type := new(Ast_Type)
+                slice_type.kind = .Slice
+                if node != nil do node.base = slice_type
+                node = slice_type
+                if base == nil do base = node
+
+                required_token(p, .RBracket)
+            }
         }
         else if optional_token(p, .Caret)
         {
@@ -1263,6 +1284,14 @@ type_to_string :: proc(type: ^Ast_Type, arena: runtime.Allocator) -> string
         case .Label:     res = type.name.text
         case .Pointer:   res = str.concatenate({ "^", type_to_string(type.base, scratch) }, allocator = scratch)
         case .Slice:     res = str.concatenate({ "[]", type_to_string(type.base, scratch) }, allocator = scratch)
+        case .Array:
+        {
+            scratch2, _ := acquire_scratch(scratch, arena)
+            sb := str.builder_make_none(allocator = scratch2)
+            fmt.sbprintf(&sb, "[%v]", type.array_len)
+            str.write_string(&sb, type_to_string(type.base, arena = scratch))
+            res = str.clone(str.to_string(sb), allocator = scratch)
+        }
         case .Proc:
         {
             scratch2, _ := acquire_scratch(scratch, arena)

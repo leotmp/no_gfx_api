@@ -51,6 +51,7 @@ typecheck_ast :: proc(ast: ^Ast, file: File, allocator: runtime.Allocator) -> bo
             case .Primitive: {}
             case .Pointer: {}
             case .Slice: {}
+            case .Array: {}
         }
     }
 
@@ -390,8 +391,8 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
             if expr.target.type.kind == .Poison do break
             if expr.idx_expr.type.kind == .Poison do break
 
-            if expr.target.type.kind != .Slice {
-                typecheck_error(c, expr.token, "Can't access array element of this type, it must be a slice.")
+            if expr.target.type.kind != .Slice && expr.target.type.kind != .Array {
+                typecheck_error(c, expr.token, "Can't access array element of this type, it must be an array or slice.")
                 expr.target.type = &POISON_TYPE
             }
 

@@ -6,6 +6,7 @@ import vmem "core:mem/virtual"
 import "core:strings"
 import "base:runtime"
 import "core:os"
+import str "core:strings"
 
 Shader_Type :: enum
 {
@@ -129,7 +130,10 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string, output_p
         if type.kind == .Slice {
             writefln("layout(buffer_reference, scalar) readonly buffer %v {{ %v _res_[]; }};", type_to_glsl(&type), type_to_glsl(type.base))
         }
-        // Prepare zero initialization for each used types
+        if type.kind == .Array {
+            writefln("struct %v {{ %v data[%v]; }};", type_to_glsl(&type), type_to_glsl(type.base), type.array_len)
+        }
+        // Prepare zero initialization for each used type
         if type.kind != .Primitive && type.kind != .Label {
             writefln("%v %v_ZERO;", type_to_glsl(&type), type_to_glsl_unique(&type))
         }
@@ -535,10 +539,20 @@ codegen_expr :: proc(expression: ^Ast_Expr)
         }
         case ^Ast_Array_Access:
         {
-            codegen_expr(expr.target)
-            write("._res_[")
-            codegen_expr(expr.idx_expr)
-            write("]")
+            if expr.target.type.kind == .Array
+            {
+                codegen_expr(expr.target)
+                write(".data[")
+                codegen_expr(expr.idx_expr)
+                write("]")
+            }
+            else
+            {
+                codegen_expr(expr.target)
+                write("._res_[")
+                codegen_expr(expr.idx_expr)
+                write("]")
+            }
         }
         case ^Ast_Call:
         {
@@ -702,6 +716,11 @@ compute_type_size_and_align :: proc(type: ^Ast_Type) -> (size: u32, align: u32)
         case .Unknown: return 0, 4
         case .Pointer: return 8, 8
         case .Slice:   return 8, 8
+        case .Array:
+        {
+            base_size, base_align := compute_type_size_and_align(type.base)
+            return type.array_len * base_size, base_align
+        }
         case .Proc:    return 8, 8
         case .Primitive:
         {
@@ -768,6 +787,13 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
         case .Label: return type.name.text
         case .Pointer: return strings.concatenate({ "_res_ptr_", type_to_glsl(type.base) })
         case .Slice: return strings.concatenate({ "_res_slice_", type_to_glsl(type.base) })
+        case .Array:
+        {
+            scratch, _ := acquire_scratch()
+            sb := str.builder_make_none(allocator = scratch)
+            fmt.sbprintf(&sb, "_res_array_%v_%v", type.array_len, type_to_string(type.base, arena = scratch))
+            return str.clone(str.to_string(sb), allocator = context.allocator)
+        }
         case .Proc: panic("Translating proc type is not implemented.")
         case .Struct: panic("Translating struct type is not implemented.")
         case .Primitive:
@@ -809,6 +835,7 @@ type_to_glsl_unique :: proc(type: ^Ast_Type) -> string
         case .Label: return type.name.text
         case .Pointer: return strings.concatenate({ "_res_ptr_", type_to_glsl(type.base) })
         case .Slice: return strings.concatenate({ "_res_slice_", type_to_glsl(type.base) })
+        case .Array: return type_to_glsl(type)
         case .Proc: panic("Translating proc type is not implemented.")
         case .Struct: panic("Translating struct type is not implemented.")
         case .Primitive:
