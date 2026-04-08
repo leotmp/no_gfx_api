@@ -849,6 +849,9 @@ bin_op_result_type :: proc(op: Ast_Binary_Op, type1: ^Ast_Type, type2: ^Ast_Type
         if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vec4 {
             return t2, true
         }
+        if (op == .Add || op == .Minus) && type_is_resource_id(t1) && (type_implicit_convert(t2, &UINT_TYPE) || type_implicit_convert(t2, &INT_TYPE)) {
+            return t1, true
+        }
     }
 
     if same_type(type1, type2) do return type1, true
@@ -1081,4 +1084,28 @@ handle_vector_swizzle :: proc(expr_type: ^Ast_Type, str: string) -> (res: ^Ast_T
         case 4: return &VEC4_TYPE, true
         case: panic("Unreachable")
     }
+}
+
+type_is_resource_id :: proc(type: ^Ast_Type) -> bool
+{
+    switch type.primitive_kind
+    {
+        case .None:          return false
+        case .Untyped_Int:   return false
+        case .Untyped_Float: return false
+        case .Bool:          return false
+        case .Float:         return false
+        case .Uint:          return false
+        case .Int:           return false
+        case .Texture_ID:    return true
+        case .Sampler_ID:    return true
+        case .Vec2:          return false
+        case .Vec3:          return false
+        case .Vec4:          return false
+        case .Mat4:          return false
+        case .String:        return false
+        case .Ray_Query:     return false
+        case .BVH_ID:        return true
+    }
+    return {}
 }
