@@ -2,7 +2,7 @@
 
 Data :: struct
 {
-    output_texture_id: texture_id,
+    output_texture_id: texture_rw_id,
     resolution: vec2,
     time: float,
 }

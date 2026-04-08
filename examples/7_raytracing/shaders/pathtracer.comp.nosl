@@ -19,7 +19,7 @@ Instance :: struct
 
 Data :: struct
 {
-    output_texture: texture_id,
+    output_texture: texture_rw_id,
     tlas: bvh_id,
     scene: Scene,
     resolution: vec2,

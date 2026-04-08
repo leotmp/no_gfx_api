@@ -734,6 +734,7 @@ compute_type_size_and_align :: proc(type: ^Ast_Type) -> (size: u32, align: u32)
                 case .Uint:          return 4, 4
                 case .Int:           return 4, 4
                 case .Texture_ID:    return 4, 4
+                case .Texture_RW_ID: return 4, 4
                 case .Sampler_ID:    return 4, 4
                 case .Vec2:          return 8, 4
                 case .Vec3:          return 12, 4
@@ -812,6 +813,7 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
                 case .Vec3: return "vec3"
                 case .Vec4: return "vec4"
                 case .Texture_ID: return "uint"
+                case .Texture_RW_ID: return "uint"
                 case .Sampler_ID: return "uint"
                 case .Mat4: return "mat4"
                 case .Ray_Query: return "rayQueryEXT"
@@ -854,6 +856,7 @@ type_to_glsl_unique :: proc(type: ^Ast_Type) -> string
                 case .Vec3: return "vec3"
                 case .Vec4: return "vec4"
                 case .Texture_ID: return "texture_id"
+                case .Texture_RW_ID: return "texture_rw_id"
                 case .Sampler_ID: return "sampler_id"
                 case .Mat4: return "mat4"
                 case .Ray_Query: return "rayQueryEXT"

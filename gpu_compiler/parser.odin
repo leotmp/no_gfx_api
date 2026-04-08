@@ -329,6 +329,7 @@ Ast_Type_Primitive_Kind :: enum
     Uint,
     Int,
     Texture_ID,
+    Texture_RW_ID,
     Sampler_ID,
     Vec2,
     Vec3,
@@ -1086,6 +1087,7 @@ parse_type :: proc(using p: ^Parser) -> ^Ast_Type
         case "vec4": prim_type = .Vec4
         case "bool": prim_type = .Bool
         case "texture_id": prim_type = .Texture_ID
+        case "texture_rw_id": prim_type = .Texture_RW_ID
         case "sampler_id": prim_type = .Sampler_ID
         case "mat4": prim_type = .Mat4
         case "Ray_Query": prim_type = .Ray_Query

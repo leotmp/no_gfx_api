@@ -496,6 +496,7 @@ VEC3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vec3, name = { text
 VEC4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vec4, name = { text = "vec4" } }
 BOOL_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Bool, name = { text = "bool" } }
 TEXTURE_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Texture_ID, name = { text = "texture_id" } }
+TEXTURE_RW_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Texture_RW_ID, name = { text = "texture_rw_id" } }
 SAMPLER_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Sampler_ID, name = { text = "sampler_id" } }
 BVH_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .BVH_ID, name = { text = "bvh_id" } }
 MAT4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Mat4, name = { text = "mat4" } }
@@ -597,8 +598,8 @@ add_intrinsics :: proc()
 {
     // Resource access
     add_intrinsic("texture_sample", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &VEC2_TYPE }, { "tex_idx", "sampler_idx", "uv" }, &VEC4_TYPE)
-    add_intrinsic("texture_store", { &TEXTURE_ID_TYPE, &VEC2_TYPE, &VEC4_TYPE }, { "tex_idx", "coord", "value" }, nil)
-    add_intrinsic("texture_load", { &TEXTURE_ID_TYPE, &VEC2_TYPE }, { "tex_idx", "coord" }, &VEC4_TYPE)
+    add_intrinsic("texture_store", { &TEXTURE_RW_ID_TYPE, &VEC2_TYPE, &VEC4_TYPE }, { "tex_idx", "coord", "value" }, nil)
+    add_intrinsic("texture_load", { &TEXTURE_RW_ID_TYPE, &VEC2_TYPE }, { "tex_idx", "coord" }, &VEC4_TYPE)
 
     // Raytracing
     ray_result_type := add_intrinsic_struct("Ray_Result", { &UINT_TYPE, &FLOAT_TYPE, &UINT_TYPE, &UINT_TYPE, &VEC2_TYPE, &BOOL_TYPE, &MAT4_TYPE, &MAT4_TYPE }, { "kind", "t", "instance_idx", "primitive_idx", "barycentrics", "front_face", "object_to_world", "world_to_object" })
@@ -1098,6 +1099,7 @@ type_is_resource_id :: proc(type: ^Ast_Type) -> bool
         case .Uint:          return false
         case .Int:           return false
         case .Texture_ID:    return true
+        case .Texture_RW_ID: return true
         case .Sampler_ID:    return true
         case .Vec2:          return false
         case .Vec3:          return false
