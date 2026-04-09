@@ -512,11 +512,13 @@ codegen_expr :: proc(expression: ^Ast_Expr)
         case ^Ast_If_Expr:
         {
             write("(")
+            write("(")
             codegen_expr(expr.cond_expr)
             write(") ? (")
             codegen_expr(expr.then_expr)
             write(") : (")
             codegen_expr(expr.else_expr)
+            write(")")
             write(")")
         }
         case ^Ast_Cast:

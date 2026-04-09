@@ -863,17 +863,6 @@ parse_expr :: proc(using p: ^Parser, prec: int = max(int)) -> ^Ast_Expr
     // Binary operators
     for true
     {
-        if tokens[at].type == .If
-        {
-            if_expr := make_expr(p, Ast_If_Expr)
-            at += 1
-            if_expr.then_expr = lhs
-            if_expr.cond_expr = parse_expr(p)
-            required_token(p, .Else)
-            if_expr.else_expr = parse_expr(p)
-            return if_expr
-        }
-
         op, found := Op_Precedence[tokens[at].type]
         undo_recurse := false
         undo_recurse |= !found
@@ -882,12 +871,25 @@ parse_expr :: proc(using p: ^Parser, prec: int = max(int)) -> ^Ast_Expr
         if undo_recurse do return lhs
 
         // Recurse
-        bin_op := make_expr(p, Ast_Binary_Expr)
-        bin_op.op = op.op
-        bin_op.lhs = lhs
-        at += 1
-        bin_op.rhs = parse_expr(p, op.prec)
-        lhs = bin_op
+        if tokens[at].type == .If
+        {
+            if_expr := make_expr(p, Ast_If_Expr)
+            at += 1
+            if_expr.then_expr = lhs
+            if_expr.cond_expr = parse_expr(p)
+            required_token(p, .Else)
+            if_expr.else_expr = parse_expr(p)
+            lhs = if_expr
+        }
+        else
+        {
+            bin_op := make_expr(p, Ast_Binary_Expr)
+            bin_op.op = op.op
+            bin_op.lhs = lhs
+            at += 1
+            bin_op.rhs = parse_expr(p, op.prec)
+            lhs = bin_op
+        }
     }
 
     return lhs
@@ -1250,6 +1252,9 @@ Op_Precedence := map[Token_Type]Op_Info {
 
     .And = { 11, .And, true },
     .Or  = { 12, .Or, true },
+
+    // Special operators (need special logic)
+    .If = { 13, {}, false },
 }
 Unary_Op_Info :: struct #all_or_none
 {
