@@ -600,6 +600,7 @@ add_intrinsics :: proc()
     add_intrinsic("texture_sample", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &VEC2_TYPE }, { "tex_idx", "sampler_idx", "uv" }, &VEC4_TYPE)
     add_intrinsic("texture_store", { &TEXTURE_RW_ID_TYPE, &VEC2_TYPE, &VEC4_TYPE }, { "tex_idx", "coord", "value" }, nil)
     add_intrinsic("texture_load", { &TEXTURE_RW_ID_TYPE, &VEC2_TYPE }, { "tex_idx", "coord" }, &VEC4_TYPE)
+    add_intrinsic("texture_size", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &INT_TYPE }, { "tex_idx", "sampler_idx", "lod" }, &VEC2_TYPE)
 
     // Raytracing
     ray_result_type := add_intrinsic_struct("Ray_Result", { &UINT_TYPE, &FLOAT_TYPE, &UINT_TYPE, &UINT_TYPE, &VEC2_TYPE, &BOOL_TYPE, &MAT4_TYPE, &MAT4_TYPE }, { "kind", "t", "instance_idx", "primitive_idx", "barycentrics", "front_face", "object_to_world", "world_to_object" })
@@ -1032,6 +1033,16 @@ handle_vector_swizzle :: proc(expr_type: ^Ast_Type, str: string) -> (res: ^Ast_T
     if str == "" do return &POISON_TYPE, false
     if len(str) > 4 do return &POISON_TYPE, false
 
+    el_count: int
+    #partial switch expr_type.primitive_kind
+    {
+        case .Float: el_count = 1
+        case .Vec2: el_count = 2
+        case .Vec3: el_count = 3
+        case .Vec4: el_count = 4
+        case: return &POISON_TYPE, false
+    }
+
     is_xyzw: bool
     is_rgba: bool
     switch str[0]
@@ -1048,7 +1059,11 @@ handle_vector_swizzle :: proc(expr_type: ^Ast_Type, str: string) -> (res: ^Ast_T
         {
             switch c
             {
-                case 'x', 'y', 'z', 'w': {}
+                case 'x', 'y', 'z', 'w': {
+                    if c == 'y' && el_count < 2 { return &POISON_TYPE, false }
+                    if c == 'z' && el_count < 3 { return &POISON_TYPE, false }
+                    if c == 'w' && el_count < 4 { return &POISON_TYPE, false }
+                }
                 case: return &POISON_TYPE, false
             }
         }
@@ -1059,23 +1074,15 @@ handle_vector_swizzle :: proc(expr_type: ^Ast_Type, str: string) -> (res: ^Ast_T
         {
             switch c
             {
-                case 'r', 'g', 'b', 'a': {}
+                case 'r', 'g', 'b', 'a': {
+                    if c == 'g' && el_count < 2 { return &POISON_TYPE, false }
+                    if c == 'b' && el_count < 3 { return &POISON_TYPE, false }
+                    if c == 'a' && el_count < 4 { return &POISON_TYPE, false }
+                }
                 case: return &POISON_TYPE, false
             }
         }
     }
-
-    el_count: int
-    #partial switch expr_type.primitive_kind
-    {
-        case .Float: el_count = 1
-        case .Vec2: el_count = 2
-        case .Vec3: el_count = 3
-        case .Vec4: el_count = 4
-        case: return &POISON_TYPE, false
-    }
-
-    if el_count < len(str) do return &POISON_TYPE, false
 
     switch len(str)
     {

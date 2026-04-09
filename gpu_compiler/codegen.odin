@@ -147,12 +147,6 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string, output_p
     }
     writeln("")
 
-    // Generate bindings
-    writeln("layout(set = 0, binding = 0) uniform texture2D _res_textures_[];")
-    writeln("layout(set = 1, binding = 0) uniform image2D _res_textures_rw_[];")
-    writeln("layout(set = 2, binding = 0) uniform sampler _res_samplers_[];")
-    writeln("")
-
     indirect_data_type_glsl := "_res_ptr_void"
     if ast.used_indirect_data_type != nil {
         indirect_data_type_glsl = strings.concatenate({"_res_indirect_array_", type_to_glsl(ast.used_indirect_data_type.base)})
@@ -564,6 +558,10 @@ codegen_expr :: proc(expression: ^Ast_Expr)
             if is_ident
             {
                 text := call_ident.token.text
+                // NOTE: Tried to refactor this by putting this
+                // stuff into separate handwritten GLSL functions,
+                // but that causes the Vulkan drivers to crash on the raytracing example.
+                // So........ be careful about that, I guess.
                 if text == "texture_sample"
                 {
                     assert(len(expr.args) == 3)
@@ -1031,6 +1029,13 @@ write_preamble :: proc()
         writeln("layout(local_size_x_id = 13370, local_size_y_id = 13371, local_size_z_id = 13372) in;")
     }
 
+    writeln("layout(set = 0, binding = 0) uniform texture2D _res_textures_[];")
+    writeln("layout(set = 1, binding = 0) uniform image2D _res_textures_rw_[];")
+    writeln("layout(set = 2, binding = 0) uniform sampler _res_samplers_[];")
+    writeln("")
+
+    writeln(Intrinsics_Code)
+
     // Utility functions used for codegen
     if .Raytracing in writer.ast.used_features
     {
@@ -1099,6 +1104,17 @@ writer_output_to_file :: proc(path: string)
     err := os.write_entire_file_from_string(path, strings.to_string(writer.builder))
     ensure(err == nil)
 }
+
+Intrinsics_Code :: `
+// Intrinsics:
+
+vec2 texture_size(uint t, uint s, int lod)
+{
+   return textureSize(sampler2D(_res_textures_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), lod);
+}
+
+// Intrinsics end.
+`
 
 RT_Intrinsics_Code :: `
 // Raytracing intrinsics:
