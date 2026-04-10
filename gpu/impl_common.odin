@@ -56,7 +56,7 @@ pool_check :: proc(pool: ^Resource_Pool($Handle_T, $Info_T), handle: Handle_T, n
 {
     assert(pool.init)
 
-    if handle == nil {
+    if handle == {} {
         log.errorf("'%v' handle is nil.", name, location = loc)
         return false
     }

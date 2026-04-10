@@ -1762,6 +1762,13 @@ _shader_create_compute :: proc(code: []u32, group_size_x: u32, group_size_y: u32
 
 _shader_destroy :: proc(shader: Shader, loc := #caller_location)
 {
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.shaders, shader, "shader", loc)
+        if !ok do return
+    }
+
     shader_info := pool_get(&ctx.shaders, shader)
     vk_shader := shader_info.handle
     vk.DestroyShaderEXT(ctx.device, vk_shader, nil)
@@ -1793,6 +1800,13 @@ _semaphore_create :: proc(init_value: u64 = 0, name := "", loc := #caller_locati
 
 _semaphore_wait :: proc(sem: Semaphore, wait_value: u64, loc := #caller_location)
 {
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.semaphores, sem, "sem", loc)
+        if !ok do return
+    }
+
     sems := []vk.Semaphore { pool_get(&ctx.semaphores, sem) }
     values := []u64 { wait_value }
     assert(len(sems) == len(values))
@@ -1806,6 +1820,13 @@ _semaphore_wait :: proc(sem: Semaphore, wait_value: u64, loc := #caller_location
 
 _semaphore_destroy :: proc(sem: Semaphore, loc := #caller_location)
 {
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.semaphores, sem, "sem", loc)
+        if !ok do return
+    }
+
     vk_sem := pool_get(&ctx.semaphores, sem)
     vk.DestroySemaphore(ctx.device, vk_sem, nil)
     pool_remove(&ctx.semaphores, sem)
@@ -1904,6 +1925,13 @@ _tlas_build_scratch_buffer_size_and_align :: proc(desc: TLAS_Desc, loc := #calle
 
 _bvh_root_ptr :: proc(bvh: BVH, loc := #caller_location) -> rawptr
 {
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.bvhs, bvh, "bvh", loc)
+        if !ok do return nil
+    }
+
     bvh_info := pool_get(&ctx.bvhs, bvh)
 
     return transmute(rawptr) vk.GetAccelerationStructureDeviceAddressKHR(ctx.device, & {
@@ -1914,6 +1942,13 @@ _bvh_root_ptr :: proc(bvh: BVH, loc := #caller_location) -> rawptr
 
 _bvh_descriptor :: proc(bvh: BVH, loc := #caller_location) -> BVH_Descriptor
 {
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.bvhs, bvh, "bvh", loc)
+        if !ok do return {}
+    }
+
     bvh_info := pool_get(&ctx.bvhs, bvh)
 
     bvh_addr := vk.GetAccelerationStructureDeviceAddressKHR(ctx.device, &{
@@ -1938,6 +1973,13 @@ _bvh_descriptor_size :: proc() -> u32
 
 _bvh_destroy :: proc(bvh: BVH, loc := #caller_location)
 {
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.bvhs, bvh, "bvh", loc)
+        if !ok do return
+    }
+
     bvh_info := pool_get(&ctx.bvhs, bvh)
     vk.DestroyAccelerationStructureKHR(ctx.device, bvh_info.handle, nil)
     pool_remove(&ctx.bvhs, bvh)
