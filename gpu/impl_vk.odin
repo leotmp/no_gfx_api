@@ -1429,6 +1429,8 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
         vk_submit_cmd_bufs({cmd_buf})
     }
 
+    vk_set_debug_name(name, u64(image), .IMAGE)
+
     tex_info := Texture_Info { image, {} }
     sync.guard(&ctx.lock)
     return Texture {
@@ -1737,6 +1739,8 @@ _shader_create_internal :: proc(code: []u32, is_compute: bool, vk_stage: vk.Shad
     vk_shader: vk.ShaderEXT
     vk_check(vk.CreateShadersEXT(ctx.device, 1, &shader_cis, nil, &vk_shader))
 
+    vk_set_debug_name(name, u64(vk_shader), .SHADER_EXT)
+
     shader: Shader_Info
     shader.handle = vk_shader
     shader.current_workgroup_size = { group_size_x, group_size_y, group_size_z }
@@ -1781,6 +1785,8 @@ _semaphore_create :: proc(init_value: u64 = 0, name := "", loc := #caller_locati
     }
     sem: vk.Semaphore
     vk_check(vk.CreateSemaphore(ctx.device, &sem_ci, nil, &sem))
+
+    vk_set_debug_name(name, u64(sem), .SEMAPHORE)
 
     return pool_add(&ctx.semaphores, sem, { name = name, created_at = loc })
 }
@@ -1833,6 +1839,8 @@ _blas_create :: proc(desc: BLAS_Desc, storage: gpuptr, name := "", loc := #calle
     }
     vk_check(vk.CreateAccelerationStructureKHR(ctx.device, &blas_ci, nil, &bvh_handle))
 
+    vk_set_debug_name(name, u64(bvh_handle), .ACCELERATION_STRUCTURE_KHR)
+
     new_desc := desc
     cloned_shapes := slice.clone_to_dynamic(new_desc.shapes)
     new_desc.shapes = cloned_shapes[:]
@@ -1877,6 +1885,8 @@ _tlas_create :: proc(desc: TLAS_Desc, storage: gpuptr, name := "", loc := #calle
         type = .TOP_LEVEL,
     }
     vk_check(vk.CreateAccelerationStructureKHR(ctx.device, &tlas_ci, nil, &bvh_handle))
+
+    vk_set_debug_name(name, u64(bvh_handle), .ACCELERATION_STRUCTURE_KHR)
 
     bvh_info := BVH_Info {
         handle = bvh_handle,
@@ -3535,4 +3545,19 @@ check_bvh_must_be_blas :: proc(bvh: BVH, name: string, loc: runtime.Source_Code_
     }
 
     return true
+}
+
+vk_set_debug_name :: proc(name: string, handle: u64, type: vk.ObjectType)
+{
+    if name == "" || !ctx.validation do return
+
+    scratch, _ := acquire_scratch()
+    name_cstr := strings.clone_to_cstring(name, allocator = scratch)
+
+    vk.SetDebugUtilsObjectNameEXT(ctx.device, &vk.DebugUtilsObjectNameInfoEXT {
+        sType = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+        objectType = type,
+        objectHandle = handle,
+        pObjectName = name_cstr,
+    })
 }

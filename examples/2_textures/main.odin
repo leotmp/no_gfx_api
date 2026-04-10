@@ -50,8 +50,8 @@ main :: proc()
 
     gpu.swapchain_init_from_sdl(window, Frames_In_Flight)
 
-    vert_shader := gpu.shader_create(#load("shaders/test.vert.spv", []u32), .Vertex)
-    frag_shader := gpu.shader_create(#load("shaders/test.frag.spv", []u32), .Fragment)
+    vert_shader := gpu.shader_create(#load("shaders/test.vert.spv", []u32), .Vertex, name = "vert_shader")
+    frag_shader := gpu.shader_create(#load("shaders/test.frag.spv", []u32), .Fragment, name = "frag_shader")
     defer {
         gpu.shader_destroy(vert_shader)
         gpu.shader_destroy(frag_shader)
@@ -117,7 +117,7 @@ main :: proc()
     for &frame_arena in frame_arenas do frame_arena = gpu.arena_init()
     defer for &frame_arena in frame_arenas do gpu.arena_destroy(&frame_arena)
     next_frame := u64(1)
-    frame_sem := gpu.semaphore_create(0)
+    frame_sem := gpu.semaphore_create(0, name = "sem")
     defer gpu.semaphore_destroy(frame_sem)
     for true
     {
@@ -223,7 +223,7 @@ load_texture :: proc(bytes: []byte, upload_arena: ^gpu.Arena, cmd_buf: gpu.Comma
         dimensions = { u32(img.width), u32(img.height), 1 },
         format = .RGBA8_Unorm,
         usage = { .Sampled },
-    })
+    }, name = "tex")
     gpu.cmd_copy_to_texture(cmd_buf, texture, staging)
     return texture
 }
