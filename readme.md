@@ -2,9 +2,9 @@
 
 **Warning:** This project is still in development, so expect some breaking changes.
 
-It isn't controversial to say this: graphics APIs are a mess. "Modern" graphics APIs - which are a decade old at this point - all present numerous concepts that are completely useless on today's hardware. They are extremely bloated, often adding new extensions to cover for past missteps in the design. It can all be massively simplified.
+It isn't controversial to say this: graphics APIs are a mess. "Modern" graphics APIs – which are a decade old at this point – all present numerous concepts that are completely useless on today's hardware. They are extremely bloated, often adding new extensions to cover for past missteps in the design. It can all be massively simplified.
 
-**no_gfx**'s goal is to implement an ideal "API of the future" on top of existing APIs (Vulkan), greatly simplifying graphics programming without sacrificing modern features like indirect rendering and raytracing. It initially started as a 1:1 recreation of the theoretical API outlined in Sebastian Aaltonen's ["No Graphics API"](https://www.sebastianaaltonen.com/blog/no-graphics-api) blog post; there are now a few divergences - partly due to the limitations of current APIs - but the overall design and core philosophy is still the same.
+**no_gfx**'s goal is to implement an ideal "API of the future" on top of existing APIs (Vulkan), greatly simplifying graphics programming without sacrificing modern features like indirect rendering and raytracing. It initially started as a 1:1 recreation of the theoretical API outlined in Sebastian Aaltonen's ["No Graphics API"](https://www.sebastianaaltonen.com/blog/no-graphics-api) blog post; there are now a few divergences – partly due to the limitations of current APIs – but the overall design and core philosophy is still the same.
 
 ## API Usage
 
@@ -114,7 +114,7 @@ Like most things in life, this is not without its tradeoffs:
 
 ## Shaders
 
-I think people should be able to use whichever shading language they want, but there are a few limitations due to the nature of this project. **no_gfx** uses pointers as the main way to pass data to shaders, so shading languages that don't support pointers at all are sadly disqualified - this includes HLSL. Other than that, any shading language can be used as long as a `.spirv` binary is produced with the following format (pseudocode, GLSL-like):
+I think people should be able to use whichever shading language they want, but there are a few limitations due to the nature of this project. **no_gfx** uses pointers as the main way to pass data to shaders, so shading languages that don't support pointers at all are sadly disqualified – this includes HLSL. Other than that, any shading language can be used as long as a `.spirv` binary is produced with the following format (pseudocode, GLSL-like):
 
 ```glsl
 layout(set = 0, binding = 0) uniform texture2D textures[];
@@ -139,7 +139,7 @@ layout(push_constant) uniform Push
 
 All examples provide [Slang](https://shader-slang.org/) variants of their shaders so you can get an idea of how to use an existing shading language with **no_gfx**.
 
-With that said - much like graphics APIs, shading languages also carry a lot of historical baggage and cruft. For this reason, I think it's valuable to work on a shading language that is tailor-made to these assumptions and that doesn't require any boilerplate. Here's a small sample of `nosl`:
+With that said – much like graphics APIs, shading languages also carry a lot of historical baggage and cruft. For this reason, I think it's valuable to work on a shading language that is tailor-made to these assumptions and that doesn't require any boilerplate. Here's a small sample of `nosl`:
 
 ```jai
 Vertex :: struct
@@ -156,7 +156,7 @@ Data :: struct
 Output :: struct
 {
     pos: vec4 @position,
-    color: vec4 @out_loc(0),
+    color: vec4 @output(0),
 }
 
 main :: (vert_id: uint @vert_id, data: ^Data @data) -> Output
