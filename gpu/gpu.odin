@@ -377,7 +377,10 @@ cmd_dispatch_indirect_raw: proc(cmd_buf: Command_Buffer, compute_data, arguments
 cmd_begin_render_pass: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Desc, loc := #caller_location) : _cmd_begin_render_pass
 cmd_end_render_pass: proc(cmd_buf: Command_Buffer, loc := #caller_location) : _cmd_end_render_pass
 
+// Draw procedures:
 // Vertex_data and fragment_data can be nil if not used in the currently bound shader
+cmd_draw: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data: gpuptr,
+               vertex_count: u32, instance_count: u32 = 1, loc := #caller_location) : _cmd_draw
 cmd_draw_indexed_raw: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
                            index_format: Index_Format, index_count: u32, instance_count: u32 = 1, loc := #caller_location) : _cmd_draw_indexed_raw
 cmd_draw_indexed_indirect_raw: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,

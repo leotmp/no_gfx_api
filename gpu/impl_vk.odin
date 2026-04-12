@@ -2799,6 +2799,31 @@ _cmd_end_render_pass :: proc(cmd_buf: Command_Buffer, loc := #caller_location)
     vk.CmdEndRendering(vk_cmd_buf)
 }
 
+_cmd_draw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data: gpuptr,
+                  vertex_count: u32, instance_count: u32 = 1, loc := #caller_location)
+{
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.command_buffers, cmd_buf, "cmd_buf", loc)
+        ok &= check_ptr_allow_nil(vertex_data, "vertex_data", loc)
+        ok &= check_ptr_allow_nil(fragment_data, "fragment_data", loc)
+        if !ok do return
+    }
+
+    cmd_buf := pool_get(&ctx.command_buffers, cmd_buf)
+    vk_cmd_buf := cmd_buf.handle
+
+    push_constants := Graphics_Shader_Push_Constants {
+        vert_data = vertex_data.ptr,
+        frag_data = fragment_data.ptr,
+        indirect_data = nil,
+    }
+    vk.CmdPushConstants(vk_cmd_buf, ctx.common_pipeline_layout_graphics, { .VERTEX, .FRAGMENT }, 0, size_of(Graphics_Shader_Push_Constants), &push_constants)
+
+    vk.CmdDraw(vk_cmd_buf, vertex_count, instance_count, 0, 0)
+}
+
 _cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
                               index_format: Index_Format, index_count: u32, instance_count: u32 = 1, loc := #caller_location)
 {
@@ -2809,9 +2834,6 @@ _cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_dat
         ok &= check_ptr_allow_nil(vertex_data, "vertex_data", loc)
         ok &= check_ptr_allow_nil(fragment_data, "fragment_data", loc)
         ok &= check_ptr_allow_nil(indices, "indices", loc)
-        if index_count % 3 != 0 {
-            log.errorf("'index_count' must be a multiple of 3.", location = loc)
-        }
         if !ok do return
     }
 
@@ -2829,7 +2851,7 @@ _cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_dat
     vk.CmdPushConstants(vk_cmd_buf, ctx.common_pipeline_layout_graphics, { .VERTEX, .FRAGMENT }, 0, size_of(Graphics_Shader_Push_Constants), &push_constants)
 
     vk.CmdBindIndexBuffer(vk_cmd_buf, indices_buf, vk.DeviceSize(indices_offset), to_vk_index_format(index_format))
-    vk.CmdDrawIndexed(vk_cmd_buf, index_count - (index_count % 3), instance_count, 0, 0, 0)
+    vk.CmdDrawIndexed(vk_cmd_buf, index_count, instance_count, 0, 0, 0)
 }
 
 _cmd_draw_indexed_indirect_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr, index_format: Index_Format, indirect_arguments: gpuptr, loc := #caller_location)
