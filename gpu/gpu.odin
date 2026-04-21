@@ -323,6 +323,7 @@ shader_destroy: proc(shader: Shader, loc := #caller_location) : _shader_destroy
 
 // Semaphores
 semaphore_create: proc(init_value: u64 = 0, name := "", loc := #caller_location) -> Semaphore : _semaphore_create
+semaphore_get_value: proc(sem: Semaphore, loc := #caller_location) -> u64 : _semaphore_get_value
 semaphore_wait: proc(sem: Semaphore, wait_value: u64, loc := #caller_location) : _semaphore_wait
 semaphore_destroy: proc(sem: Semaphore, loc := #caller_location) : _semaphore_destroy
 

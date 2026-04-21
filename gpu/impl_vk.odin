@@ -1837,6 +1837,21 @@ _semaphore_create :: proc(init_value: u64 = 0, name := "", loc := #caller_locati
     return pool_add(&ctx.semaphores, sem, { name = name, created_at = loc })
 }
 
+_semaphore_get_value :: proc(sem: Semaphore, loc := #caller_location) -> u64
+{
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.semaphores, sem, "sem", loc)
+        if !ok do return {}
+    }
+
+    res: u64
+    vk_sem := pool_get(&ctx.semaphores, sem)
+    vk.GetSemaphoreCounterValue(ctx.device, vk_sem, &res)
+    return res
+}
+
 _semaphore_wait :: proc(sem: Semaphore, wait_value: u64, loc := #caller_location)
 {
     if ctx.validation
