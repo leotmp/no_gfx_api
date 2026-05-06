@@ -506,14 +506,14 @@ mem_alloc :: proc {
     mem_alloc_slice,
 }
 
-mem_free_ptr :: #force_inline proc(addr: ptr_t($T))
+mem_free_ptr :: #force_inline proc(addr: ptr_t($T), loc := #caller_location)
 {
-    mem_free_raw(addr.gpu)
+    mem_free_raw(addr.gpu, loc = loc)
 }
 
-mem_free_slice :: #force_inline proc(addr: slice_t($T))
+mem_free_slice :: #force_inline proc(addr: slice_t($T), loc := #caller_location)
 {
-    mem_free_raw(addr.gpu)
+    mem_free_raw(addr.gpu, loc = loc)
 }
 
 mem_free :: proc {

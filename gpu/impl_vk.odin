@@ -1350,24 +1350,30 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
 
 _mem_suballoc :: proc(addr: ptr, offset, el_size, el_count: i64, loc := #caller_location) -> ptr
 {
+    bytes := el_size * el_count
+
     if ctx.validation
     {
         ok := true
-        if el_size * el_count != 0 {
+        if bytes != 0 {
             ok &= check_ptr(addr, "addr", loc)
         }
         if !ok do return {}
     }
 
-    if el_size * el_count == 0 do return {}
+    if bytes == 0 do return {}
 
-    // TODO: Add suballocation to a suballocation list in allocs.
-    // This lets us do bounds checking on arena allocated pointers for example.
     suballoc_p := addr
     if suballoc_p.cpu != nil {
         suballoc_p.cpu = auto_cast(uintptr(suballoc_p.cpu) + uintptr(offset))
     }
     suballoc_p.gpu.ptr = auto_cast(uintptr(suballoc_p.gpu.ptr) + uintptr(offset))
+
+    // Update internal _impl.
+    addr_impl := transmute(Alloc_Impl_Info) addr._impl
+    addr_impl.range_end = rawptr(uintptr(suballoc_p.gpu.ptr) + uintptr(bytes))
+    suballoc_p._impl = transmute([2]u64) addr_impl
+
     return suballoc_p
 }
 
@@ -1381,6 +1387,7 @@ _mem_free_raw :: proc(addr: gpuptr, loc := #caller_location)
         ok := true
         if addr != {} {
             ok &= check_ptr(addr, "addr", loc)
+            ok &= check_ptr_must_not_be_suballoc(addr, "addr", loc)
         }
         if !ok do return
     }
@@ -2839,13 +2846,15 @@ _cmd_draw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data: gpuptr,
 _cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
                               index_format: Index_Format, index_count: u32, instance_count: u32 = 1, loc := #caller_location)
 {
+
     if ctx.validation
     {
+        index_size: u32 = 4 if index_format == .U32 else 2
         ok := true
         ok &= pool_check(&ctx.command_buffers, cmd_buf, "cmd_buf", loc)
         ok &= check_ptr_allow_nil(vertex_data, "vertex_data", loc)
         ok &= check_ptr_allow_nil(fragment_data, "fragment_data", loc)
-        ok &= check_ptr_allow_nil(indices, "indices", loc)
+        ok &= check_ptr_range(indices, index_size * index_count, "indices", loc)
         if !ok do return
     }
 
@@ -3692,10 +3701,34 @@ check_ptr_range :: proc(p: gpuptr, #any_int size: i64, name: string, loc: runtim
     }
     alloc_info := pool_get(&ctx.allocs, alloc_handle)
 
-    if uintptr(p.ptr) + uintptr(size) > uintptr(alloc_info.gpu) + uintptr(alloc_info.buf_size) || uintptr(p.ptr) < uintptr(alloc_info.gpu) {
-        log.errorf("'%v' address is out of range for the designated allocation. %v bytes were allocated, but you're attempting to access [%v, %v].",
-                   name, alloc_info.buf_size, i64(uintptr(p.ptr)) - i64(uintptr(alloc_info.gpu)), size, location = loc)
+    if uintptr(p.ptr) + uintptr(size) > uintptr(alloc_impl.range_end) || uintptr(p.ptr) < uintptr(alloc_info.gpu) {
+        log.errorf("'%v' address is out of range for the designated allocation. %v bytes were allocated, but you're attempting to access [0, %v].",
+                   name, i64(uintptr(alloc_impl.range_end)) - i64(uintptr(p.ptr)), size, location = loc)
         return true  // Proceed with execution, make sure to clamp accesses.
+    }
+
+    return true
+}
+
+check_ptr_must_not_be_suballoc :: proc(p: gpuptr, name: string, loc: runtime.Source_Code_Location) -> bool
+{
+    if p == {} {
+        log.errorf("'%v' address is nil.", name, location = loc)
+        return false
+    }
+
+    alloc_impl := transmute(Alloc_Impl_Info) p._impl
+    alloc_handle := alloc_impl.handle
+    if !pool_check_no_message(&ctx.allocs, alloc_handle) {
+        log.errorf("'%v' address is stale, has been freed before.", name, location = loc)
+        return false
+    }
+    alloc_info := pool_get(&ctx.allocs, alloc_handle)
+
+    end_ptr := rawptr(uintptr(alloc_info.gpu) + uintptr(alloc_info.buf_size))
+    if uintptr(alloc_impl.range_end) < uintptr(end_ptr) || uintptr(p.ptr) > uintptr(alloc_info.gpu) {
+        log.errorf("'%v' address was suballocated, need an actual allocation here.", name, location = loc)
+        return false
     }
 
     return true
