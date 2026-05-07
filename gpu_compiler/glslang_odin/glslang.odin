@@ -7,7 +7,8 @@ import "core:c"
 
 when ODIN_OS == .Windows
 {
-    when ODIN_DEBUG
+    //when ODIN_DEBUG
+    when false
     {
         @(extra_linker_flags = "/NODEFAULTLIB:libcmt")  // In case of 4099 warnings, then use /ignore:4099
         foreign import glslang {

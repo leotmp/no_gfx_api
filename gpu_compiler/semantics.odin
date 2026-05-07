@@ -6,6 +6,7 @@ package main
 
 import "base:runtime"
 import "core:fmt"
+import str "core:strings"
 
 typecheck_ast :: proc(ast: ^Ast, file: File, allocator: runtime.Allocator) -> bool
 {
@@ -406,55 +407,58 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
                 if arg.type.kind == .Poison do break expr_switch
             }
 
-            // Handle intrinsics
             target, is_ident := expr.target.derived_expr.(^Ast_Ident_Expr)
+
+            // Handle cast-like constructors
+            if is_ident && len(expr.args) == 1
+            {
+                cast_to: ^Ast_Type
+                switch target.token.text
+                {
+                    case "uint":  cast_to = &UINT_TYPE
+                    case "int":   cast_to = &INT_TYPE
+                    case "float": cast_to = &FLOAT_TYPE
+                    case "bool":  cast_to = &BOOL_TYPE
+                }
+
+                if cast_to != nil
+                {
+                    if !type_cast_allowed(expr.args[0].type, cast_to) {
+                        typecheck_error(c, expr.args[0].token, "Cast not allowed for these types: from '%v' to '%v'.", type_to_string(expr.args[0].type, arena = scratch), type_to_string(cast_to, arena = scratch))
+                    }
+                    expr.type = cast_to
+                    break
+                }
+            }
+
+            // Handle intrinsics
             if is_ident
             {
-                // Try to resolve intrinsic overloads
-                for intr in INTRINSICS
+                found, ok_l := intrinsic_lookup(c, target.token, expr.args)
+                if !ok_l do break
+
+                if found != nil
                 {
-                    if intr.name == target.token.text && intr.type.kind == .Proc
+                    expr.target.type = found.type
+                    expr.type = found.type.ret
+
+                    if target.token.text == "rayquery_init" ||
+                       target.token.text == "rayquery_proceed" ||
+                       target.token.text == "rayquery_candidate" ||
+                       target.token.text == "rayquery_accept" ||
+                       target.token.text == "rayquery_result" {
+                        ast.used_features += { .Raytracing }
+                    }
+
+                    if target.token.text == "printf"
                     {
-                        arg_count_matches := len(intr.type.args) == len(expr.args)
-                        arg_count_matches |= intr.type.is_variadic && len(expr.args) >= len(intr.type.args)
-                        if arg_count_matches
-                        {
-                            match := true
-                            for i in 0..<len(intr.type.args)
-                            {
-                                arg := expr.args[i]
-                                if !type_implicit_convert(arg.type, intr.type.args[i].type)
-                                {
-                                    match = false
-                                    break
-                                }
-                            }
-
-                            if match
-                            {
-                                expr.target.type = intr.type
-                                expr.type = intr.type.ret
-
-                                if target.token.text == "rayquery_init" ||
-                                   target.token.text == "rayquery_proceed" ||
-                                   target.token.text == "rayquery_candidate" ||
-                                   target.token.text == "rayquery_accept" ||
-                                   target.token.text == "rayquery_result" {
-                                    ast.used_features += { .Raytracing }
-                                }
-
-                                if target.token.text == "printf"
-                                {
-                                    if !check_printf(c, expr) {
-                                        return
-                                    }
-                                }
-
-                                expr.glsl_name = intr.glsl_name
-                                break expr_switch
-                            }
+                        if !check_printf(c, expr) {
+                            return
                         }
                     }
+
+                    expr.glsl_name = found.glsl_name
+                    break
                 }
             }
 
@@ -555,6 +559,102 @@ decl_lookup :: proc(using c: ^Checker, token: Token) -> ^Ast_Decl
     return nil
 }
 
+// Try to resolve intrinsic overloads
+intrinsic_lookup :: proc(using c: ^Checker, token: Token, args: []^Ast_Expr) -> (found: ^Ast_Decl, ok: bool)
+{
+    scratch, _ := acquire_scratch()
+    name_is_intr := false
+
+    // Check for possible implicit type conversions.
+    overload_candidates := make([dynamic]^Ast_Decl, allocator = scratch)
+    for intr in INTRINSICS
+    {
+        if intr.name == token.text && intr.type.kind == .Proc
+        {
+            name_is_intr = true
+
+            arg_count_matches := len(intr.type.args) == len(args)
+            arg_count_matches |= intr.type.is_variadic && len(args) >= len(intr.type.args)
+            if arg_count_matches
+            {
+                match := true
+                for i in 0..<len(intr.type.args)
+                {
+                    arg := args[i]
+                    if !type_implicit_convert(arg.type, intr.type.args[i].type)
+                    {
+                        match = false
+                        break
+                    }
+                }
+
+                if match do append(&overload_candidates, intr)
+            }
+        }
+    }
+
+    if !name_is_intr do return nil, true
+    if len(overload_candidates) == 1 do return overload_candidates[0], true
+
+    // If there are multiple possible candidates and one isn't
+    // an exact match that is an error (ambiguous overload).
+    for candidate in overload_candidates
+    {
+        exact_match := true
+        for i in 0..<len(candidate.type.args)
+        {
+            arg := args[i]
+            if !same_type(arg.type, candidate.type.args[i].type)
+            {
+                exact_match = false
+                break
+            }
+        }
+
+        if exact_match do return candidate, true
+    }
+
+    // Failure!
+
+    sb := str.builder_make_none()
+    defer str.builder_destroy(&sb)
+
+    str.write_string(&sb, "\tGiven argument types:\n")
+    for arg in args {
+        fmt.sbprintfln(&sb, "\t - %v", type_to_string(arg.type, arena = scratch))
+    }
+
+    str.write_string(&sb, "Did you mean one of the following overloads?\n")
+    for intr in INTRINSICS
+    {
+        if intr.name == token.text && intr.type.kind == .Proc
+        {
+            fmt.sbprintf(&sb, "\t%v :: (", intr.name)
+            for arg in intr.type.args {
+                fmt.sbprintf(&sb, "%v: %v", arg.name, type_to_string(arg.type, arena = scratch))
+            }
+            if intr.type.ret != nil {
+                fmt.sbprintfln(&sb, ") -> %v", type_to_string(intr.type.ret, arena = scratch))
+            } else {
+                fmt.sbprintfln(&sb, ")")
+            }
+        }
+    }
+
+    if len(overload_candidates) == 0  // It matches the name of an intrinsic but there is no matching overload
+    {
+        set_msg_after(str.to_string(sb))
+        typecheck_error(c, token, "No matching overload found for intrinsic '%v':", token.text)
+        return nil, false
+    }
+    else  // No exact match was found, so there's ambiguity here.
+    {
+        set_msg_after(str.to_string(sb))
+        typecheck_error(c, token, "Ambiguous call for intrinsic '%v' that match with the given arguments:", token.text)
+        return nil, false
+    }
+}
+
 resolve_type :: proc(using c: ^Checker, type: ^Ast_Type)
 {
     base := type_get_base(type)
@@ -617,16 +717,6 @@ add_intrinsics :: proc()
     add_intrinsic("float_bits_to_int", { &FLOAT_TYPE }, { "x" }, &UINT_TYPE, glsl_name = "floatBitsToInt")
 
     // Constructors
-    add_intrinsic("uint", { &FLOAT_TYPE }, { "x" }, &UINT_TYPE)
-    add_intrinsic("uint", { &UINT_TYPE }, { "x" }, &UINT_TYPE)
-    add_intrinsic("uint", { &INT_TYPE }, { "x" }, &UINT_TYPE)
-    add_intrinsic("int", { &FLOAT_TYPE }, { "x" }, &INT_TYPE)
-    add_intrinsic("int", { &UINT_TYPE }, { "x" }, &INT_TYPE)
-    add_intrinsic("int", { &INT_TYPE }, { "x" }, &INT_TYPE)
-    add_intrinsic("float", { &FLOAT_TYPE }, { "x" }, &FLOAT_TYPE)
-    add_intrinsic("float", { &INT_TYPE }, { "x" }, &FLOAT_TYPE)
-    add_intrinsic("float", { &UINT_TYPE }, { "x" }, &FLOAT_TYPE)
-    add_intrinsic("float", { &BOOL_TYPE }, { "x" }, &FLOAT_TYPE)
     add_intrinsic("vec2", { &FLOAT_TYPE }, { "x" }, &VEC2_TYPE)
     add_intrinsic("vec2", { &FLOAT_TYPE, &FLOAT_TYPE }, { "x", "y" }, &VEC2_TYPE)
     add_intrinsic("vec2", { &VEC2_TYPE }, { "x" }, &VEC2_TYPE)
@@ -919,6 +1009,16 @@ if_expr_result_type :: proc(then_type: ^Ast_Type, else_type: ^Ast_Type) -> ^Ast_
 type_cast_allowed :: proc(from: ^Ast_Type, to: ^Ast_Type) -> bool
 {
     if type_implicit_convert(from, to) do return true
+
+    if type_implicit_convert(from, &BOOL_TYPE) && type_implicit_convert(to, &FLOAT_TYPE) {
+        return true
+    }
+    if type_implicit_convert(from, &BOOL_TYPE) && type_implicit_convert(to, &INT_TYPE) {
+        return true
+    }
+    if type_implicit_convert(from, &BOOL_TYPE) && type_implicit_convert(to, &UINT_TYPE) {
+        return true
+    }
 
     for i in 0..<2
     {

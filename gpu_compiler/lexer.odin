@@ -358,15 +358,25 @@ eat_all_whitespace :: proc(using lexer: ^Lexer)
     }
 }
 
+@(private="file")
+MSG_AFTER: string
+set_msg_after :: proc(after: string)
+{
+    MSG_AFTER = after
+}
+
 error_msg :: proc(file: File, token: Token, fmt_str: string, args: ..any)
 {
+    // Reset globals
+    defer MSG_AFTER = ""
+
     if supports_ansi() {
         fmt.printf("%v(%v:%v): %vError%v: ", file.filename, token.line+1, token.col_start+1, "\033[31m", "\033[0m")
     } else {
         fmt.printf("%v(%v:%v): Error: ", file.filename, token.line+1, token.col_start+1)
     }
     fmt.printfln(fmt_str, ..args)
-    fmt.print("    ")
+    fmt.print("\t")
 
     // Find and print line of code
     offset_begin := token.offset
@@ -405,7 +415,7 @@ error_msg :: proc(file: File, token: Token, fmt_str: string, args: ..any)
 
     // Print token underline
     {
-        fmt.print("    ")
+        fmt.print("\t")
         for _ in 0..<int(token.col_start)-whitespace_count {
             fmt.print(" ")
         }
@@ -425,6 +435,11 @@ error_msg :: proc(file: File, token: Token, fmt_str: string, args: ..any)
         }
 
         fmt.print("\n")
+    }
+
+    // Print "after message"
+    {
+        fmt.print(MSG_AFTER)
     }
 }
 
