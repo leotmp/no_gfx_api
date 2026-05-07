@@ -5,7 +5,6 @@ import "core:fmt"
 import vmem "core:mem/virtual"
 import "core:strings"
 import "base:runtime"
-import "core:os"
 import str "core:strings"
 
 Shader_Type :: enum
@@ -15,7 +14,7 @@ Shader_Type :: enum
     Compute
 }
 
-codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string, output_path: string)
+codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> string
 {
     writer.ast = ast
     writer.shader_type = shader_type
@@ -260,7 +259,7 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string, output_p
         writeln("")
     }
 
-    writer_output_to_file(output_path)
+    return strings.to_string(writer.builder)
 }
 
 codegen_statement :: proc(statement: ^Ast_Statement, insert_semi := true)
@@ -1077,13 +1076,6 @@ write_indentation :: proc()
     for _ in 0..<4*writer.indentation {
         fmt.sbprint(&writer.builder, " ")
     }
-}
-
-@(private="file")
-writer_output_to_file :: proc(path: string)
-{
-    err := os.write_entire_file_from_string(path, strings.to_string(writer.builder))
-    ensure(err == nil)
 }
 
 Intrinsics_Code :: `

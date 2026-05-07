@@ -154,8 +154,11 @@ Token :: struct
     offset: u32,  // Offset into file
 }
 
-lex_file :: proc(filename: string, file_content: []u8, allocator: runtime.Allocator) -> []Token
+lex_file :: proc(file: File, allocator: runtime.Allocator) -> []Token
 {
+    filename := file.filename
+    file_content := file.content
+
     tokens := make([dynamic]Token, allocator = allocator)
 
     lexer := Lexer {

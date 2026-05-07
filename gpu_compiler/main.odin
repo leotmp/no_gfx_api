@@ -8,8 +8,12 @@ import vmem "core:mem/virtual"
 import str "core:strings"
 import "base:runtime"
 import fp "core:path/filepath"
+import "core:slice"
+import "core:math"
 
 import "core:sys/windows"
+
+import glslang "glslang_odin"
 
 main :: proc()
 {
@@ -35,8 +39,8 @@ main :: proc()
     perm_arena := vmem.arena_allocator(&perm_arena_backing)
     defer free_all(perm_arena)
 
-    path := os.args[1]
-    shader_type_str := fp.ext(fp.stem(path))
+    input_path := os.args[1]
+    shader_type_str := fp.ext(fp.stem(input_path))
     shader_type: Shader_Type
     if shader_type_str == ".vert" {
         shader_type = .Vertex
@@ -49,26 +53,29 @@ main :: proc()
         os.exit(1)
     }
 
-    output_path := str.concatenate({ fp.dir(path), "/", fp.stem(path), ".glsl" }, allocator = perm_arena)
-    output_path = output_path
+    // output_path_glsl := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".glsl" }, allocator = perm_arena)
+    output_path_spv := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".spv" }, allocator = perm_arena)
 
-    file_content, ok := load_file_and_null_terminate(path, allocator = perm_arena)
+    file_content, ok := load_file_and_null_terminate(input_path, allocator = perm_arena)
     if !ok
     {
         fmt.println("Error: Failed to read file.")
         os.exit(1)
     }
 
-    file := File { path, file_content }
+    file := File { input_path, file_content }
 
-    tokens := lex_file(path, file_content, allocator = perm_arena)
+    tokens := lex_file(file, allocator = perm_arena)
     ast, ok_p := parse_file(file, tokens, allocator = perm_arena)
     if !ok_p do os.exit(1)
     ok_t := typecheck_ast(&ast, file, allocator = perm_arena)
     if !ok_t do os.exit(1)
-    codegen(ast, shader_type, path, output_path)
+    glsl_source := codegen(ast, shader_type, input_path)
 
-    fmt.println(path)
+    ok_c := compile_glsl_to_spirv(shader_type, glsl_source, input_path, output_path_spv)
+    if !ok_c do os.exit(1)
+
+    fmt.println(input_path)
 }
 
 load_file_and_null_terminate :: proc(path: string, allocator: runtime.Allocator) -> ([]u8, bool)
@@ -131,4 +138,124 @@ acquire_scratch :: proc(used_allocators: ..mem.Allocator) -> (mem.Allocator, vme
 release_scratch :: #force_inline proc(allocator: mem.Allocator, temp: vmem.Arena_Temp)
 {
     vmem.arena_temp_end(temp)
+}
+
+compile_glsl_to_spirv :: proc(shader_type: Shader_Type, glsl_source: string, input_path: string, output_path: string) -> bool
+{
+    stage: glslang.Stage
+    switch shader_type
+    {
+        case .Vertex:   stage = .VERTEX
+        case .Fragment: stage = .FRAGMENT
+        case .Compute:  stage = .COMPUTE
+    }
+
+    scratch, _ := acquire_scratch()
+    glsl_source_cstr := str.clone_to_cstring(glsl_source, allocator = scratch)
+
+    input := glslang.input_t {
+        language = .GLSL,
+        stage = stage,
+        client = .VULKAN,
+        client_version = .VULKAN_1_3,
+        target_language = .SPV,
+        target_language_version = .SPV_1_5,
+        code = glsl_source_cstr,
+        default_version = 130,
+        default_profile = .NO_PROFILE,
+        force_default_version_and_profile = false,
+        forward_compatible = false,
+        messages = .DEFAULT_BIT,
+        resource = glslang.default_resource(),
+    }
+
+    shader := glslang.shader_create(&input)
+    defer glslang.shader_delete(shader)
+
+    if glslang.shader_preprocess(shader, &input) == 0
+    {
+        fmt.printf("%s: GLSL preprocessing failed. This is a bug, please report.\n", input_path)
+        fmt.printf("%s\n", glslang.shader_get_info_log(shader))
+        fmt.printf("%s\n", glslang.shader_get_info_debug_log(shader))
+        fmt.printf("GLSL source:\n")
+        print_file_with_line_nums(glsl_source)
+        return false
+    }
+
+    if glslang.shader_parse(shader, &input) == 0
+    {
+        preprocessed := str.clone_from_cstring(glslang.shader_get_preprocessed_code(shader), allocator = scratch)
+
+        fmt.printf("%s: GLSL parsing failed. This is a bug, please report.\n", input_path)
+        fmt.printf("%s\n", glslang.shader_get_info_log(shader))
+        fmt.printf("%s\n", glslang.shader_get_info_debug_log(shader))
+        fmt.printf("GLSL source (preprocessed):\n")
+        print_file_with_line_nums(preprocessed)
+        return false
+    }
+
+    program := glslang.program_create()
+    defer glslang.program_delete(program)
+    glslang.program_add_shader(program, shader)
+
+    if glslang.program_link(program, .SPV_RULES_BIT | .VULKAN_RULES_BIT) == 0
+    {
+        fmt.printf("%s: GLSL linking failed. This is a bug, please report.\n", input_path)
+        fmt.printf("%s\n", glslang.program_get_info_log(program))
+        fmt.printf("%s\n", glslang.program_get_info_debug_log(program))
+        return false
+    }
+
+    glslang.program_SPIRV_generate(program, stage)
+
+    spirv_binary := make([]u32, glslang.program_SPIRV_get_size(program))
+    defer delete(spirv_binary)
+    glslang.program_SPIRV_get(program, raw_data(spirv_binary))
+
+    spirv_messages := glslang.program_SPIRV_get_messages(program)
+    if spirv_messages != nil {
+        fmt.printf("(%s) %s\b", input_path, spirv_messages)
+    }
+
+    err := os.write_entire_file_from_bytes(output_path, slice.to_bytes(spirv_binary))
+    ensure(err == nil)
+
+    return true
+}
+
+// NOTE: Only used for debugging of compiler bugs, speed doesn't matter here.
+print_file_with_line_nums :: proc(content: string)
+{
+    if content == "" do return
+
+    line_count := 1
+    for c in content {
+        if c == '\n' do line_count += 1
+    }
+
+    cur_line := 1
+    print_line_num(cur_line, line_count)
+    for c in content
+    {
+        if c == '\n'
+        {
+            fmt.print("\n")
+            cur_line += 1
+            print_line_num(cur_line, line_count)
+        }
+        else
+        {
+            fmt.print(c)
+        }
+    }
+
+    print_line_num :: proc(line_num: int, total_line_count: int)
+    {
+        total_digit_count := math.count_digits_of_base(total_line_count, 10)
+        line_num_digit_count := math.count_digits_of_base(line_num, 10)
+        fmt.print(line_num)
+        for _ in 0..<total_digit_count - line_num_digit_count + 4 {
+            fmt.print(" ")
+        }
+    }
 }
