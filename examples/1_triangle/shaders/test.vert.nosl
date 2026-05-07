@@ -7,7 +7,7 @@ Vertex :: struct
 
 Data :: struct
 {
-    verts: []Vertex,
+    verts: mut[]Vertex,
 }
 
 Output :: struct
@@ -18,6 +18,7 @@ Output :: struct
 
 main :: (vert_id: uint @vert_id, data: ^Data @data) -> Output
 {
+    data.verts[vert_id].pos = vec3(0);
     out: Output;
     out.pos = vec4(data.verts[vert_id].pos, 1.0);
     out.color = vec4(data.verts[vert_id].color, 1.0);

@@ -75,6 +75,7 @@ Token_Type :: enum
     Return,
     Discard,
     Cast,
+    Mut,
 
     // Literals
     IntLit,
@@ -102,6 +103,7 @@ Keywords := map[string]Token_Type {
     "flat"   = .Flat,
     "no_perspective" = .Noperspective,
     "centroid" = .Centroid,
+    "mut" = .Mut,
 }
 One_Char_Operators := map[u8]Token_Type {
     '(' = .LParen,
@@ -548,6 +550,7 @@ token_type_to_string :: proc(type: Token_Type) -> string
         case .Flat:         return "flat"
         case .Noperspective:return "no_perspective"
         case .Centroid:     return "centroid"
+        case .Mut:          return "mut"
         case .Arrow:        return "->"
         case .Struct:       return "struct"
         case .If:           return "if"

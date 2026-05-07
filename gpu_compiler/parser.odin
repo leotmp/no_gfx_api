@@ -360,6 +360,9 @@ Ast_Type :: struct
 
     name: Token,
 
+    // Applicable to pointer and slice types
+    is_mut: bool,
+
     // Proc
     args: []^Ast_Decl,
     ret: ^Ast_Type,
@@ -1050,10 +1053,19 @@ parse_type :: proc(using p: ^Parser) -> ^Ast_Type
 
     for true
     {
+        mut_token := tokens[at]
+        is_mut := optional_token(p, .Mut)
+
         if optional_token(p, .LBracket)
         {
             if tokens[at].type == .IntLit
             {
+                if is_mut
+                {
+                    parse_error_on_token(p, mut_token, "Expecting '^' or '[]' after 'mut'.")
+                    return {}
+                }
+
                 num_token := tokens[at]
                 at += 1
 
@@ -1070,6 +1082,7 @@ parse_type :: proc(using p: ^Parser) -> ^Ast_Type
             {
                 slice_type := new(Ast_Type)
                 slice_type.kind = .Slice
+                slice_type.is_mut = is_mut
                 if node != nil do node.base = slice_type
                 node = slice_type
                 if base == nil do base = node
@@ -1081,11 +1094,20 @@ parse_type :: proc(using p: ^Parser) -> ^Ast_Type
         {
             ptr_type := new(Ast_Type)
             ptr_type.kind = .Pointer
+            ptr_type.is_mut = is_mut
             if node != nil do node.base = ptr_type
             node = ptr_type
             if base == nil do base = node
         }
-        else do break
+        else
+        {
+            if is_mut
+            {
+                parse_error_on_token(p, mut_token, "Expecting '^' or '[]' after 'mut'.")
+                return {}
+            }
+            break
+        }
     }
 
     ident := required_token(p, .Ident)

@@ -58,7 +58,11 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
     for &type in ast.used_types
     {
         if type.kind == .Pointer || type.kind == .Slice {
-            writefln("layout(buffer_reference) readonly buffer %v;", type_to_glsl(&type))
+            if type.is_mut {
+                writefln("layout(buffer_reference) buffer %v;", type_to_glsl(&type))
+            } else {
+                writefln("layout(buffer_reference) readonly buffer %v;", type_to_glsl(&type))
+            }
         }
     }
 
@@ -140,10 +144,10 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
     for &type in ast.used_types
     {
         if type.kind == .Pointer {
-            writefln("layout(buffer_reference, scalar) readonly buffer %v {{ %v _res_; }};", type_to_glsl(&type), type_to_glsl(type.base))
+            writefln("layout(buffer_reference, scalar)%v buffer %v {{ %v _res_; }};", " readonly" if !type.is_mut else "", type_to_glsl(&type), type_to_glsl(type.base))
         }
         if type.kind == .Slice {
-            writefln("layout(buffer_reference, scalar) readonly buffer %v {{ %v _res_[]; }};", type_to_glsl(&type), type_to_glsl(type.base))
+            writefln("layout(buffer_reference, scalar)%v buffer %v {{ %v _res_[]; }};", " readonly" if !type.is_mut else "", type_to_glsl(&type), type_to_glsl(type.base))
         }
         if type.kind == .Array {
             writefln("struct %v {{ %v data[%v]; }};", type_to_glsl(&type), type_to_glsl(type.base), type.array_len)
@@ -755,8 +759,8 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
         case .None: return "void"
         case .Unknown: return "<UNKNOWN>"
         case .Label: return type.name.text
-        case .Pointer: return strings.concatenate({ "_res_ptr_", type_to_glsl(type.base) })
-        case .Slice: return strings.concatenate({ "_res_slice_", type_to_glsl(type.base) })
+        case .Pointer: return strings.concatenate({ "_res_ptr_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
+        case .Slice: return strings.concatenate({ "_res_slice_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
         case .Array:
         {
             scratch, _ := acquire_scratch()
@@ -804,8 +808,8 @@ type_to_glsl_unique :: proc(type: ^Ast_Type) -> string
         case .None: return "void"
         case .Unknown: return "<UNKNOWN>"
         case .Label: return type.name.text
-        case .Pointer: return strings.concatenate({ "_res_ptr_", type_to_glsl(type.base) })
-        case .Slice: return strings.concatenate({ "_res_slice_", type_to_glsl(type.base) })
+        case .Pointer: return strings.concatenate({ "_res_ptr_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
+        case .Slice: return strings.concatenate({ "_res_slice_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
         case .Array: return type_to_glsl(type)
         case .Proc: panic("Translating proc type is not implemented.")
         case .Struct: panic("Translating struct type is not implemented.")

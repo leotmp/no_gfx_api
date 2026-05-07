@@ -47,6 +47,11 @@ typecheck_ast :: proc(ast: ^Ast, file: File, allocator: runtime.Allocator) -> bo
                 {
                     resolve_type(&c, member.type)
                 }
+
+                if len(decl.type.members) == 0
+                {
+                    typecheck_error(&c, decl.token, "Empty structs aren't allowed.")
+                }
             }
             case .Label: {}
             case .Primitive: {}
@@ -387,7 +392,8 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
             }
 
             expr.type = field_type
-            expr.is_const = expr.target.is_const || expr.target.type.kind == .Pointer
+            inherit_constness := expr.target.type.kind != .Pointer && expr.target.is_const
+            expr.is_const = inherit_constness || (expr.target.type.kind == .Pointer && !expr.target.type.is_mut)
         }
         case ^Ast_Array_Access:
         {
@@ -402,7 +408,8 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
             }
 
             expr.type = expr.target.type.base
-            expr.is_const = expr.target.is_const || expr.target.type.kind == .Slice
+            inherit_constness := expr.target.type.kind != .Slice && expr.target.is_const
+            expr.is_const = inherit_constness || (expr.target.type.kind == .Slice && !expr.target.type.is_mut)
         }
         case ^Ast_Call:
         {
@@ -519,6 +526,7 @@ same_type :: proc(type1: ^Ast_Type, type2: ^Ast_Type) -> bool
     if type1.kind != type2.kind do return false
     if type1.primitive_kind != type2.primitive_kind do return false
     if type1.name.text != type2.name.text do return false
+    if type1.is_mut != type2.is_mut do return false
 
     has_base := type1.kind != .Primitive && type1.kind != .Label
     if has_base && !same_type(type1.base, type2.base) do return false
