@@ -131,6 +131,8 @@ typecheck_statement :: proc(using c: ^Checker, statement: ^Ast_Statement)
             typecheck_expr(c, stmt.rhs)
             if stmt.rhs.type.kind == .Poison do break
 
+            if !check_assign_lhs(c, stmt.lhs) do break
+
             if stmt.apply_op
             {
                 bin_op_type, ok := bin_op_result_type(stmt.bin_op, stmt.lhs.type, stmt.rhs.type)
@@ -385,6 +387,7 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
             }
 
             expr.type = field_type
+            expr.is_const = expr.target.is_const || expr.target.type.kind == .Pointer
         }
         case ^Ast_Array_Access:
         {
@@ -399,6 +402,7 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
             }
 
             expr.type = expr.target.type.base
+            expr.is_const = expr.target.is_const || expr.target.type.kind == .Slice
         }
         case ^Ast_Call:
         {
@@ -1219,4 +1223,36 @@ type_is_resource_id :: proc(type: ^Ast_Type) -> bool
         case .BVH_ID:        return true
     }
     return {}
+}
+
+check_assign_lhs :: proc(using c: ^Checker, expr: ^Ast_Expr) -> bool
+{
+    // Check expression kind first
+    kind_ok: bool
+    switch derived in expr.derived_expr
+    {
+        case ^Ast_Binary_Expr:   kind_ok = false
+        case ^Ast_Unary_Expr:    kind_ok = false
+        case ^Ast_Member_Access: kind_ok = true
+        case ^Ast_Array_Access:  kind_ok = true
+        case ^Ast_Ident_Expr:    kind_ok = true
+        case ^Ast_Lit_Expr:      kind_ok = false
+        case ^Ast_Call:          kind_ok = false
+        case ^Ast_If_Expr:       kind_ok = false
+        case ^Ast_Cast:          kind_ok = false
+    }
+
+    if !kind_ok {
+        typecheck_error(c, expr.token, "This expression is not an l-value, therefore it can't be assigned to.")
+        return false
+    }
+
+    // Check expression constness
+    if expr.is_const
+    {
+        typecheck_error(c, expr.token, "Pointers and slices are immutable by default, use 'mut^ T' and 'mut[] T' for mutability. Mutability affects performance.")
+        return false
+    }
+
+    return true
 }

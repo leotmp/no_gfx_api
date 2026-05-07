@@ -86,6 +86,7 @@ Ast_Expr :: struct
     using base: Ast_Node,
     derived_expr: Any_Expr,
     type: ^Ast_Type,
+    is_const: bool,
 }
 
 Ast_Attribute_Type :: enum
