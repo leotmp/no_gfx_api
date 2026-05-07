@@ -150,7 +150,7 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
             writefln("layout(buffer_reference, scalar)%v buffer %v {{ %v _res_[]; }};", " readonly" if !type.is_mut else "", type_to_glsl(&type), type_to_glsl(type.base))
         }
         if type.kind == .Array {
-            writefln("struct %v {{ %v data[%v]; }};", type_to_glsl(&type), type_to_glsl(type.base), type.array_len)
+            writefln("struct %v {{ %v data[%v]; }};", type_to_glsl(&type), type_to_glsl(type.base), type.dimensions.x)
         }
         // Prepare zero initialization for each used type
         if type.kind != .Primitive && type.kind != .Label {
@@ -692,7 +692,7 @@ compute_type_size_and_align :: proc(type: ^Ast_Type) -> (size: u32, align: u32)
         case .Array:
         {
             base_size, base_align := compute_type_size_and_align(type.base)
-            return type.array_len * base_size, base_align
+            return type.dimensions.x * base_size, base_align
         }
         case .Proc:    return 8, 8
         case .Primitive:
@@ -709,10 +709,8 @@ compute_type_size_and_align :: proc(type: ^Ast_Type) -> (size: u32, align: u32)
                 case .Texture_ID:    return 4, 4
                 case .Texture_RW_ID: return 4, 4
                 case .Sampler_ID:    return 4, 4
-                case .Vec2:          return 8, 4
-                case .Vec3:          return 12, 4
-                case .Vec4:          return 16, 4
-                case .Mat4:          return 64, 4
+                case .Vector:        return 4 * type.dimensions.x, 4
+                case .Matrix:        return 4 * type.dimensions.x * type.dimensions.y, 4
                 case .String:        return 0, 4
                 case .Ray_Query:     return 0, 4
                 case .BVH_ID:        return 4, 4
@@ -764,9 +762,7 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
         case .Array:
         {
             scratch, _ := acquire_scratch()
-            sb := str.builder_make_none(allocator = scratch)
-            fmt.sbprintf(&sb, "_res_array_%v_%v", type.array_len, type_to_string(type.base, arena = scratch))
-            return str.clone(str.to_string(sb), allocator = context.allocator)
+            return str.clone(fmt.tprintf("_res_array_%v_%v", type.dimensions.x, type_to_string(type.base, arena = scratch)))
         }
         case .Proc: panic("Translating proc type is not implemented.")
         case .Struct: panic("Translating struct type is not implemented.")
@@ -782,13 +778,18 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
                 case .Float: return "float"
                 case .Uint: return "uint"
                 case .Int: return "int"
-                case .Vec2: return "vec2"
-                case .Vec3: return "vec3"
-                case .Vec4: return "vec4"
+                case .Vector: return strings.clone(fmt.tprintf("vec%v", type.dimensions.x))
                 case .Texture_ID: return "uint"
                 case .Texture_RW_ID: return "uint"
                 case .Sampler_ID: return "uint"
-                case .Mat4: return "mat4"
+                case .Matrix:
+                {
+                    if type.dimensions.x == type.dimensions.y {
+                        return strings.clone(fmt.tprintf("mat%v", type.dimensions.x))
+                    } else {
+                        return strings.clone(fmt.tprintf("mat%vx%v", type.dimensions.x, type.dimensions.y))
+                    }
+                }
                 case .Ray_Query: return "rayQueryEXT"
                 case .BVH_ID: return "uint"
             }
@@ -802,40 +803,21 @@ type_to_glsl_unique :: proc(type: ^Ast_Type) -> string
 {
     if type == nil do return "void"
 
-    switch type.kind
+    #partial switch type.kind
     {
-        case .Poison: return "<POISON>"
-        case .None: return "void"
-        case .Unknown: return "<UNKNOWN>"
-        case .Label: return type.name.text
-        case .Pointer: return strings.concatenate({ "_res_ptr_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
-        case .Slice: return strings.concatenate({ "_res_slice_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
-        case .Array: return type_to_glsl(type)
-        case .Proc: panic("Translating proc type is not implemented.")
-        case .Struct: panic("Translating struct type is not implemented.")
         case .Primitive:
         {
-            switch type.primitive_kind
+            #partial switch type.primitive_kind
             {
-                case .None: return "NONE"
-                case .Untyped_Int: panic("Untyped int is not supposed to reach this stage.")
-                case .Untyped_Float: panic("Untyped float is not supposed to reach this stage.")
-                case .String: panic("String is not supposed to reach this stage.")
-                case .Bool: return "bool"
-                case .Float: return "float"
-                case .Uint: return "uint"
-                case .Int: return "int"
-                case .Vec2: return "vec2"
-                case .Vec3: return "vec3"
-                case .Vec4: return "vec4"
                 case .Texture_ID: return "texture_id"
                 case .Texture_RW_ID: return "texture_rw_id"
                 case .Sampler_ID: return "sampler_id"
-                case .Mat4: return "mat4"
                 case .Ray_Query: return "rayQueryEXT"
                 case .BVH_ID: return "bvh_id"
+                case: return type_to_glsl(type)
             }
         }
+        case: return type_to_glsl(type)
     }
     return ""
 }
@@ -1129,8 +1111,8 @@ struct Ray_Result
     uint primitive_idx_;
     vec2 barycentrics_;
     bool front_face_;
-    mat4 object_to_world_;
-    mat4 world_to_object_;
+    mat4x3 object_to_world_;
+    mat4x3 world_to_object_;
 };
 Ray_Result Ray_Result_ZERO;
 
@@ -1142,8 +1124,8 @@ Ray_Result rayquery_result(rayQueryEXT rq)
     res.instance_idx_  = rayQueryGetIntersectionInstanceIdEXT(rq, true);
     res.primitive_idx_ = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
     res.front_face_    = rayQueryGetIntersectionFrontFaceEXT(rq, true);
-    res.object_to_world_ = _res_mat4_from_mat4x3(rayQueryGetIntersectionObjectToWorldEXT(rq, true));
-    res.world_to_object_ = _res_mat4_from_mat4x3(rayQueryGetIntersectionWorldToObjectEXT(rq, true));
+    res.object_to_world_ = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
+    res.world_to_object_ = rayQueryGetIntersectionWorldToObjectEXT(rq, true);
     res.barycentrics_    = rayQueryGetIntersectionBarycentricsEXT(rq, true);
     return res;
 }
@@ -1156,8 +1138,8 @@ Ray_Result rayquery_candidate(rayQueryEXT rq)
     res.instance_idx_  = rayQueryGetIntersectionInstanceIdEXT(rq, false);
     res.primitive_idx_ = rayQueryGetIntersectionPrimitiveIndexEXT(rq, false);
     res.front_face_    = rayQueryGetIntersectionFrontFaceEXT(rq, false);
-    res.object_to_world_ = _res_mat4_from_mat4x3(rayQueryGetIntersectionObjectToWorldEXT(rq, false));
-    res.world_to_object_ = _res_mat4_from_mat4x3(rayQueryGetIntersectionWorldToObjectEXT(rq, false));
+    res.object_to_world_ = rayQueryGetIntersectionObjectToWorldEXT(rq, false);
+    res.world_to_object_ = rayQueryGetIntersectionWorldToObjectEXT(rq, false);
     res.barycentrics_    = rayQueryGetIntersectionBarycentricsEXT(rq, false);
     return res;
 }

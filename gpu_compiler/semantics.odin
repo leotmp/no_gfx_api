@@ -483,15 +483,23 @@ UINT_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Uint, name = { text
 UNTYPED_FLOAT_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Untyped_Float, name = { text = "untyped float" } }
 UNTYPED_INT_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Untyped_Int, name = { text = "untyped int" } }
 INT_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Int, name = { text = "int" } }
-VEC2_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vec2, name = { text = "vec2" } }
-VEC3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vec3, name = { text = "vec3" } }
-VEC4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vec4, name = { text = "vec4" } }
+VEC2_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, dimensions = { 2, 1 }, name = { text = "vec2" } }
+VEC3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, dimensions = { 3, 1 }, name = { text = "vec3" } }
+VEC4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, dimensions = { 4, 1 }, name = { text = "vec4" } }
 BOOL_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Bool, name = { text = "bool" } }
 TEXTURE_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Texture_ID, name = { text = "texture_id" } }
 TEXTURE_RW_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Texture_RW_ID, name = { text = "texture_rw_id" } }
 SAMPLER_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Sampler_ID, name = { text = "sampler_id" } }
 BVH_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .BVH_ID, name = { text = "bvh_id" } }
-MAT4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Mat4, name = { text = "mat4" } }
+MAT4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 4, 4 }, name = { text = "mat4" } }
+MAT4x2_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 4, 2 }, name = { text = "mat4x2" } }
+MAT4x3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 4, 3 }, name = { text = "mat4x3" } }
+MAT3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 3, 3 }, name = { text = "mat3" } }
+MAT3x2_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 3, 2 }, name = { text = "mat3x2" } }
+MAT3x4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 3, 4 }, name = { text = "mat3x4" } }
+MAT2_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 2, 2 }, name = { text = "mat2" } }
+MAT2x3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 2, 3 }, name = { text = "mat2x3" } }
+MAT2x4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Matrix, dimensions = { 2, 4 }, name = { text = "mat2x4" } }
 STRING_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .String, name = { text = "string" } }
 RAYQUERY_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Ray_Query, name = { text = "Ray_Query" } }
 
@@ -555,11 +563,13 @@ intrinsic_lookup :: proc(using c: ^Checker, token: Token, args: []^Ast_Expr) -> 
 
     // Check for possible implicit type conversions.
     overload_candidates := make([dynamic]^Ast_Decl, allocator = scratch)
+    num_overloads := 0
     for intr in INTRINSICS
     {
         if intr.name == token.text && intr.type.kind == .Proc
         {
             name_is_intr = true
+            num_overloads += 1
 
             arg_count_matches := len(intr.type.args) == len(args)
             arg_count_matches |= intr.type.is_variadic && len(args) >= len(intr.type.args)
@@ -603,6 +613,12 @@ intrinsic_lookup :: proc(using c: ^Checker, token: Token, args: []^Ast_Expr) -> 
     }
 
     // Failure!
+
+    if num_overloads == 1
+    {
+        // If there are no overloads, use normal error messages instead.
+        return nil, true
+    }
 
     sb := str.builder_make_none()
     defer str.builder_destroy(&sb)
@@ -693,7 +709,7 @@ add_intrinsics :: proc()
     add_intrinsic("texture_size", { &TEXTURE_RW_ID_TYPE }, { "tex_idx" }, &VEC2_TYPE, glsl_name = "image_size")
 
     // Raytracing
-    ray_result_type := add_intrinsic_struct("Ray_Result", { &UINT_TYPE, &FLOAT_TYPE, &UINT_TYPE, &UINT_TYPE, &VEC2_TYPE, &BOOL_TYPE, &MAT4_TYPE, &MAT4_TYPE }, { "kind", "t", "instance_idx", "primitive_idx", "barycentrics", "front_face", "object_to_world", "world_to_object" })
+    ray_result_type := add_intrinsic_struct("Ray_Result", { &UINT_TYPE, &FLOAT_TYPE, &UINT_TYPE, &UINT_TYPE, &VEC2_TYPE, &BOOL_TYPE, &MAT4x3_TYPE, &MAT4x3_TYPE }, { "kind", "t", "instance_idx", "primitive_idx", "barycentrics", "front_face", "object_to_world", "world_to_object" })
     ray_desc_type := add_intrinsic_struct("Ray_Desc", { &UINT_TYPE, &UINT_TYPE, &FLOAT_TYPE, &FLOAT_TYPE, &VEC3_TYPE, &VEC3_TYPE }, { "flags", "cull_mask", "t_min", "t_max", "origin", "dir" })
     add_intrinsic("rayquery_init", { ray_desc_type, &BVH_ID_TYPE }, { "desc", "bvh" }, &RAYQUERY_TYPE)
     add_intrinsic("rayquery_proceed", { &RAYQUERY_TYPE }, { "rq" }, &BOOL_TYPE)
@@ -810,7 +826,15 @@ add_intrinsics :: proc()
     add_intrinsic("smoothstep", { &FLOAT_TYPE, &FLOAT_TYPE, &VEC4_TYPE }, { "edge0", "edge1", "x" }, &VEC4_TYPE)
 
     // Matrix manipulation
+    add_intrinsic("transpose", { &MAT2_TYPE }, { "m" }, &MAT2_TYPE)
+    add_intrinsic("transpose", { &MAT2x3_TYPE }, { "m" }, &MAT3x2_TYPE)
+    add_intrinsic("transpose", { &MAT2x4_TYPE }, { "m" }, &MAT4x2_TYPE)
+    add_intrinsic("transpose", { &MAT3_TYPE }, { "m" }, &MAT3_TYPE)
+    add_intrinsic("transpose", { &MAT3x2_TYPE }, { "m" }, &MAT2x3_TYPE)
+    add_intrinsic("transpose", { &MAT3x4_TYPE }, { "m" }, &MAT4x3_TYPE)
     add_intrinsic("transpose", { &MAT4_TYPE }, { "m" }, &MAT4_TYPE)
+    add_intrinsic("transpose", { &MAT4x2_TYPE }, { "m" }, &MAT2x4_TYPE)
+    add_intrinsic("transpose", { &MAT4x3_TYPE }, { "m" }, &MAT3x4_TYPE)
 
     // Misc
     add_intrinsic("printf", { &STRING_TYPE }, { "fmt" }, is_variadic = true)
@@ -872,13 +896,15 @@ bin_op_result_type :: proc(op: Ast_Binary_Op, type1: ^Ast_Type, type2: ^Ast_Type
         return &POISON_TYPE, true
     }
 
-    if op == .Mul && type1.primitive_kind == .Mat4
+    if op == .Mul && type1.primitive_kind == .Matrix
     {
-        if type2.primitive_kind == .Vec4 do return &VEC4_TYPE, true
+        match_dims := type1.dimensions.x == type2.dimensions.x
+        if type2.primitive_kind == .Vector && match_dims do return make_vec_type(type1.dimensions.y), true
     }
-    else if op == .Mul && type1.primitive_kind == .Vec4
+    else if op == .Mul && type1.primitive_kind == .Vector
     {
-        if type2.primitive_kind == .Mat4 do return &VEC4_TYPE, true
+        match_dims := type1.dimensions.x == type2.dimensions.y
+        if type2.primitive_kind == .Matrix && match_dims do return make_vec_type(type2.dimensions.x), true
     }
 
     is_bit_manip := op == .Bitwise_And ||
@@ -917,13 +943,7 @@ bin_op_result_type :: proc(op: Ast_Binary_Op, type1: ^Ast_Type, type2: ^Ast_Type
         if t1.primitive_kind == .Untyped_Int && (t2.primitive_kind == .Uint || t2.primitive_kind == .Int) {
             return t2, true
         }
-        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vec2 {
-            return t2, true
-        }
-        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vec3 {
-            return t2, true
-        }
-        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vec4 {
+        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vector {
             return t2, true
         }
         if (op == .Add || op == .Minus) && type_is_resource_id(t1) && (type_implicit_convert(t2, &UINT_TYPE) || type_implicit_convert(t2, &INT_TYPE)) {
@@ -974,13 +994,7 @@ if_expr_result_type :: proc(then_type: ^Ast_Type, else_type: ^Ast_Type) -> ^Ast_
         if t1.primitive_kind == .Untyped_Int && (t2.primitive_kind == .Uint || t2.primitive_kind == .Int) {
             return t2
         }
-        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vec2 {
-            return t2
-        }
-        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vec3 {
-            return t2
-        }
-        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vec4 {
+        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vector {
             return t2
         }
     }
@@ -1121,13 +1135,11 @@ handle_vector_swizzle :: proc(expr_type: ^Ast_Type, str: string) -> (res: ^Ast_T
     if str == "" do return &POISON_TYPE, false
     if len(str) > 4 do return &POISON_TYPE, false
 
-    el_count: int
+    el_count: u32
     #partial switch expr_type.primitive_kind
     {
         case .Float: el_count = 1
-        case .Vec2: el_count = 2
-        case .Vec3: el_count = 3
-        case .Vec4: el_count = 4
+        case .Vector: el_count = expr_type.dimensions.x
         case: return &POISON_TYPE, false
     }
 
@@ -1196,10 +1208,8 @@ type_is_resource_id :: proc(type: ^Ast_Type) -> bool
         case .Texture_ID:    return true
         case .Texture_RW_ID: return true
         case .Sampler_ID:    return true
-        case .Vec2:          return false
-        case .Vec3:          return false
-        case .Vec4:          return false
-        case .Mat4:          return false
+        case .Vector:        return false
+        case .Matrix:        return false
         case .String:        return false
         case .Ray_Query:     return false
         case .BVH_ID:        return true
