@@ -104,7 +104,7 @@ build_imgui:
 # ==== Shaders ====
 
 shader_nosl:
-	./build/gpu_compiler$(exe_extension) "$(shader).nosl"
+	./build/gpu_compiler$(exe_extension) "$(shader).nosl" -out:"$(shader).spv"
 
 # Compiles NOSL shaders for one example
 shaders_nosl:

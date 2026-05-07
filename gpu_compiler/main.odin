@@ -10,17 +10,30 @@ import "base:runtime"
 import fp "core:path/filepath"
 import "core:slice"
 import "core:math"
+import "core:flags"
 
 import "core:sys/windows"
 
 import glslang "glslang_odin"
 
+Options :: struct
+{
+    file: ^os.File `args:"pos=0,required,file=r" usage:"Input file."`,
+    out: ^os.File `args:"pos=1,file=cw" usage:"Output file. Default: 'output.spv'"`,
+    print_glsl: bool `usage:"Print transpiled GLSL output."`
+}
+
 main :: proc()
 {
-    if len(os.args) != 2
+    opt: Options
+    style: flags.Parsing_Style = .Odin
+    flags.parse_or_exit(&opt, os.args, style)
+
+    if opt.out == nil
     {
-        fmt.println("Incorrect Usage. Try: gpu_compiler *.nosl")
-        os.exit(1)
+        output, err := os.open("./output.spv", { .Read, .Write, .Create, .Trunc })
+        ensure(err == nil)
+        opt.out = output
     }
 
     when ODIN_OS == .Windows
@@ -71,6 +84,10 @@ main :: proc()
     ok_t := typecheck_ast(&ast, file, allocator = perm_arena)
     if !ok_t do os.exit(1)
     glsl_source := codegen(ast, shader_type, input_path)
+
+    if opt.print_glsl {
+        print_file_with_line_nums(glsl_source)
+    }
 
     ok_c := compile_glsl_to_spirv(shader_type, glsl_source, input_path, output_path_spv)
     if !ok_c do os.exit(1)
@@ -248,6 +265,8 @@ print_file_with_line_nums :: proc(content: string)
             fmt.print(c)
         }
     }
+
+    fmt.println("")
 
     print_line_num :: proc(line_num: int, total_line_count: int)
     {
