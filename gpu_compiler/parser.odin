@@ -985,19 +985,7 @@ parse_postfix_expr :: proc(using p: ^Parser) -> ^Ast_Expr
                     target, is_ident := call.target.derived_expr.(^Ast_Ident_Expr)
                     if is_ident
                     {
-                        cast_to: ^Ast_Type
-                        switch target.token.text
-                        {
-                            case "float": cast_to = &FLOAT_TYPE
-                            case "uint":  cast_to = &UINT_TYPE
-                            case "int":   cast_to = &INT_TYPE
-                            case "vec2":  cast_to = &VEC2_TYPE
-                            case "vec3":  cast_to = &VEC3_TYPE
-                            case "vec4":  cast_to = &VEC4_TYPE
-                            case "bool":  cast_to = &BOOL_TYPE
-                            case "mat4":  cast_to = &MAT4_TYPE
-                        }
-
+                        cast_to := make_primitive_type_from_string(target.token)
                         if cast_to != nil
                         {
                             cast_expr.cast_to = cast_to
@@ -1138,47 +1126,10 @@ parse_type :: proc(using p: ^Parser) -> ^Ast_Type
     }
 
     ident := required_token(p, .Ident)
-    prim_type: Ast_Type_Primitive_Kind
-    dimensions: [2]u32
-    switch ident.text
-    {
-        case "float":         prim_type = .Float
-        case "uint":          prim_type = .Uint
-        case "int":           prim_type = .Int
-        case "vec2":          prim_type = .Vector; dimensions = { 2, 1 }
-        case "vec3":          prim_type = .Vector; dimensions = { 3, 1 }
-        case "vec4":          prim_type = .Vector; dimensions = { 4, 1 }
-        case "bool":          prim_type = .Bool
-        case "texture_id":    prim_type = .Texture_ID
-        case "texture_rw_id": prim_type = .Texture_RW_ID
-        case "sampler_id":    prim_type = .Sampler_ID
-        case "mat2":          prim_type = .Matrix; dimensions = { 2, 2 }
-        case "mat2x3":        prim_type = .Matrix; dimensions = { 2, 3 }
-        case "mat2x4":        prim_type = .Matrix; dimensions = { 2, 4 }
-        case "mat3":          prim_type = .Matrix; dimensions = { 3, 3 }
-        case "mat3x2":        prim_type = .Matrix; dimensions = { 3, 2 }
-        case "mat3x4":        prim_type = .Matrix; dimensions = { 3, 4 }
-        case "mat4":          prim_type = .Matrix; dimensions = { 4, 4 }
-        case "mat4x2":        prim_type = .Matrix; dimensions = { 4, 2 }
-        case "mat4x3":        prim_type = .Matrix; dimensions = { 4, 3 }
-        case "Ray_Query":     prim_type = .Ray_Query
-        case "bvh_id":        prim_type = .BVH_ID
-        case:                 prim_type = .None
-    }
-
-    ident_node := new(Ast_Type)
-    ident_node.name = ident
-    ident_node.primitive_kind = prim_type
-    ident_node.dimensions = dimensions
+    ident_node := make_type_from_string(ident)
     if node != nil do node.base = ident_node
     node = ident_node
     if base == nil do base = node
-
-    if prim_type == .None {
-        node.kind = .Label
-    } else {
-        node.kind = .Primitive
-    }
 
     add_type_if_not_present(p, base)
     return base
@@ -1457,12 +1408,108 @@ type_to_string :: proc(type: ^Ast_Type, arena: runtime.Allocator) -> string
     return str.clone(res, allocator = arena)
 }
 
-make_vec_type :: proc(dim: u32) -> ^Ast_Type
+make_vec_type :: proc(base_type: ^Ast_Type, dim: u32) -> ^Ast_Type
 {
     node := new(Ast_Type)
-    node.name.text = str.clone(fmt.tprintf("vec%v", dim))
+
+    prefix := ""
+    if base_type.primitive_kind == .Float {
+        prefix = ""
+    } else if base_type.primitive_kind == .Int {
+        prefix = "i"
+    } else if base_type.primitive_kind == .Uint {
+        prefix = "u"
+    } else {
+        panic("Not supported.")
+    }
+    node.name.text = str.clone(fmt.tprintf("%vvec%v", prefix, dim))
+
     node.kind = .Primitive
     node.primitive_kind = .Vector
     node.dimensions = { dim, 1 }
+    node.base = &FLOAT_TYPE
+    return node
+}
+
+make_type_from_string :: proc(name: Token) -> ^Ast_Type
+{
+    prim_type := make_primitive_type_from_string(name)
+    if prim_type != nil do return prim_type
+
+    node := new(Ast_Type)
+    node.name = name
+    node.kind = .Label
+    return node
+}
+
+make_primitive_type_from_string :: proc(name: Token) -> ^Ast_Type
+{
+    prim_type: Ast_Type_Primitive_Kind
+    dimensions: [2]u32
+    base_type: ^Ast_Type
+    switch name.text
+    {
+        case "float":         prim_type = .Float
+        case "uint":          prim_type = .Uint
+        case "int":           prim_type = .Int
+
+        case "vec2":          prim_type = .Vector; dimensions = { 2, 1 }; base_type = &FLOAT_TYPE
+        case "vec3":          prim_type = .Vector; dimensions = { 3, 1 }; base_type = &FLOAT_TYPE
+        case "vec4":          prim_type = .Vector; dimensions = { 4, 1 }; base_type = &FLOAT_TYPE
+
+        case "ivec2":         prim_type = .Vector; dimensions = { 2, 1 }; base_type = &INT_TYPE
+        case "ivec3":         prim_type = .Vector; dimensions = { 3, 1 }; base_type = &INT_TYPE
+        case "ivec4":         prim_type = .Vector; dimensions = { 4, 1 }; base_type = &INT_TYPE
+
+        case "uvec2":         prim_type = .Vector; dimensions = { 2, 1 }; base_type = &UINT_TYPE
+        case "uvec3":         prim_type = .Vector; dimensions = { 3, 1 }; base_type = &UINT_TYPE
+        case "uvec4":         prim_type = .Vector; dimensions = { 4, 1 }; base_type = &UINT_TYPE
+
+        case "bool":          prim_type = .Bool
+        case "texture_id":    prim_type = .Texture_ID
+        case "texture_rw_id": prim_type = .Texture_RW_ID
+        case "sampler_id":    prim_type = .Sampler_ID
+
+        case "mat2":          prim_type = .Matrix; dimensions = { 2, 2 }; base_type = &FLOAT_TYPE
+        case "mat2x3":        prim_type = .Matrix; dimensions = { 2, 3 }; base_type = &FLOAT_TYPE
+        case "mat2x4":        prim_type = .Matrix; dimensions = { 2, 4 }; base_type = &FLOAT_TYPE
+        case "mat3":          prim_type = .Matrix; dimensions = { 3, 3 }; base_type = &FLOAT_TYPE
+        case "mat3x2":        prim_type = .Matrix; dimensions = { 3, 2 }; base_type = &FLOAT_TYPE
+        case "mat3x4":        prim_type = .Matrix; dimensions = { 3, 4 }; base_type = &FLOAT_TYPE
+        case "mat4":          prim_type = .Matrix; dimensions = { 4, 4 }; base_type = &FLOAT_TYPE
+        case "mat4x2":        prim_type = .Matrix; dimensions = { 4, 2 }; base_type = &FLOAT_TYPE
+        case "mat4x3":        prim_type = .Matrix; dimensions = { 4, 3 }; base_type = &FLOAT_TYPE
+
+        case "imat2":         prim_type = .Matrix; dimensions = { 2, 2 }; base_type = &INT_TYPE
+        case "imat2x3":       prim_type = .Matrix; dimensions = { 2, 3 }; base_type = &INT_TYPE
+        case "imat2x4":       prim_type = .Matrix; dimensions = { 2, 4 }; base_type = &INT_TYPE
+        case "imat3":         prim_type = .Matrix; dimensions = { 3, 3 }; base_type = &INT_TYPE
+        case "imat3x2":       prim_type = .Matrix; dimensions = { 3, 2 }; base_type = &INT_TYPE
+        case "imat3x4":       prim_type = .Matrix; dimensions = { 3, 4 }; base_type = &INT_TYPE
+        case "imat4":         prim_type = .Matrix; dimensions = { 4, 4 }; base_type = &INT_TYPE
+        case "imat4x2":       prim_type = .Matrix; dimensions = { 4, 2 }; base_type = &INT_TYPE
+        case "imat4x3":       prim_type = .Matrix; dimensions = { 4, 3 }; base_type = &INT_TYPE
+
+        case "umat2":         prim_type = .Matrix; dimensions = { 2, 2 }; base_type = &UINT_TYPE
+        case "umat2x3":       prim_type = .Matrix; dimensions = { 2, 3 }; base_type = &UINT_TYPE
+        case "umat2x4":       prim_type = .Matrix; dimensions = { 2, 4 }; base_type = &UINT_TYPE
+        case "umat3":         prim_type = .Matrix; dimensions = { 3, 3 }; base_type = &UINT_TYPE
+        case "umat3x2":       prim_type = .Matrix; dimensions = { 3, 2 }; base_type = &UINT_TYPE
+        case "umat3x4":       prim_type = .Matrix; dimensions = { 3, 4 }; base_type = &UINT_TYPE
+        case "umat4":         prim_type = .Matrix; dimensions = { 4, 4 }; base_type = &UINT_TYPE
+        case "umat4x2":       prim_type = .Matrix; dimensions = { 4, 2 }; base_type = &UINT_TYPE
+        case "umat4x3":       prim_type = .Matrix; dimensions = { 4, 3 }; base_type = &UINT_TYPE
+
+        case "Ray_Query":     prim_type = .Ray_Query
+        case "bvh_id":        prim_type = .BVH_ID
+        case:                 return nil
+    }
+
+    node := new(Ast_Type)
+    node.name = name
+    node.base = base_type
+    node.kind = .Primitive
+    node.primitive_kind = prim_type
+    node.dimensions = dimensions
     return node
 }

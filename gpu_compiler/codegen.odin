@@ -152,10 +152,6 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
         if type.kind == .Array {
             writefln("struct %v {{ %v data[%v]; }};", type_to_glsl(&type), type_to_glsl(type.base), type.dimensions.x)
         }
-        // Prepare zero initialization for each used type
-        if type.kind != .Primitive && type.kind != .Label {
-            writefln("%v %v_ZERO;", type_to_glsl(&type), type_to_glsl_unique(&type))
-        }
     }
 
     if ast.used_indirect_data_type != nil
@@ -236,7 +232,7 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
                     if var_decl.type.primitive_kind == .Ray_Query {
                         writefln("%v %v;", type_to_glsl(var_decl.type), var_decl.glsl_name)
                     } else {
-                        writefln("%v %v = %v_ZERO;", type_to_glsl(var_decl.type), var_decl.glsl_name, type_to_glsl_unique(var_decl.type))
+                        writefln("%v %v;", type_to_glsl(var_decl.type), var_decl.glsl_name)
                     }
                 }
                 else
@@ -661,7 +657,6 @@ generate_struct_decl :: proc(generated: ^map[^Ast_Type]struct{}, type: ^Ast_Type
         write_padding_field(offset, old_offset, &padding_field_id)
     }
     writeln("};")
-    writefln("%v %v_ZERO;", name, name)
 
     generated[type] = {}
 
@@ -778,16 +773,39 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
                 case .Float: return "float"
                 case .Uint: return "uint"
                 case .Int: return "int"
-                case .Vector: return strings.clone(fmt.tprintf("vec%v", type.dimensions.x))
+                case .Vector:
+                {
+                    prefix := ""
+                    if type.base.primitive_kind == .Float {
+                        prefix = ""
+                    } else if type.base.primitive_kind == .Int {
+                        prefix = "i"
+                    } else if type.base.primitive_kind == .Uint {
+                        prefix = "u"
+                    } else {
+                        panic("Not supported.")
+                    }
+                    return strings.clone(fmt.tprintf("%vvec%v", prefix, type.dimensions.x))
+                }
                 case .Texture_ID: return "uint"
                 case .Texture_RW_ID: return "uint"
                 case .Sampler_ID: return "uint"
                 case .Matrix:
                 {
-                    if type.dimensions.x == type.dimensions.y {
-                        return strings.clone(fmt.tprintf("mat%v", type.dimensions.x))
+                    prefix := ""
+                    if type.base.primitive_kind == .Float {
+                        prefix = ""
+                    } else if type.base.primitive_kind == .Int {
+                        prefix = "i"
+                    } else if type.base.primitive_kind == .Uint {
+                        prefix = "u"
                     } else {
-                        return strings.clone(fmt.tprintf("mat%vx%v", type.dimensions.x, type.dimensions.y))
+                        panic("Not supported.")
+                    }
+                    if type.dimensions.x == type.dimensions.y {
+                        return strings.clone(fmt.tprintf("%vmat%v", prefix, type.dimensions.x))
+                    } else {
+                        return strings.clone(fmt.tprintf("%vmat%vx%v", prefix, type.dimensions.x, type.dimensions.y))
                     }
                 }
                 case .Ray_Query: return "rayQueryEXT"
@@ -1008,18 +1026,6 @@ write_preamble :: proc()
         writeln(RT_Intrinsics_Code)
     }
 
-    // Zero initializations for primitive types
-    writeln("bool bool_ZERO;")
-    writeln("int int_ZERO;")
-    writeln("uint uint_ZERO;")
-    writeln("float float_ZERO;")
-    writeln("vec2 vec2_ZERO;")
-    writeln("vec3 vec3_ZERO;")
-    writeln("vec4 vec4_ZERO;")
-    writeln("mat4 mat4_ZERO;")
-    writeln("uint texture_id_ZERO;")
-    writeln("uint sampler_id_ZERO;")
-    writeln("uint bvh_id_ZERO;")
     writeln("")
 }
 
@@ -1068,8 +1074,8 @@ Intrinsics_Code :: `
 // Intrinsics:
 
 #define texture_sample(t, s, uv)       texture(sampler2D(_res_textures_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), uv)
-#define texture_load(t, coord)         imageLoad(_res_textures_rw_[nonuniformEXT(t)], ivec2(coord))
-#define texture_store(t, coord, value) imageStore(_res_textures_rw_[nonuniformEXT(t)], ivec2(coord), value)
+#define texture_load(t, coord)         imageLoad(_res_textures_rw_[nonuniformEXT(t)], coord)
+#define texture_store(t, coord, value) imageStore(_res_textures_rw_[nonuniformEXT(t)], coord, value)
 #define texture_size(t, s, lod)        textureSize(sampler2D(_res_textures_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), lod)
 #define image_size(t)                  imageSize(_res_textures_rw_[nonuniformEXT(t)])
 
@@ -1101,7 +1107,6 @@ struct Ray_Desc
     vec3 origin_;
     vec3 dir_;
 };
-Ray_Desc Ray_Desc_ZERO;
 
 struct Ray_Result
 {
@@ -1114,7 +1119,6 @@ struct Ray_Result
     mat4x3 object_to_world_;
     mat4x3 world_to_object_;
 };
-Ray_Result Ray_Result_ZERO;
 
 Ray_Result rayquery_result(rayQueryEXT rq)
 {

@@ -102,7 +102,6 @@ main :: proc()
         output_texture_id: u32,
         tlas_id: u32,
         scene: Scene_Shader,
-        resolution: [2]f32,
         accum_counter: u32,
         camera_to_world: [16]f32,
     }
@@ -224,7 +223,6 @@ main :: proc()
         compute_data.cpu.tlas_id = bvh_id
         compute_data.cpu.scene = { instances = scene.instances.gpu.ptr, meshes = scene.meshes_shader.gpu.ptr }
         compute_data.cpu.accum_counter = accum_counter
-        compute_data.cpu.resolution = { f32(window_size_x), f32(window_size_y) }
         compute_data.cpu.camera_to_world = intr.matrix_flatten(camera_to_world)
 
         cmd_buf := gpu.commands_begin(.Main)

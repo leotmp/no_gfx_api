@@ -3,7 +3,6 @@
 Data :: struct
 {
     output_texture_id: texture_rw_id,
-    resolution: vec2,
     time: float,
 }
 
@@ -38,7 +37,7 @@ raymarch :: (data: ^Data, global_invocation_id: vec3) -> vec4
     z: float = fract(dot(C, sin(C))) - 0.5;
     o: vec4 = vec4(0.0, 0.0, 0.0, 0.0);
     p: vec4;
-    r: vec2 = data.resolution;
+    r: vec2 = vec2(texture_size(data.output_texture_id));
     O: vec4;
 
     // Loop: ++i < 77 means i goes from 1 to 76 (76 iterations)
@@ -93,15 +92,14 @@ raymarch :: (data: ^Data, global_invocation_id: vec3) -> vec4
     return tanh(o / 20000.0);
 }
 
-main :: (data: ^Data @data, global_invocation_id: vec3 @global_invocation_id)
+main :: (data: ^Data @data, global_invocation_id: uvec3 @global_invocation_id)
 {
+    res: uvec2 = uvec2(texture_size(data.output_texture_id));
+
     // Out of bounds check: only execute if thread is within resolution
-    if global_invocation_id.x < data.resolution.x
+    if global_invocation_id.x < res.x && global_invocation_id.y < res.y
     {
-        if global_invocation_id.y < data.resolution.y
-        {
-            color: vec4 = raymarch(data, global_invocation_id);
-            texture_store(data.output_texture_id, global_invocation_id.xy, color);
-        }
+        color: vec4 = raymarch(data, vec3(global_invocation_id));
+        texture_store(data.output_texture_id, ivec2(global_invocation_id.xy), color);
     }
 }

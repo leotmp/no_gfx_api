@@ -84,7 +84,6 @@ main :: proc()
 
     Compute_Data :: struct {
         output_texture_id: u32,
-        resolution: [2]f32,
         time: f32,
     }
 
@@ -179,7 +178,6 @@ main :: proc()
         // Allocate compute data for this frame with current time and resolution
         compute_data := gpu.arena_alloc(frame_arena, Compute_Data)
         compute_data.cpu.output_texture_id = texture_rw_id
-        compute_data.cpu.resolution = { f32(window_size_x), f32(window_size_y) }
         compute_data.cpu.time = total_time
 
         cmd_buf := gpu.commands_begin(.Main)

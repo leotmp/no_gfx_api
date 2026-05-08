@@ -22,20 +22,21 @@ Data :: struct
     output_texture: texture_rw_id,
     tlas: bvh_id,
     scene: Scene,
-    resolution: vec2,
     accum_counter: uint,
     camera_to_world: mat4,
 }
 
-main :: (data: ^Data @data, global_invocation_id: vec3 @global_invocation_id)
+main :: (data: ^Data @data, global_invocation_id: uvec3 @global_invocation_id)
 {
-    init_rng(uint(global_invocation_id.y * data.resolution.x + global_invocation_id.x), data.accum_counter);
+    resolution := uvec2(texture_size(data.output_texture));
 
-    uv := global_invocation_id.xy / data.resolution;
+    init_rng(uint(global_invocation_id.y * resolution.x + global_invocation_id.x), data.accum_counter);
+
+    uv := vec2(global_invocation_id.xy) / vec2(resolution);
     coord := 2.0 * uv - 1.0;
 
     coord *= tan((90.0 * pi / 180.0) / 2.0);
-    coord.y *= data.resolution.y / data.resolution.x;
+    coord.y *= float(resolution.y) / float(resolution.x);
 
     world_camera_pos := (data.camera_to_world * vec4(0, 0, 0, 1)).xyz;
     camera_lookat := normalize(vec3(coord, 1));
@@ -46,17 +47,17 @@ main :: (data: ^Data @data, global_invocation_id: vec3 @global_invocation_id)
     camera_ray.dir = world_camera_lookat;
     color := pathtrace(camera_ray, data.tlas, data.scene);
 
-    if global_invocation_id.x < data.resolution.x && global_invocation_id.y < data.resolution.y
+    if global_invocation_id.x < resolution.x && global_invocation_id.y < resolution.y
     {
         if data.accum_counter > 1
         {
             weight := 1.0 / float(data.accum_counter);
-            prev_color := texture_load(data.output_texture, global_invocation_id.xy).xyz;
+            prev_color := texture_load(data.output_texture, ivec2(global_invocation_id.xy)).xyz;
             color = prev_color * (1 - weight) + color * weight;
             color = max(color, vec3(0, 0, 0));
         }
 
-        texture_store(data.output_texture, global_invocation_id.xy, vec4(color, 1));
+        texture_store(data.output_texture, ivec2(global_invocation_id.xy), vec4(color, 1));
     }
 }
 
