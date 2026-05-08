@@ -54,17 +54,17 @@ public struct GraphicsPipelineData<TVertexData = void, TFragmentData = void, TDr
 
     public property drawData : TDrawData {
         [ForceInline]
-        get { 
+        get {
             __DrawCommand<TDrawData>* buffer = (__DrawCommand<TDrawData>*)__push_graphics.indirectData;
-            return buffer[draw_id].data; 
+            return buffer[draw_id].data;
         }
     }
 
     public property drawCmd : DrawIndexedIndirectCommand {
         [ForceInline]
-        get { 
+        get {
             __DrawCommand<TDrawData>* buffer = (__DrawCommand<TDrawData>*)__push_graphics.indirectData;
-            return buffer[draw_id].cmd; 
+            return buffer[draw_id].cmd;
         }
     }
 }
@@ -103,6 +103,25 @@ public float4 loadTexture(uint textureIndex, int2 coord, int mipLevel)
 public float4 loadTextureRW(uint textureIndex, int2 coord, int mipLevel)
 {
     return textureHeapRW[NonUniformResourceIndex(textureIndex)][coord];
+}
+
+public uint2 getTextureDimensions(uint textureIndex, uint samplerIndex, int lod)
+{
+    uint width;
+    uint height;
+    uint mip_levels;
+    textureHeap[NonUniformResourceIndex(textureIndex)]
+        .GetDimensions(lod, width, height, mip_levels);
+    return uint2(width, height);
+}
+
+public uint2 getTextureDimensionsRW(uint textureIndex)
+{
+    uint width;
+    uint height;
+    textureHeapRW[NonUniformResourceIndex(textureIndex)]
+        .GetDimensions(width, height);
+    return uint2(width, height);
 }
 
 // Image store helper for writing to RWTexture2D

@@ -23,7 +23,6 @@ struct ComputeData
     uint output_texture_id;
     uint tlas_id;
     Scene scene;
-    float2 resolution;
     uint accum_counter;
     column_major float4x4 camera_to_world;
 }
@@ -84,10 +83,13 @@ RayResult rayquery_result(RayQuery<RAY_FLAG_NONE> rq)
 void computeMain(uint3 global_invocation_id : SV_DispatchThreadID, uniform ComputePipelineData<ComputeData> pipeline_data)
 {
     ComputeData* data = pipeline_data.data;
-    float2 uv = float2(global_invocation_id.xy) / data->resolution;
+
+    float2 resolution = float2(getTextureDimensionsRW(data->output_texture_id));
+
+    float2 uv = float2(global_invocation_id.xy) / resolution;
     float2 coord = 2.0 * uv - 1.0;
     coord = coord * tan((90.0 * pi / 180.0) / 2.0);
-    coord.y = coord.y * data->resolution.y / data->resolution.x;
+    coord.y = coord.y * resolution.y / resolution.x;
 
     float3 world_camera_pos = mul(float4(0.0, 0.0, 0.0, 1.0), transpose(data->camera_to_world)).xyz;
     float3 camera_lookat = normalize(float3(coord, 1.0));
@@ -97,10 +99,10 @@ void computeMain(uint3 global_invocation_id : SV_DispatchThreadID, uniform Compu
     camera_ray.ori = world_camera_pos;
     camera_ray.dir = world_camera_lookat;
 
-    init_rng(uint(global_invocation_id.y * uint(data->resolution.x) + global_invocation_id.x), data->accum_counter);
+    init_rng(uint(global_invocation_id.y * uint(resolution.x) + global_invocation_id.x), data->accum_counter);
     float3 color = pathtrace(camera_ray, data->tlas_id, data->scene);
 
-    if (float(global_invocation_id.x) < data->resolution.x && float(global_invocation_id.y) < data->resolution.y)
+    if (float(global_invocation_id.x) < resolution.x && float(global_invocation_id.y) < resolution.y)
     {
         if (data->accum_counter > 1)
         {
