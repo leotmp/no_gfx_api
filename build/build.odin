@@ -138,7 +138,6 @@ cmd_build_example_shaders_slang :: proc(example: Example) -> bool
 cmd_vercheck :: proc() -> bool
 {
     res := true
-    res &= run_task("make", "--version")
     res &= run_task("odin", "version")
     res &= run_task("glslangValidator", "--version")
     res &= run_task("slangc", "-v")
