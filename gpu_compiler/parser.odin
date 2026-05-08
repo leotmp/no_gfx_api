@@ -1354,8 +1354,8 @@ type_to_string :: proc(type: ^Ast_Type, arena: runtime.Allocator) -> string
         case .None:      res = "none"
         case .Unknown:   res = "UNKNOWN"
         case .Label:     res = type.name.text
-        case .Pointer:   res = str.concatenate({ "^", type_to_string(type.base, scratch) }, allocator = scratch)
-        case .Slice:     res = str.concatenate({ "[]", type_to_string(type.base, scratch) }, allocator = scratch)
+        case .Pointer:   res = str.concatenate({ "mut" if type.is_mut else "",  "^", type_to_string(type.base, scratch) }, allocator = scratch)
+        case .Slice:     res = str.concatenate({ "mut" if type.is_mut else "", "[]", type_to_string(type.base, scratch) }, allocator = scratch)
         case .Array:
         {
             scratch2, _ := acquire_scratch(scratch, arena)
@@ -1410,6 +1410,7 @@ type_to_string :: proc(type: ^Ast_Type, arena: runtime.Allocator) -> string
 
 make_vec_type :: proc(base_type: ^Ast_Type, dim: u32) -> ^Ast_Type
 {
+    assert(dim > 1)
     node := new(Ast_Type)
 
     prefix := ""
@@ -1429,7 +1430,7 @@ make_vec_type :: proc(base_type: ^Ast_Type, dim: u32) -> ^Ast_Type
     node.kind = .Primitive
     node.primitive_kind = .Vector
     node.dimensions = { dim, 1 }
-    node.base = &FLOAT_TYPE
+    node.base = base_type
     return node
 }
 

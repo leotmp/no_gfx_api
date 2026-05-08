@@ -97,7 +97,7 @@ main :: (data: ^Data @data, global_invocation_id: uvec3 @global_invocation_id)
     res: uvec2 = uvec2(texture_size(data.output_texture_id));
 
     // Out of bounds check: only execute if thread is within resolution
-    if global_invocation_id.x < res.x && global_invocation_id.y < res.y
+    if all(global_invocation_id.xy < res)
     {
         color: vec4 = raymarch(data, vec3(global_invocation_id));
         texture_store(data.output_texture_id, ivec2(global_invocation_id.xy), color);

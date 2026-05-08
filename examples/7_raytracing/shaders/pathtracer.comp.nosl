@@ -47,7 +47,7 @@ main :: (data: ^Data @data, global_invocation_id: uvec3 @global_invocation_id)
     camera_ray.dir = world_camera_lookat;
     color := pathtrace(camera_ray, data.tlas, data.scene);
 
-    if global_invocation_id.x < resolution.x && global_invocation_id.y < resolution.y
+    if all(global_invocation_id.xy < resolution)
     {
         if data.accum_counter > 1
         {

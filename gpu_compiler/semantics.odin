@@ -520,6 +520,7 @@ same_type :: proc(type1: ^Ast_Type, type2: ^Ast_Type) -> bool
     if type1.primitive_kind != type2.primitive_kind do return false
     if type1.name.text != type2.name.text do return false
     if type1.is_mut != type2.is_mut do return false
+    if type1.dimensions != type2.dimensions do return false
 
     has_base := type1.kind != .Primitive && type1.kind != .Label
     if has_base && !same_type(type1.base, type2.base) do return false
@@ -953,10 +954,14 @@ bin_op_result_type :: proc(op: Ast_Binary_Op, type1: ^Ast_Type, type2: ^Ast_Type
             if type1.dimensions == type2.dimensions && same_type(type1.base, type2.base) {
                 return make_vec_type(&BOOL_TYPE, type1.dimensions.x), true
             }
-        }
 
-        if type_implicit_convert(type1, type2) || type_implicit_convert(type2, type1) do return &BOOL_TYPE, true
-        else do return &POISON_TYPE, false
+            return &POISON_TYPE, false
+        }
+        else
+        {
+            if type_implicit_convert(type1, type2) || type_implicit_convert(type2, type1) do return &BOOL_TYPE, true
+            return &POISON_TYPE, false
+        }
     }
 
     // Commutative properties here.
@@ -971,11 +976,11 @@ bin_op_result_type :: proc(op: Ast_Binary_Op, type1: ^Ast_Type, type2: ^Ast_Type
         if t1.primitive_kind == .Untyped_Int && (t2.primitive_kind == .Uint || t2.primitive_kind == .Int) {
             return t2, true
         }
-        if type_implicit_convert(t1, &FLOAT_TYPE) && t2.primitive_kind == .Vector {
-            return t2, true
-        }
         if (op == .Add || op == .Minus) && type_is_resource_id(t1) && (type_implicit_convert(t2, &UINT_TYPE) || type_implicit_convert(t2, &INT_TYPE)) {
             return t1, true
+        }
+        if t2.primitive_kind == .Vector && type_implicit_convert(t1, t2.base) {
+            return t2, true
         }
     }
 
