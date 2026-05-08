@@ -492,6 +492,9 @@ IVEC4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, base = &IN
 UVEC2_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, base = &UINT_TYPE, dimensions = { 2, 1 }, name = { text = "uvec2" } }
 UVEC3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, base = &UINT_TYPE, dimensions = { 3, 1 }, name = { text = "uvec3" } }
 UVEC4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, base = &UINT_TYPE, dimensions = { 4, 1 }, name = { text = "uvec4" } }
+BVEC2_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, base = &BOOL_TYPE, dimensions = { 2, 1 }, name = { text = "bvec2" } }
+BVEC3_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, base = &BOOL_TYPE, dimensions = { 3, 1 }, name = { text = "bvec3" } }
+BVEC4_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Vector, base = &BOOL_TYPE, dimensions = { 4, 1 }, name = { text = "bvec4" } }
 BOOL_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Bool, name = { text = "bool" } }
 TEXTURE_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Texture_ID, name = { text = "texture_id" } }
 TEXTURE_RW_ID_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Texture_RW_ID, name = { text = "texture_rw_id" } }
@@ -727,6 +730,17 @@ add_intrinsics :: proc()
     // Conversion
     add_intrinsic("float_bits_to_int", { &FLOAT_TYPE }, { "x" }, &UINT_TYPE, glsl_name = "floatBitsToInt")
 
+    // Boolean vector manipulation
+    add_intrinsic("all", { &BVEC2_TYPE }, { "x" }, &BOOL_TYPE)
+    add_intrinsic("all", { &BVEC3_TYPE }, { "x" }, &BOOL_TYPE)
+    add_intrinsic("all", { &BVEC4_TYPE }, { "x" }, &BOOL_TYPE)
+    add_intrinsic("any", { &BVEC2_TYPE }, { "x" }, &BOOL_TYPE)
+    add_intrinsic("any", { &BVEC3_TYPE }, { "x" }, &BOOL_TYPE)
+    add_intrinsic("any", { &BVEC4_TYPE }, { "x" }, &BOOL_TYPE)
+    add_intrinsic("not", { &BVEC2_TYPE }, { "x" }, &BVEC2_TYPE)
+    add_intrinsic("not", { &BVEC3_TYPE }, { "x" }, &BVEC3_TYPE)
+    add_intrinsic("not", { &BVEC4_TYPE }, { "x" }, &BVEC4_TYPE)
+
     // Constructors
     add_intrinsic("vec2", { &FLOAT_TYPE, &FLOAT_TYPE }, { "x", "y" }, &VEC2_TYPE)
     add_intrinsic("vec3", { &FLOAT_TYPE, &FLOAT_TYPE, &FLOAT_TYPE }, { "x", "y", "z" }, &VEC3_TYPE)
@@ -934,6 +948,13 @@ bin_op_result_type :: proc(op: Ast_Binary_Op, type1: ^Ast_Type, type2: ^Ast_Type
                   op == .NEQ
     if is_compare
     {
+        if type1.primitive_kind == .Vector && type2.primitive_kind == .Vector
+        {
+            if type1.dimensions == type2.dimensions && same_type(type1.base, type2.base) {
+                return make_vec_type(&BOOL_TYPE, type1.dimensions.x), true
+            }
+        }
+
         if type_implicit_convert(type1, type2) || type_implicit_convert(type2, type1) do return &BOOL_TYPE, true
         else do return &POISON_TYPE, false
     }

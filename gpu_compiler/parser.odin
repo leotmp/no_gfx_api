@@ -1419,6 +1419,8 @@ make_vec_type :: proc(base_type: ^Ast_Type, dim: u32) -> ^Ast_Type
         prefix = "i"
     } else if base_type.primitive_kind == .Uint {
         prefix = "u"
+    } else if base_type.primitive_kind == .Bool {
+        prefix = "b"
     } else {
         panic("Not supported.")
     }
@@ -1464,6 +1466,10 @@ make_primitive_type_from_string :: proc(name: Token) -> ^Ast_Type
         case "uvec2":         prim_type = .Vector; dimensions = { 2, 1 }; base_type = &UINT_TYPE
         case "uvec3":         prim_type = .Vector; dimensions = { 3, 1 }; base_type = &UINT_TYPE
         case "uvec4":         prim_type = .Vector; dimensions = { 4, 1 }; base_type = &UINT_TYPE
+
+        case "bvec2":         prim_type = .Vector; dimensions = { 2, 1 }; base_type = &BOOL_TYPE
+        case "bvec3":         prim_type = .Vector; dimensions = { 3, 1 }; base_type = &BOOL_TYPE
+        case "bvec4":         prim_type = .Vector; dimensions = { 4, 1 }; base_type = &BOOL_TYPE
 
         case "bool":          prim_type = .Bool
         case "texture_id":    prim_type = .Texture_ID
@@ -1512,4 +1518,22 @@ make_primitive_type_from_string :: proc(name: Token) -> ^Ast_Type
     node.primitive_kind = prim_type
     node.dimensions = dimensions
     return node
+}
+
+is_bin_op_comparison :: proc(op: Ast_Binary_Op) -> bool
+{
+    switch op
+    {
+        case .Add, .Minus, .Mul, .Div, .Modulo: return false
+        case .Bitwise_And, .Bitwise_Or, .Bitwise_Xor, .LShift, .RShift: return false
+        case .And, .Or: return false
+
+        case .Greater: return true
+        case .Less:    return true
+        case .LE:      return true
+        case .GE:      return true
+        case .EQ:      return true
+        case .NEQ:     return true
+    }
+    return false
 }

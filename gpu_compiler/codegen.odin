@@ -493,11 +493,38 @@ codegen_expr :: proc(expression: ^Ast_Expr)
     {
         case ^Ast_Binary_Expr:
         {
-            write("(")
-            codegen_expr(expr.lhs)
-            writef(" %v ", binary_op_to_glsl(expr.op))
-            codegen_expr(expr.rhs)
-            write(")")
+            // Special codegen for vector comparison
+            if expr.lhs.type.primitive_kind == .Vector && expr.rhs.type.primitive_kind == .Vector &&
+               is_bin_op_comparison(expr.op)
+            {
+                switch expr.op
+                {
+                    case .Add, .Minus, .Mul, .Div, .Modulo: {}
+                    case .Bitwise_And, .Bitwise_Or, .Bitwise_Xor, .LShift, .RShift: {}
+                    case .And, .Or: {}
+
+                    case .Greater: { write("greaterThan")      }
+                    case .Less:    { write("lessThan")         }
+                    case .LE:      { write("lessThanEqual")    }
+                    case .GE:      { write("greaterThanEqual") }
+                    case .EQ:      { write("equal")            }
+                    case .NEQ:     { write("notEqual")         }
+                }
+
+                write("(")
+                codegen_expr(expr.lhs)
+                write(", ")
+                codegen_expr(expr.rhs)
+                write(")")
+            }
+            else
+            {
+                write("(")
+                codegen_expr(expr.lhs)
+                writef(" %v ", binary_op_to_glsl(expr.op))
+                codegen_expr(expr.rhs)
+                write(")")
+            }
         }
         case ^Ast_Unary_Expr:
         {
@@ -782,6 +809,8 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
                         prefix = "i"
                     } else if type.base.primitive_kind == .Uint {
                         prefix = "u"
+                    } else if type.base.primitive_kind == .Bool {
+                        prefix = "b"
                     } else {
                         panic("Not supported.")
                     }
@@ -799,6 +828,8 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
                         prefix = "i"
                     } else if type.base.primitive_kind == .Uint {
                         prefix = "u"
+                    } else if type.base.primitive_kind == .Bool {
+                        prefix = "b"
                     } else {
                         panic("Not supported.")
                     }

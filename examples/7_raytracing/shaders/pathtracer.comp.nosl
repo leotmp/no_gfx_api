@@ -91,7 +91,7 @@ pathtrace :: (start_ray: Ray, tlas_id: bvh_id, scene: Scene) -> vec3
         incoming := vec3(0, 0, 0);
         rnd := random_vec2();
         incoming = sample_matte(albedo_color, hit.normal, outgoing, rnd);
-        if incoming == vec3(0, 0, 0) { break; }
+        if all(incoming == vec3(0, 0, 0)) { break; }
 
         prob := sample_matte_pdf(albedo_color, hit.normal, outgoing, incoming);
         weight *= eval_matte(albedo_color, hit.normal, outgoing, incoming) / prob;
@@ -101,7 +101,7 @@ pathtrace :: (start_ray: Ray, tlas_id: bvh_id, scene: Scene) -> vec3
         ray.dir = incoming;
 
         // Check weight.
-        if weight == vec3(0, 0, 0) || !is_finite(weight) { break; }
+        if all(weight == vec3(0, 0, 0)) || !is_finite(weight) { break; }
 
         // Russian roulette.
         if(bounce > 3)
