@@ -85,12 +85,12 @@ main :: proc()
     if !ok_t do os.exit(1)
     glsl_source := codegen(ast, shader_type, input_path)
 
+    ok_c := compile_glsl_to_spirv(shader_type, glsl_source, input_path, output_path_spv)
+    if !ok_c do os.exit(1)
+
     if opt.print_glsl {
         print_file_with_line_nums(glsl_source)
     }
-
-    ok_c := compile_glsl_to_spirv(shader_type, glsl_source, input_path, output_path_spv)
-    if !ok_c do os.exit(1)
 
     fmt.println(input_path)
 }

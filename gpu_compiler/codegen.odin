@@ -133,6 +133,7 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
 
                 if !has_def
                 {
+                    // No need to explicitly initialize to zero because it's a global.
                     writefln("%v %v;", type_to_glsl(decl.type), decl.name)
                 }
             }
@@ -231,6 +232,11 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
                     // It's not allowed to set rayquery objects like this, so we'll leave those uninitialized.
                     if var_decl.type.primitive_kind == .Ray_Query {
                         writefln("%v %v;", type_to_glsl(var_decl.type), var_decl.glsl_name)
+                    } else if !var_decl.has_init {
+                        write_begin()
+                        writef("%v %v = ", type_to_glsl(var_decl.type), var_decl.glsl_name)
+                        codegen_zero_initialization(var_decl.type)
+                        writeln(";")
                     } else {
                         writefln("%v %v;", type_to_glsl(var_decl.type), var_decl.glsl_name)
                     }
@@ -995,6 +1001,67 @@ codegen_scope_decls :: proc(scope: ^Ast_Scope)
     }
 }
 
+codegen_zero_initialization :: proc(type: ^Ast_Type)
+{
+    switch type.kind
+    {
+        case .Poison:  panic("Unreachable")
+        case .None:    panic("Unreachable")
+        case .Unknown: panic("Unreachable")
+        case .Label:
+        {
+            writef("%v(", type_to_glsl(type))
+            struct_type := type.base
+            for member, i in struct_type.members
+            {
+                codegen_zero_initialization(member.type)
+                if i < len(struct_type.members) - 1 {
+                    write(", ")
+                }
+            }
+            write(")")
+        }
+        case .Pointer: writef("%v(uint64_t(0))", type_to_glsl(type))
+        case .Array:
+        {
+            writef("{ ")
+            for i in 0..<type.dimensions.x
+            {
+                codegen_zero_initialization(type.base)
+                if i < type.dimensions.x - 1 {
+                    writef(", ")
+                }
+            }
+            writef(" }")
+        }
+        case .Slice: writef("%v(uint64_t(0))", type_to_glsl(type))
+        case .Proc: panic("Unreachable")
+        case .Primitive:
+        {
+            switch type.primitive_kind
+            {
+                case .None:          panic("Unreachable")
+                case .Untyped_Int:   write("0")
+                case .Untyped_Float: write("0.0")
+                case .Bool:          write("false")
+                case .Float:         write("0.0f")
+                case .Uint:          write("0")
+                case .Int:           write("0")
+                case .Texture_ID:    write("0")
+                case .Texture_RW_ID: write("0")
+                case .Sampler_ID:    write("0")
+                case .Vector:        writef("%v(0)", type_to_glsl(type))
+                case .Matrix:        writef("%v(0)", type_to_glsl(type))
+                case .String:        writef("\"\"")
+                case .Ray_Query:     panic("Unreachable")
+                case .BVH_ID:        write("0")
+            }
+        }
+        case .Struct: panic("Unreachable")
+    }
+
+}
+
 Writer :: struct
 {
     indentation: u32,
@@ -1032,6 +1099,7 @@ write_preamble :: proc()
     writeln("#version 460")
     writeln("#extension GL_EXT_buffer_reference : require")
     writeln("#extension GL_EXT_buffer_reference2 : require")
+    writeln("#extension GL_ARB_gpu_shader_int64 : require")
     writeln("#extension GL_EXT_nonuniform_qualifier : require")
     writeln("#extension GL_EXT_scalar_block_layout : require")
     writeln("#extension GL_EXT_shader_image_load_formatted : require")

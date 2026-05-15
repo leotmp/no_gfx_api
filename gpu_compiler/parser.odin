@@ -57,6 +57,7 @@ Ast_Decl :: struct
     glsl_name: string,
     type: ^Ast_Type,
     attr: Maybe(Ast_Attribute),
+    has_init: bool,
 }
 
 Ast_Proc_Def :: struct
@@ -708,6 +709,8 @@ parse_statement :: proc(using p: ^Parser) -> ^Ast_Statement
         {
             type = new(Ast_Type)
             type.kind = .Unknown
+
+            decl.has_init = true
         }
         else
         {
@@ -721,6 +724,8 @@ parse_statement :: proc(using p: ^Parser) -> ^Ast_Statement
             def_var.decl = decl
             def_var.expr = parse_expr(p)
             node = def_var
+
+            decl.has_init = true
         }
 
         required_token(p, .Semi)
