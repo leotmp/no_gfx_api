@@ -65,6 +65,8 @@ Ast_Proc_Def :: struct
     decl: ^Ast_Decl,
     statements: []^Ast_Statement,
     scope: ^Ast_Scope,
+    is_main: bool,
+    output_type: Shader_Type,
 }
 
 // Expressions
@@ -423,7 +425,8 @@ _parse_file :: proc(using p: ^Parser) -> Ast
                 }
                 else if tokens[at+1].type == .Colon &&
                         tokens[at+2].type == .Colon &&
-                        tokens[at+3].type == .LParen
+                        (tokens[at+3].type == .LParen || (tokens[at+3].type == .Directive &&
+                                                          tokens[at+4].type == .LParen))
                 {
                     append(&ast.procs, parse_proc_def(p))
                 }
@@ -525,6 +528,23 @@ parse_proc_def :: proc(using p: ^Parser) -> ^Ast_Proc_Def
 
     required_token(p, .Colon)
     required_token(p, .Colon)
+
+    directive := tokens[at]
+    if optional_token(p, .Directive)
+    {
+        proc_def.is_main = true
+        switch directive.text
+        {
+            case "vertex":   proc_def.output_type = .Vertex
+            case "fragment": proc_def.output_type = .Fragment
+            case "compute":  proc_def.output_type = .Compute
+            case:
+            {
+                parse_error(p, "Unexpected directive '%v', directives preceding '(' should describe a shader stage (e.g. 'vertex')", directive.text)
+            }
+        }
+    }
+
     required_token(p, .LParen)
     proc_type.args = parse_decl_list(p, true)
     required_token(p, .RParen)

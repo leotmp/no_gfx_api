@@ -19,15 +19,14 @@ import glslang "glslang_odin"
 Options :: struct
 {
     file: ^os.File `args:"pos=0,required,file=r" usage:"Input file."`,
-    out: ^os.File `args:"pos=1,file=cw" usage:"Output file. Default: 'output.spv'"`,
-    print_glsl: bool `usage:"Print transpiled GLSL output."`
+    out: ^os.File `args:"pos=1,file=cw" usage:"Output file. Default: 'output(.entry_name).spv'"`,
+    print_glsl: bool `usage:"Print transpiled GLSL output."`,
 }
 
 main :: proc()
 {
     opt: Options
-    style: flags.Parsing_Style = .Odin
-    flags.parse_or_exit(&opt, os.args, style)
+    flags.parse_or_exit(&opt, os.args, .Odin)
 
     if opt.out == nil
     {

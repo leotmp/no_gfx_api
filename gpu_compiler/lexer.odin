@@ -58,6 +58,7 @@ Token_Type :: enum
 
     Ident,
     Attribute,  // Identifier with @ in front
+    Directive,  // Identifier with # in front
     // Qualifiers
     Flat,
     Noperspective,
@@ -209,11 +210,16 @@ next_token :: proc(using lexer: ^Lexer) -> Token
     {
         // Null terminator found
     }
-    else if is_ident_begin(buf[offset]) || buf[offset] == '@'
+    else if is_ident_begin(buf[offset]) || buf[offset] == '@' || buf[offset] == '#'
     {
         if buf[offset] == '@'
         {
             token.type = .Attribute
+            offset += 1
+        }
+        else if buf[offset] == '#'
+        {
+            token.type = .Directive
             offset += 1
         }
         else
@@ -547,6 +553,7 @@ token_type_to_string :: proc(type: Token_Type) -> string
         case .Div_Equals:   return "/="
         case .Ident:        return "identifier"
         case .Attribute:    return "attribute"
+        case .Directive:    return "directive"
         case .Flat:         return "flat"
         case .Noperspective:return "no_perspective"
         case .Centroid:     return "centroid"

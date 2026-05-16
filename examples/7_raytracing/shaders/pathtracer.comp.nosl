@@ -26,7 +26,7 @@ Data :: struct
     camera_to_world: mat4,
 }
 
-main :: (data: ^Data @data, global_invocation_id: uvec3 @global_invocation_id)
+main :: #compute (data: ^Data @data, global_invocation_id: uvec3 @global_invocation_id)
 {
     resolution := uvec2(texture_size(data.output_texture));
 
