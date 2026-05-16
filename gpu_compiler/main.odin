@@ -11,6 +11,7 @@ import fp "core:path/filepath"
 import "core:slice"
 import "core:math"
 import "core:flags"
+import "core:strings"
 
 import "core:sys/windows"
 
@@ -52,17 +53,14 @@ main :: proc()
     defer free_all(perm_arena)
 
     input_path := os.args[1]
-    shader_type_str := fp.ext(fp.stem(input_path))
-    shader_type: Shader_Type
-    if shader_type_str == ".vert" {
-        shader_type = .Vertex
-    } else if shader_type_str == ".frag" {
-        shader_type = .Fragment
-    } else if shader_type_str == ".comp" {
-        shader_type = .Compute
-    } else {
-        fmt.println("Could not infer shader type. Try '*.vert.nosl', '*.frag.nosl', or '*.comp.nosl'.")
-        os.exit(1)
+    shader_stage_str := fp.ext(fp.stem(input_path))
+    shader_stage_hint: Shader_Stage
+    if shader_stage_str == ".vert" {
+        shader_stage_hint = .Vertex
+    } else if shader_stage_str == ".frag" {
+        shader_stage_hint = .Fragment
+    } else if shader_stage_str == ".comp" {
+        shader_stage_hint = .Compute
     }
 
     // output_path_glsl := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".glsl" }, allocator = perm_arena)
@@ -78,13 +76,13 @@ main :: proc()
     file := File { input_path, file_content }
 
     tokens := lex_file(file, allocator = perm_arena)
-    ast, ok_p := parse_file(file, tokens, allocator = perm_arena)
+    ast, ok_p := parse_file(file, tokens, shader_stage_hint, allocator = perm_arena)
     if !ok_p do os.exit(1)
     ok_t := typecheck_ast(&ast, file, allocator = perm_arena)
     if !ok_t do os.exit(1)
-    glsl_source := codegen(ast, shader_type, input_path)
+    glsl_source := codegen(ast, shader_stage_hint, input_path)
 
-    ok_c := compile_glsl_to_spirv(shader_type, glsl_source, input_path, output_path_spv)
+    ok_c := compile_glsl_to_spirv(shader_stage_hint, glsl_source, input_path, output_path_spv, "main")
     if !ok_c do os.exit(1)
 
     if opt.print_glsl {
@@ -156,18 +154,26 @@ release_scratch :: #force_inline proc(allocator: mem.Allocator, temp: vmem.Arena
     vmem.arena_temp_end(temp)
 }
 
-compile_glsl_to_spirv :: proc(shader_type: Shader_Type, glsl_source: string, input_path: string, output_path: string) -> bool
+compile_glsl_to_spirv :: proc(shader_type: Shader_Stage, glsl_source: string, input_path: string, output_path: string, entrypoint: string) -> bool
 {
     stage: glslang.Stage
     switch shader_type
     {
+        case .None:     panic("Unreachable")
         case .Vertex:   stage = .VERTEX
         case .Fragment: stage = .FRAGMENT
         case .Compute:  stage = .COMPUTE
     }
 
     scratch, _ := acquire_scratch()
-    glsl_source_cstr := str.clone_to_cstring(glsl_source, allocator = scratch)
+
+    sb := strings.builder_make_none(allocator = scratch)
+    strings.write_string(&sb, "#version 460\n")
+    strings.write_string(&sb, "#define _res_entry_")
+    strings.write_string(&sb, entrypoint)
+    strings.write_string(&sb, "\n")
+    strings.write_string(&sb, glsl_source)
+    glsl_source_processed := strings.to_cstring(&sb)
 
     input := glslang.input_t {
         language = .GLSL,
@@ -176,7 +182,7 @@ compile_glsl_to_spirv :: proc(shader_type: Shader_Type, glsl_source: string, inp
         client_version = .VULKAN_1_3,
         target_language = .SPV,
         target_language_version = .SPV_1_5,
-        code = glsl_source_cstr,
+        code = glsl_source_processed,
         default_version = 130,
         default_profile = .NO_PROFILE,
         force_default_version_and_profile = false,
@@ -194,7 +200,7 @@ compile_glsl_to_spirv :: proc(shader_type: Shader_Type, glsl_source: string, inp
         fmt.printf("%s\n", glslang.shader_get_info_log(shader))
         fmt.printf("%s\n", glslang.shader_get_info_debug_log(shader))
         fmt.printf("GLSL source:\n")
-        print_file_with_line_nums(glsl_source)
+        print_file_with_line_nums(string(glsl_source_processed))
         return false
     }
 
@@ -219,6 +225,8 @@ compile_glsl_to_spirv :: proc(shader_type: Shader_Type, glsl_source: string, inp
         fmt.printf("%s: GLSL linking failed. This is a bug, please report.\n", input_path)
         fmt.printf("%s\n", glslang.program_get_info_log(program))
         fmt.printf("%s\n", glslang.program_get_info_debug_log(program))
+        fmt.printf("GLSL source:\n")
+        print_file_with_line_nums(string(glsl_source_processed))
         return false
     }
 

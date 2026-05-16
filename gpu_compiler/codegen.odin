@@ -7,14 +7,15 @@ import "core:strings"
 import "base:runtime"
 import str "core:strings"
 
-Shader_Type :: enum
+Shader_Stage :: enum
 {
+    None = 0,
     Vertex,
     Fragment,
     Compute
 }
 
-codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> string
+codegen :: proc(ast: Ast, shader_type: Shader_Stage, input_path: string) -> string
 {
     writer.ast = ast
     writer.shader_type = shader_type
@@ -88,11 +89,16 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
         {
             case .Proc:
             {
-                is_main := decl.name == "main"
+                is_entrypoint := decl.is_entrypoint
 
                 write_begin("")
-                ret_type_glsl := "void" if is_main else type_to_glsl(decl.type.ret)
-                writef("%v %v(", ret_type_glsl, decl.name)
+
+                if is_entrypoint {
+                    writefln("#ifdef _res_entry_%v", decl.name)
+                }
+
+                ret_type_glsl := "void" if is_entrypoint else type_to_glsl(decl.type.ret)
+                writef("%v %v(", ret_type_glsl, "main" if is_entrypoint else decl.name)
                 for arg, i in decl.type.args
                 {
                     if arg.attr != nil do continue
@@ -103,6 +109,10 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
                     }
                 }
                 writeln(");")
+
+                if is_entrypoint {
+                    writefln("#endif")
+                }
             }
         }
     }
@@ -186,11 +196,16 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
     for proc_def in ast.procs
     {
         decl := proc_def.decl
-        is_main := decl.name == "main"
+        is_entrypoint := decl.is_entrypoint
 
         write_begin("")
-        ret_type_glsl := "void" if is_main else type_to_glsl(decl.type.ret)
-        writef("%v %v(", ret_type_glsl, decl.name)
+
+        if is_entrypoint {
+            writefln("#ifdef _res_entry_%v", decl.name)
+        }
+
+        ret_type_glsl := "void" if is_entrypoint else type_to_glsl(decl.type.ret)
+        writef("%v %v(", ret_type_glsl, "main" if is_entrypoint else decl.name)
         for arg, i in decl.type.args
         {
             if arg.attr != nil do continue
@@ -206,6 +221,7 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
         if writer_scope()
         {
             writer.proc_def = proc_def
+            writer.is_cur_proc_main = decl.is_entrypoint
 
             // Declare all variables
             for var_decl in proc_def.scope.decls
@@ -263,6 +279,10 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
         }
         writeln("}")
         writeln("")
+
+        if is_entrypoint {
+            writefln("#endif")
+        }
     }
 
     return strings.to_string(writer.builder)
@@ -271,7 +291,7 @@ codegen :: proc(ast: Ast, shader_type: Shader_Type, input_path: string) -> strin
 codegen_statement :: proc(statement: ^Ast_Statement, insert_semi := true)
 {
     decl := writer.proc_def.decl
-    is_main := decl.name == "main"
+    is_entrypoint := decl.is_entrypoint
     ret_attr := decl.type.ret_attr
 
     switch stmt in statement.derived_statement
@@ -442,7 +462,7 @@ codegen_statement :: proc(statement: ^Ast_Statement, insert_semi := true)
         }
         case ^Ast_Return:
         {
-            if is_main && stmt.expr != nil
+            if is_entrypoint && stmt.expr != nil
             {
                 type := stmt.expr.type
                 if type.kind == .Label do type = type_get_base(type)
@@ -914,7 +934,7 @@ unary_op_to_glsl :: proc(op: Ast_Unary_Op) -> string
     return ""
 }
 
-attribute_to_glsl :: proc(attribute: Ast_Attribute, ast: Ast, shader_type: Shader_Type) -> string
+attribute_to_glsl :: proc(attribute: Ast_Attribute, ast: Ast, shader_type: Shader_Stage) -> string
 {
     val_str := runtime.cstring_to_string(fmt.caprint(attribute.loc, allocator = context.allocator))
 
@@ -1068,7 +1088,8 @@ Writer :: struct
     builder: strings.Builder,
     ast: Ast,
     proc_def: ^Ast_Proc_Def,
-    shader_type: Shader_Type,
+    shader_type: Shader_Stage,
+    is_cur_proc_main: bool,
 }
 
 @(private="file")
@@ -1096,7 +1117,6 @@ writer_scope_end :: proc()
 @(private="file")
 write_preamble :: proc()
 {
-    writeln("#version 460")
     writeln("#extension GL_EXT_buffer_reference : require")
     writeln("#extension GL_EXT_buffer_reference2 : require")
     writeln("#extension GL_ARB_gpu_shader_int64 : require")

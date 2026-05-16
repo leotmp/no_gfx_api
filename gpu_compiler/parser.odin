@@ -58,6 +58,8 @@ Ast_Decl :: struct
     type: ^Ast_Type,
     attr: Maybe(Ast_Attribute),
     has_init: bool,
+    is_entrypoint: bool,
+    entrypoint_stage: Shader_Stage,
 }
 
 Ast_Proc_Def :: struct
@@ -65,8 +67,6 @@ Ast_Proc_Def :: struct
     decl: ^Ast_Decl,
     statements: []^Ast_Statement,
     scope: ^Ast_Scope,
-    is_main: bool,
-    output_type: Shader_Type,
 }
 
 // Expressions
@@ -377,13 +377,14 @@ Ast_Type :: struct
     dimensions: [2]u32,
 }
 
-parse_file :: proc(file: File, tokens: []Token, allocator: runtime.Allocator) -> (Ast, bool)
+parse_file :: proc(file: File, tokens: []Token, stage_hint: Shader_Stage, allocator: runtime.Allocator) -> (Ast, bool)
 {
     context.allocator = allocator
 
     parser := Parser {
         tokens = tokens,
         file = file,
+        stage_hint = stage_hint,
     }
     ast := _parse_file(&parser)
     return ast, !parser.error
@@ -395,6 +396,8 @@ Parser :: struct
     file: File,
     at: u32,
     error: bool,
+    stage_hint: Shader_Stage,
+
     scope: ^Ast_Scope,
     used_types: [dynamic]Ast_Type,
     used_outputs: map[^Ast_Attribute]Ast_Type,
@@ -532,17 +535,22 @@ parse_proc_def :: proc(using p: ^Parser) -> ^Ast_Proc_Def
     directive := tokens[at]
     if optional_token(p, .Directive)
     {
-        proc_def.is_main = true
+        decl.is_entrypoint = true
         switch directive.text
         {
-            case "vertex":   proc_def.output_type = .Vertex
-            case "fragment": proc_def.output_type = .Fragment
-            case "compute":  proc_def.output_type = .Compute
+            case "vertex":   decl.entrypoint_stage = .Vertex
+            case "fragment": decl.entrypoint_stage = .Fragment
+            case "compute":  decl.entrypoint_stage = .Compute
             case:
             {
                 parse_error(p, "Unexpected directive '%v', directives preceding '(' should describe a shader stage (e.g. 'vertex')", directive.text)
             }
         }
+    }
+    else if stage_hint != nil && decl.name == "main"
+    {
+        decl.is_entrypoint = true
+        decl.entrypoint_stage = stage_hint
     }
 
     required_token(p, .LParen)
