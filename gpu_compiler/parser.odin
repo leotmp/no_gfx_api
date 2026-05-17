@@ -24,8 +24,6 @@ Any_Node :: union
 Ast :: struct
 {
     used_types: [dynamic]Ast_Type,
-    used_inputs: map[^Ast_Attribute]Ast_Type,
-    used_outputs: map[^Ast_Attribute]Ast_Type,
     used_data_type: ^Ast_Type,
     used_indirect_data_type: ^Ast_Type,
     scope: ^Ast_Scope,
@@ -400,8 +398,6 @@ Parser :: struct
 
     scope: ^Ast_Scope,
     used_types: [dynamic]Ast_Type,
-    used_outputs: map[^Ast_Attribute]Ast_Type,
-    used_inputs: map[^Ast_Attribute]Ast_Type,
     used_data_type: ^Ast_Type,
     used_indirect_data_type: ^Ast_Type,
 }
@@ -480,8 +476,6 @@ _parse_file :: proc(using p: ^Parser) -> Ast
     }
 
     ast.used_types = used_types
-    ast.used_outputs = used_outputs
-    ast.used_inputs = used_inputs
     ast.used_data_type = used_data_type
     ast.used_indirect_data_type = used_indirect_data_type
     return ast
@@ -562,14 +556,6 @@ parse_proc_def :: proc(using p: ^Parser) -> ^Ast_Proc_Def
         proc_type.ret = parse_type(p)
         if tokens[at].type == .Attribute {
             proc_type.ret_attr = parse_attribute(p)
-            if proc_type.ret_attr != nil
-            {
-                if proc_type.ret_attr.?.type == .Input {
-                    used_inputs[&proc_type.ret_attr.?] = proc_type.ret^
-                } else if proc_type.ret_attr.?.type == .Output {
-                    used_outputs[&proc_type.ret_attr.?] = proc_type.ret^
-                }
-            }
         }
     }
     else
@@ -1082,12 +1068,6 @@ parse_decl_list_elem :: proc(using p: ^Parser, add_to_scope: bool) -> ^Ast_Decl
             used_data_type = node.type
         } else if node.attr.?.type == .Indirect_Data {
             used_indirect_data_type = node.type
-        }
-
-        if node.attr.?.type == .Input {
-            used_inputs[&node.attr.?] = node.type^
-        } else if node.attr.?.type == .Output {
-            used_outputs[&node.attr.?] = node.type^
         }
     }
 

@@ -15,10 +15,9 @@ Shader_Stage :: enum
     Compute
 }
 
-codegen :: proc(ast: Ast, shader_type: Shader_Stage, input_path: string) -> string
+codegen :: proc(ast: Ast, input_path: string) -> string
 {
     writer.ast = ast
-    writer.shader_type = shader_type
 
     write_preamble()
 
@@ -29,29 +28,6 @@ codegen :: proc(ast: Ast, shader_type: Shader_Stage, input_path: string) -> stri
     defer free_all(codegen_arena)
 
     context.allocator = codegen_arena
-
-    for output, &type in ast.used_outputs
-    {
-        write_begin("")
-        writef("layout(location = %v) out ", output.loc)
-        for spec in output.specs
-        {
-            write(attr_spec_to_glsl(spec))
-            write(" ")
-        }
-        writefln("%v _res_out_loc%v_;", type_to_glsl(&type), output.loc)
-    }
-    for input, &type in ast.used_inputs
-    {
-        write_begin("")
-        writef("layout(location = %v) in ", input.loc)
-        for spec in input.specs
-        {
-            write(attr_spec_to_glsl(spec))
-            write(" ")
-        }
-        writefln("%v _res_in_loc%v_;", type_to_glsl(&type), input.loc)
-    }
 
     writeln("")
 
@@ -93,21 +69,28 @@ codegen :: proc(ast: Ast, shader_type: Shader_Stage, input_path: string) -> stri
 
                 write_begin("")
 
-                if is_entrypoint {
+                if is_entrypoint
+                {
                     writefln("#ifdef _res_entry_%v", decl.name)
+                    write_entrypoint_inputs_outputs(decl)
                 }
 
                 ret_type_glsl := "void" if is_entrypoint else type_to_glsl(decl.type.ret)
                 writef("%v %v(", ret_type_glsl, "main" if is_entrypoint else decl.name)
-                for arg, i in decl.type.args
-                {
-                    if arg.attr != nil do continue
 
-                    writef("%v %v", type_to_glsl(arg.type), ident_to_glsl(arg.name))
-                    if i < len(decl.type.args) - 1 {
-                        write(", ")
+                if !is_entrypoint
+                {
+                    first := true
+                    for arg in decl.type.args
+                    {
+                        if arg.attr != nil do continue
+
+                        if !first do write(", ")
+                        first = false
+                        writef("%v %v", type_to_glsl(arg.type), ident_to_glsl(arg.name))
                     }
                 }
+
                 writeln(");")
 
                 if is_entrypoint {
@@ -181,14 +164,17 @@ codegen :: proc(ast: Ast, shader_type: Shader_Stage, input_path: string) -> stri
 
     writeln("layout(push_constant, scalar) uniform Push")
     writeln("{")
-    if writer_scope() {
-        if shader_type == .Compute {
-            writefln("%v _res_compute_data_;", data_type_str)
-        } else {
-            writefln("%v _res_vert_data_;", data_type_str)
-            writefln("%v _res_frag_data_;", data_type_str)
-            writefln("%v _res_indirect_data_;", indirect_data_type_glsl)
-        }
+    if writer_scope()
+    {
+        writefln("#ifdef _res_type_compute_")
+        writefln("%v _res_compute_data_;", data_type_str)
+        writefln("#endif")
+
+        writefln("#ifdef _res_type_graphics_")
+        writefln("%v _res_vert_data_;", data_type_str)
+        writefln("%v _res_frag_data_;", data_type_str)
+        writefln("%v _res_indirect_data_;", indirect_data_type_glsl)
+        writefln("#endif")
     }
     writeln("};")
     writeln("")
@@ -206,14 +192,17 @@ codegen :: proc(ast: Ast, shader_type: Shader_Stage, input_path: string) -> stri
 
         ret_type_glsl := "void" if is_entrypoint else type_to_glsl(decl.type.ret)
         writef("%v %v(", ret_type_glsl, "main" if is_entrypoint else decl.name)
-        for arg, i in decl.type.args
+        if !is_entrypoint
         {
-            if arg.attr != nil do continue
+            first := true
+            for arg in decl.type.args
+            {
+                if arg.attr != nil do continue
+                if !first do write(", ")
+                first = false
 
-            arg.glsl_name = ident_to_glsl(arg.name)
-            writef("%v %v", type_to_glsl(arg.type), arg.glsl_name)
-            if i < len(decl.type.args) - 1 {
-                write(", ")
+                arg.glsl_name = ident_to_glsl(arg.name)
+                writef("%v %v", type_to_glsl(arg.type), arg.glsl_name)
             }
         }
         writeln(")")
@@ -221,54 +210,9 @@ codegen :: proc(ast: Ast, shader_type: Shader_Stage, input_path: string) -> stri
         if writer_scope()
         {
             writer.proc_def = proc_def
-            writer.is_cur_proc_main = decl.is_entrypoint
 
             // Declare all variables
-            for var_decl in proc_def.scope.decls
-            {
-                var_decl.glsl_name = ident_to_glsl(var_decl.name)
-
-                // Skip function parameters without attributes - they're already declared in the signature
-                if var_decl.attr == nil
-                {
-                    is_param := false
-                    for param in proc_def.decl.type.args
-                    {
-                        if param.name == var_decl.name && param.attr == nil
-                        {
-                            is_param = true
-                            break
-                        }
-                    }
-                    if is_param do continue
-                }
-
-                if var_decl.attr == nil
-                {
-                    // It's not allowed to set rayquery objects like this, so we'll leave those uninitialized.
-                    if var_decl.type.primitive_kind == .Ray_Query {
-                        writefln("%v %v;", type_to_glsl(var_decl.type), var_decl.glsl_name)
-                    } else if !var_decl.has_init {
-                        write_begin()
-                        writef("%v %v = ", type_to_glsl(var_decl.type), var_decl.glsl_name)
-                        codegen_zero_initialization(var_decl.type)
-                        writeln(";")
-                    } else {
-                        writefln("%v %v;", type_to_glsl(var_decl.type), var_decl.glsl_name)
-                    }
-                }
-                else
-                {
-                    attr_glsl := attribute_to_glsl(var_decl.attr.?, ast, shader_type)
-                    if var_decl.attr.?.type == .Indirect_Data
-                    {
-                        // TODO: We just demote from pointer because on the GLSL side it's declared as value
-                        var_decl.type^ = var_decl.type.base^
-                    }
-
-                    writefln("%v %v = %v;", type_to_glsl(var_decl.type), var_decl.glsl_name, attr_glsl)
-                }
-            }
+            define_proc_variables(proc_def)
 
             for statement in proc_def.statements
             {
@@ -472,7 +416,8 @@ codegen_statement :: proc(statement: ^Ast_Statement, insert_semi := true)
                     for member in type.members
                     {
                         if member.attr == nil do continue
-                        writef("%v = ", attribute_to_glsl(member.attr.?, writer.ast, writer.shader_type))
+                        shader_stage := writer.proc_def.decl.entrypoint_stage
+                        writef("%v = ", attribute_to_glsl(member.attr.?, shader_stage))
                         codegen_expr(stmt.expr)
                         writef(".%v; ", ident_to_glsl(member.name))
                     }
@@ -481,7 +426,8 @@ codegen_statement :: proc(statement: ^Ast_Statement, insert_semi := true)
                 {
                     if ret_attr != nil && ret_attr.?.type == .Output
                     {
-                        writef("%v = ", attribute_to_glsl(ret_attr.?, writer.ast, writer.shader_type))
+                        shader_stage := writer.proc_def.decl.entrypoint_stage
+                        writef("%v = ", attribute_to_glsl(ret_attr.?, shader_stage))
                         codegen_expr(stmt.expr)
                         write(";")
                     }
@@ -934,7 +880,7 @@ unary_op_to_glsl :: proc(op: Ast_Unary_Op) -> string
     return ""
 }
 
-attribute_to_glsl :: proc(attribute: Ast_Attribute, ast: Ast, shader_type: Shader_Stage) -> string
+attribute_to_glsl :: proc(attribute: Ast_Attribute, stage: Shader_Stage) -> string
 {
     val_str := runtime.cstring_to_string(fmt.caprint(attribute.loc, allocator = context.allocator))
 
@@ -944,12 +890,14 @@ attribute_to_glsl :: proc(attribute: Ast_Attribute, ast: Ast, shader_type: Shade
         case .Position:     return "gl_Position"
         case .Data:
             // Data comes from push constants: _res_vert_data_ for vertex shader, _res_frag_data_ for fragment shader, _res_compute_data_ for compute shader
-            if shader_type == .Vertex {
+            if stage == .Vertex {
                 return "_res_vert_data_"
-            } else if shader_type == .Fragment {
+            } else if stage == .Fragment {
                 return "_res_frag_data_"
-            } else {
+            } else if stage == .Compute {
                 return "_res_compute_data_"
+            } else {
+                panic("Unreachable")
             }
         case .Instance_ID:  return "gl_InstanceIndex"
         case .Draw_ID:       return "gl_DrawID"
@@ -1082,14 +1030,174 @@ codegen_zero_initialization :: proc(type: ^Ast_Type)
 
 }
 
+write_entrypoint_inputs_outputs :: proc(decl: ^Ast_Decl)
+{
+    for arg in decl.type.args
+    {
+        if arg.attr != nil && is_attr_inout(arg.attr.?)
+        {
+            write_inout(arg.attr.?, arg.type)
+        }
+        else if arg.type.kind == .Label
+        {
+            struct_type := arg.type.base
+            for member in struct_type.members {
+                if member.attr != nil && is_attr_inout(member.attr.?) {
+                    write_inout(member.attr.?, member.type)
+                }
+            }
+        }
+    }
+
+    if decl.type.ret_attr != nil && is_attr_inout(decl.type.ret_attr.?)
+    {
+        write_inout(decl.type.ret_attr.?, decl.type.ret)
+    }
+    else if decl.type.ret.kind == .Label
+    {
+        struct_type := decl.type.ret.base
+        for member in struct_type.members {
+            if member.attr != nil && is_attr_inout(member.attr.?) {
+                write_inout(member.attr.?, member.type)
+            }
+        }
+    }
+
+    write_inout :: proc(attr: Ast_Attribute, type: ^Ast_Type)
+    {
+        write_begin()
+        writef("layout(location = %v) ", attr.loc)
+        if attr.type == .Input {
+            write("in ")
+        } else if attr.type == .Output {
+            write("out ")
+        } else {
+            panic("Unreachable")
+        }
+
+        for spec in attr.specs
+        {
+            write(attr_spec_to_glsl(spec))
+            write(" ")
+        }
+
+        write_begin()
+        writef("%v _res_", type_to_glsl(type))
+        if attr.type == .Input {
+            write("in")
+        } else if attr.type == .Output {
+            write("out")
+        } else {
+            panic("Unreachable")
+        }
+        writefln("_loc%v_;", attr.loc)
+    }
+
+    is_attr_inout :: proc(attr: Ast_Attribute) -> bool
+    {
+        return attr.type == .Input || attr.type == .Output
+    }
+}
+
+define_proc_variables :: proc(proc_def: ^Ast_Proc_Def)
+{
+    is_entrypoint := proc_def.decl.is_entrypoint
+
+    for var_decl in proc_def.scope.decls
+    {
+        is_param := false
+        for param in proc_def.decl.type.args
+        {
+            if param.name == var_decl.name && param.attr == nil
+            {
+                is_param = true
+                break
+            }
+        }
+
+        var_decl.glsl_name = ident_to_glsl(var_decl.name)
+
+        // Skip function parameters without attributes - they're already declared in the signature
+
+        if is_entrypoint && is_param
+        {
+            // Support "@input"s in structs
+            if var_decl.type.kind == .Label
+            {
+                declare_var(var_decl, zero_init = true)
+
+                struct_type := var_decl.type.base
+                for member in struct_type.members
+                {
+                    if member.attr == nil || member.attr.?.type != .Input {
+                        continue
+                    }
+
+                    member.glsl_name = ident_to_glsl(member.name)
+
+                    set_attr_member(member, var_decl.glsl_name)
+                }
+            }
+            else if var_decl.attr != nil
+            {
+                define_attr_var(var_decl)
+            }
+        }
+        else if !is_param
+        {
+            declare_var(var_decl, !var_decl.has_init)
+        }
+    }
+}
+
+declare_var :: proc(decl: ^Ast_Decl, zero_init := false)
+{
+    // It's not allowed to set rayquery objects like this, so we'll leave those uninitialized.
+    if zero_init && decl.type.primitive_kind != .Ray_Query
+    {
+        write_begin()
+        writef("%v %v = ", type_to_glsl(decl.type), decl.glsl_name)
+        codegen_zero_initialization(decl.type)
+        writeln(";")
+    }
+    else
+    {
+        writefln("%v %v;", type_to_glsl(decl.type), decl.glsl_name)
+    }
+}
+
+define_attr_var :: proc(decl: ^Ast_Decl)
+{
+    shader_stage := writer.proc_def.decl.entrypoint_stage
+    attr_glsl := attribute_to_glsl(decl.attr.?, shader_stage)
+    if decl.attr.?.type == .Indirect_Data
+    {
+        // TODO: We just demote from pointer because on the GLSL side it's declared as value
+        decl.type^ = decl.type.base^
+    }
+
+    writefln("%v %v = %v;", type_to_glsl(decl.type), decl.glsl_name, attr_glsl)
+}
+
+set_attr_member :: proc(decl: ^Ast_Decl, struct_var_name: string)
+{
+    shader_stage := writer.proc_def.decl.entrypoint_stage
+    attr_glsl := attribute_to_glsl(decl.attr.?, shader_stage)
+    if decl.attr.?.type == .Indirect_Data
+    {
+        // TODO: We just demote from pointer because on the GLSL side it's declared as value
+        decl.type^ = decl.type.base^
+    }
+
+    writefln("%v.%v = %v;", struct_var_name, decl.glsl_name, attr_glsl)
+}
+
 Writer :: struct
 {
     indentation: u32,
     builder: strings.Builder,
     ast: Ast,
     proc_def: ^Ast_Proc_Def,
-    shader_type: Shader_Stage,
-    is_cur_proc_main: bool,
 }
 
 @(private="file")
@@ -1128,9 +1236,9 @@ write_preamble :: proc()
         writeln("#extension GL_EXT_ray_query : require")
     }
 
-    if writer.shader_type == .Compute {
-        writeln("layout(local_size_x_id = 13370, local_size_y_id = 13371, local_size_z_id = 13372) in;")
-    }
+    writeln("#ifdef _res_type_compute_")
+    writeln("layout(local_size_x_id = 13370, local_size_y_id = 13371, local_size_z_id = 13372) in;")
+    writeln("#endif")
 
     writeln("layout(set = 0, binding = 0) uniform texture2D _res_textures_[];")
     writeln("layout(set = 1, binding = 0) uniform image2D _res_textures_rw_[];")

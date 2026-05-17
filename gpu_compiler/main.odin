@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:os"
 import "core:mem"
 import vmem "core:mem/virtual"
-import str "core:strings"
 import "base:runtime"
 import fp "core:path/filepath"
 import "core:slice"
@@ -36,6 +35,9 @@ main :: proc()
         opt.out = output
     }
 
+    out_info, err_f := os.fstat(opt.out, allocator = context.allocator)
+    if err_f != nil do os.exit(1)
+
     when ODIN_OS == .Windows
     {
         handle := windows.GetStdHandle(windows.STD_OUTPUT_HANDLE)
@@ -64,7 +66,8 @@ main :: proc()
     }
 
     // output_path_glsl := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".glsl" }, allocator = perm_arena)
-    output_path_spv := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".spv" }, allocator = perm_arena)
+    // output_path_spv := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".spv" }, allocator = perm_arena)
+    output_prefix := strings.concatenate({ fp.dir(out_info.fullpath), "/", fp.short_stem(out_info.fullpath) }, allocator = perm_arena)
 
     file_content, ok := load_file_and_null_terminate(input_path, allocator = perm_arena)
     if !ok
@@ -80,9 +83,9 @@ main :: proc()
     if !ok_p do os.exit(1)
     ok_t := typecheck_ast(&ast, file, allocator = perm_arena)
     if !ok_t do os.exit(1)
-    glsl_source := codegen(ast, shader_stage_hint, input_path)
+    glsl_source := codegen(ast, input_path)
 
-    ok_c := compile_glsl_to_spirv(shader_stage_hint, glsl_source, input_path, output_path_spv, "main")
+    ok_c := output_all_spirv_files(glsl_source, input_path, output_prefix, ast, shader_stage_hint)
     if !ok_c do os.exit(1)
 
     if opt.print_glsl {
@@ -154,6 +157,35 @@ release_scratch :: #force_inline proc(allocator: mem.Allocator, temp: vmem.Arena
     vmem.arena_temp_end(temp)
 }
 
+output_all_spirv_files :: proc(glsl_source: string, input_path: string, output_prefix: string, ast: Ast, stage_hint: Shader_Stage) -> bool
+{
+    scratch, _ := acquire_scratch()
+    for proc_def in ast.procs
+    {
+        decl := proc_def.decl
+        if decl.is_entrypoint
+        {
+            sb := strings.builder_make_none(allocator = scratch)
+            strings.write_string(&sb, output_prefix)
+            strings.write_string(&sb, ".")
+            switch stage_hint
+            {
+                case .None:     strings.write_string(&sb, decl.name);
+                case .Vertex:   strings.write_string(&sb, "vert");
+                case .Fragment: strings.write_string(&sb, "frag");
+                case .Compute:  strings.write_string(&sb, "comp");
+            }
+            strings.write_string(&sb, ".spv")
+            output_path := strings.to_string(sb)
+
+            stage := stage_hint if stage_hint != nil else decl.entrypoint_stage
+            compile_glsl_to_spirv(stage, glsl_source, input_path, output_path, decl.name) or_return
+        }
+    }
+
+    return true
+}
+
 compile_glsl_to_spirv :: proc(shader_type: Shader_Stage, glsl_source: string, input_path: string, output_path: string, entrypoint: string) -> bool
 {
     stage: glslang.Stage
@@ -168,11 +200,18 @@ compile_glsl_to_spirv :: proc(shader_type: Shader_Stage, glsl_source: string, in
     scratch, _ := acquire_scratch()
 
     sb := strings.builder_make_none(allocator = scratch)
-    strings.write_string(&sb, "#version 460\n")
     strings.write_string(&sb, "#define _res_entry_")
     strings.write_string(&sb, entrypoint)
     strings.write_string(&sb, "\n")
+    switch shader_type
+    {
+        case .None:     panic("Unreachable")
+        case .Vertex:   strings.write_string(&sb, "#define _res_type_graphics_\n")
+        case .Fragment: strings.write_string(&sb, "#define _res_type_graphics_\n")
+        case .Compute:  strings.write_string(&sb, "#define _res_type_compute_\n")
+    }
     strings.write_string(&sb, glsl_source)
+    
     glsl_source_processed := strings.to_cstring(&sb)
 
     input := glslang.input_t {
@@ -183,7 +222,7 @@ compile_glsl_to_spirv :: proc(shader_type: Shader_Stage, glsl_source: string, in
         target_language = .SPV,
         target_language_version = .SPV_1_5,
         code = glsl_source_processed,
-        default_version = 130,
+        default_version = 460,
         default_profile = .NO_PROFILE,
         force_default_version_and_profile = false,
         forward_compatible = false,
@@ -206,13 +245,11 @@ compile_glsl_to_spirv :: proc(shader_type: Shader_Stage, glsl_source: string, in
 
     if glslang.shader_parse(shader, &input) == 0
     {
-        preprocessed := str.clone_from_cstring(glslang.shader_get_preprocessed_code(shader), allocator = scratch)
-
         fmt.printf("%s: GLSL parsing failed. This is a bug, please report.\n", input_path)
         fmt.printf("%s\n", glslang.shader_get_info_log(shader))
         fmt.printf("%s\n", glslang.shader_get_info_debug_log(shader))
-        fmt.printf("GLSL source (preprocessed):\n")
-        print_file_with_line_nums(preprocessed)
+        fmt.printf("GLSL source:\n")
+        print_file_with_line_nums(string(glsl_source_processed))
         return false
     }
 
