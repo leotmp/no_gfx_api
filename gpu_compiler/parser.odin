@@ -24,11 +24,12 @@ Any_Node :: union
 Ast :: struct
 {
     used_types: [dynamic]Ast_Type,
-    used_data_type: ^Ast_Type,
     used_indirect_data_type: ^Ast_Type,
     scope: ^Ast_Scope,
     procs: [dynamic]^Ast_Proc_Def,
     global_vars: [dynamic]^Ast_Define_Var,
+
+    import_paths: [dynamic]string,  // fullpath
 
     // Filled in by typechecker
     used_features: Lang_Features,
@@ -397,7 +398,6 @@ Parser :: struct
 
     scope: ^Ast_Scope,
     used_types: [dynamic]Ast_Type,
-    used_data_type: ^Ast_Type,
     used_indirect_data_type: ^Ast_Type,
 }
 
@@ -408,11 +408,28 @@ _parse_file :: proc(using p: ^Parser) -> Ast
     }
 
     scope = ast.scope
+    top_of_file := true
 
     loop: for true
     {
         #partial switch tokens[at].type
         {
+            case .Directive:
+            {
+                if tokens[at].text != "import" {
+                    parse_error(p, "Unexpected directive.")
+                }
+
+                if !top_of_file {
+                    parse_error(p, "'#import' must be at the top of the file.")
+                }
+
+                at += 1
+
+                import_path := tokens[at]
+                required_token(p, .StrLit)
+                append(&ast.import_paths, import_path.text)
+            }
             case .Ident:
             {
                 if tokens[at+1].type == .Colon &&
@@ -420,6 +437,7 @@ _parse_file :: proc(using p: ^Parser) -> Ast
                    tokens[at+3].type == .Struct
                 {
                     parse_struct_def(p)
+                    top_of_file = false
                 }
                 else if tokens[at+1].type == .Colon &&
                         tokens[at+2].type == .Colon &&
@@ -427,6 +445,7 @@ _parse_file :: proc(using p: ^Parser) -> Ast
                                                           tokens[at+4].type == .LParen))
                 {
                     append(&ast.procs, parse_proc_def(p))
+                    top_of_file = false
                 }
                 else if tokens[at+1].type == .Colon
                 {
@@ -458,6 +477,7 @@ _parse_file :: proc(using p: ^Parser) -> Ast
                     }
 
                     required_token(p, .Semi)
+                    top_of_file = false
                 }
                 else
                 {
@@ -468,14 +488,13 @@ _parse_file :: proc(using p: ^Parser) -> Ast
             case .EOS: break loop
             case:
             {
-                parse_error(p, "Expecting an identifier at top level.")
+                parse_error(p, "Expecting an identifier or a directive at top level.")
                 break loop
             }
         }
     }
 
     ast.used_types = used_types
-    ast.used_data_type = used_data_type
     ast.used_indirect_data_type = used_indirect_data_type
     return ast
 }
@@ -1063,9 +1082,7 @@ parse_decl_list_elem :: proc(using p: ^Parser, add_to_scope: bool) -> ^Ast_Decl
     node.attr = parse_attribute(p)
     if node.attr != nil
     {
-        if node.attr.?.type == .Data {
-            used_data_type = node.type
-        } else if node.attr.?.type == .Indirect_Data {
+        if node.attr.?.type == .Indirect_Data {
             used_indirect_data_type = node.type
         }
     }

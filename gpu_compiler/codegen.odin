@@ -160,7 +160,6 @@ codegen :: proc(ast: Ast, input_path: string) -> string
     if ast.used_indirect_data_type != nil {
         indirect_data_type_glsl = strings.concatenate({"_res_indirect_array_", type_to_glsl(ast.used_indirect_data_type.base)})
     }
-    data_type_str := type_to_glsl(ast.used_data_type) if ast.used_data_type != nil else "_res_ptr_void"
 
     // Generate push constants for entrypoints
     writeln("layout(push_constant, scalar) uniform Push")
@@ -168,7 +167,27 @@ codegen :: proc(ast: Ast, input_path: string) -> string
     if writer_scope()
     {
         writefln("#ifdef _res_type_compute_")
-        writefln("%v _res_compute_data_;", data_type_str)
+        for proc_def in ast.procs
+        {
+            decl := proc_def.decl
+            is_entrypoint := decl.is_entrypoint
+            if !is_entrypoint do continue
+            if decl.entrypoint_stage != .Compute do continue
+
+            writefln("#ifdef _res_entry_%v", decl.name)
+
+            data_type := find_entrypoint_data_type(decl)
+            if data_type != nil
+            {
+                writefln("%v _res_compute_data_;", type_to_glsl(data_type))
+            }
+            else
+            {
+                writefln("_res_ptr_void _res_compute_data_;")
+            }
+
+            writefln("#endif")
+        }
         writefln("#endif")
 
         writefln("#ifdef _res_type_graphics_")
@@ -177,6 +196,7 @@ codegen :: proc(ast: Ast, input_path: string) -> string
             decl := proc_def.decl
             is_entrypoint := decl.is_entrypoint
             if !is_entrypoint do continue
+            if decl.entrypoint_stage != .Vertex && decl.entrypoint_stage != .Fragment do continue
 
             writefln("#ifdef _res_entry_%v", decl.name)
 
