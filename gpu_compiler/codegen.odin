@@ -162,6 +162,7 @@ codegen :: proc(ast: Ast, input_path: string) -> string
     }
     data_type_str := type_to_glsl(ast.used_data_type) if ast.used_data_type != nil else "_res_ptr_void"
 
+    // Generate push constants for entrypoints
     writeln("layout(push_constant, scalar) uniform Push")
     writeln("{")
     if writer_scope()
@@ -171,8 +172,29 @@ codegen :: proc(ast: Ast, input_path: string) -> string
         writefln("#endif")
 
         writefln("#ifdef _res_type_graphics_")
-        writefln("%v _res_vert_data_;", data_type_str)
-        writefln("%v _res_frag_data_;", data_type_str)
+        for proc_def in ast.procs
+        {
+            decl := proc_def.decl
+            is_entrypoint := decl.is_entrypoint
+            if !is_entrypoint do continue
+
+            writefln("#ifdef _res_entry_%v", decl.name)
+
+            data_type := find_entrypoint_data_type(decl)
+            if data_type != nil
+            {
+                writefln("%v _res_vert_data_;", type_to_glsl(data_type))
+                writefln("%v _res_frag_data_;", type_to_glsl(data_type))
+            }
+            else
+            {
+                writefln("_res_ptr_void _res_vert_data_;")
+                writefln("_res_ptr_void _res_frag_data_;")
+            }
+
+            writefln("#endif")
+        }
+
         writefln("%v _res_indirect_data_;", indirect_data_type_glsl)
         writefln("#endif")
     }
@@ -417,17 +439,17 @@ codegen_statement :: proc(statement: ^Ast_Statement, insert_semi := true)
                     {
                         if member.attr == nil do continue
                         shader_stage := writer.proc_def.decl.entrypoint_stage
-                        writef("%v = ", attribute_to_glsl(member.attr.?, shader_stage))
+                        writef("%v = ", attribute_to_glsl(member.attr.?, shader_stage, false))
                         codegen_expr(stmt.expr)
                         writef(".%v; ", ident_to_glsl(member.name))
                     }
                 }
                 else
                 {
-                    if ret_attr != nil && ret_attr.?.type == .Output
+                    if ret_attr != nil && ret_attr.?.type == .IO
                     {
                         shader_stage := writer.proc_def.decl.entrypoint_stage
-                        writef("%v = ", attribute_to_glsl(ret_attr.?, shader_stage))
+                        writef("%v = ", attribute_to_glsl(ret_attr.?, shader_stage, false))
                         codegen_expr(stmt.expr)
                         write(";")
                     }
@@ -880,14 +902,14 @@ unary_op_to_glsl :: proc(op: Ast_Unary_Op) -> string
     return ""
 }
 
-attribute_to_glsl :: proc(attribute: Ast_Attribute, stage: Shader_Stage) -> string
+attribute_to_glsl :: proc(attribute: Ast_Attribute, stage: Shader_Stage, is_input: bool) -> string
 {
     val_str := runtime.cstring_to_string(fmt.caprint(attribute.loc, allocator = context.allocator))
 
     switch attribute.type
     {
-        case .Vert_ID:       return "gl_VertexIndex"
-        case .Position:     return "gl_Position"
+        case .Vert_ID:  return "gl_VertexIndex"
+        case .Position: return "gl_Position"
         case .Data:
             // Data comes from push constants: _res_vert_data_ for vertex shader, _res_frag_data_ for fragment shader, _res_compute_data_ for compute shader
             if stage == .Vertex {
@@ -899,15 +921,14 @@ attribute_to_glsl :: proc(attribute: Ast_Attribute, stage: Shader_Stage) -> stri
             } else {
                 panic("Unreachable")
             }
-        case .Instance_ID:  return "gl_InstanceIndex"
-        case .Draw_ID:       return "gl_DrawID"
+        case .Instance_ID: return "gl_InstanceIndex"
+        case .Draw_ID: return "gl_DrawID"
         case .Indirect_Data: return "_res_indirect_data_._res_[gl_DrawID]"
         case .Workgroup_ID: return "gl_WorkGroupID"
         case .Local_Invocation_ID: return "gl_LocalInvocationID"
         case .Group_Size: return "gl_WorkGroupSize"
         case .Global_Invocation_ID: return "gl_GlobalInvocationID"
-        case .Output:  return strings.concatenate({"_res_out_loc", val_str, "_"})
-        case .Input:   return strings.concatenate({"_res_in_loc", val_str, "_"})
+        case .IO: return strings.concatenate({"_res_in_loc" if is_input else "_res_out_loc", val_str, "_"})
     }
 
     return {}
@@ -1036,14 +1057,14 @@ write_entrypoint_inputs_outputs :: proc(decl: ^Ast_Decl)
     {
         if arg.attr != nil && is_attr_inout(arg.attr.?)
         {
-            write_inout(arg.attr.?, arg.type)
+            write_inout(arg.attr.?, arg.type, true)
         }
         else if arg.type.kind == .Label
         {
             struct_type := arg.type.base
             for member in struct_type.members {
                 if member.attr != nil && is_attr_inout(member.attr.?) {
-                    write_inout(member.attr.?, member.type)
+                    write_inout(member.attr.?, member.type, true)
                 }
             }
         }
@@ -1051,28 +1072,26 @@ write_entrypoint_inputs_outputs :: proc(decl: ^Ast_Decl)
 
     if decl.type.ret_attr != nil && is_attr_inout(decl.type.ret_attr.?)
     {
-        write_inout(decl.type.ret_attr.?, decl.type.ret)
+        write_inout(decl.type.ret_attr.?, decl.type.ret, false)
     }
     else if decl.type.ret.kind == .Label
     {
         struct_type := decl.type.ret.base
         for member in struct_type.members {
             if member.attr != nil && is_attr_inout(member.attr.?) {
-                write_inout(member.attr.?, member.type)
+                write_inout(member.attr.?, member.type, false)
             }
         }
     }
 
-    write_inout :: proc(attr: Ast_Attribute, type: ^Ast_Type)
+    write_inout :: proc(attr: Ast_Attribute, type: ^Ast_Type, is_input: bool)
     {
         write_begin()
         writef("layout(location = %v) ", attr.loc)
-        if attr.type == .Input {
+        if is_input {
             write("in ")
-        } else if attr.type == .Output {
-            write("out ")
         } else {
-            panic("Unreachable")
+            write("out ")
         }
 
         for spec in attr.specs
@@ -1083,19 +1102,17 @@ write_entrypoint_inputs_outputs :: proc(decl: ^Ast_Decl)
 
         write_begin()
         writef("%v _res_", type_to_glsl(type))
-        if attr.type == .Input {
+        if is_input {
             write("in")
-        } else if attr.type == .Output {
-            write("out")
         } else {
-            panic("Unreachable")
+            write("out")
         }
         writefln("_loc%v_;", attr.loc)
     }
 
     is_attr_inout :: proc(attr: Ast_Attribute) -> bool
     {
-        return attr.type == .Input || attr.type == .Output
+        return attr.type == .IO
     }
 }
 
@@ -1127,18 +1144,18 @@ define_proc_variables :: proc(proc_def: ^Ast_Proc_Def)
                 struct_type := var_decl.type.base
                 for member in struct_type.members
                 {
-                    if member.attr == nil || member.attr.?.type != .Input {
+                    if member.attr == nil || member.attr.?.type != .IO {
                         continue
                     }
 
                     member.glsl_name = ident_to_glsl(member.name)
 
-                    set_attr_member(member, var_decl.glsl_name)
+                    set_attr_member(member, var_decl.glsl_name, true)
                 }
             }
             else if var_decl.attr != nil
             {
-                define_attr_var(var_decl)
+                define_attr_var(var_decl, true)
             }
         }
         else if !is_param  // Skip function parameters without attributes - they're already declared in the signature
@@ -1164,10 +1181,10 @@ declare_var :: proc(decl: ^Ast_Decl, zero_init := false)
     }
 }
 
-define_attr_var :: proc(decl: ^Ast_Decl)
+define_attr_var :: proc(decl: ^Ast_Decl, is_input: bool)
 {
     shader_stage := writer.proc_def.decl.entrypoint_stage
-    attr_glsl := attribute_to_glsl(decl.attr.?, shader_stage)
+    attr_glsl := attribute_to_glsl(decl.attr.?, shader_stage, is_input)
     if decl.attr.?.type == .Indirect_Data
     {
         // TODO: We just demote from pointer because on the GLSL side it's declared as value
@@ -1177,10 +1194,10 @@ define_attr_var :: proc(decl: ^Ast_Decl)
     writefln("%v %v = %v;", type_to_glsl(decl.type), decl.glsl_name, attr_glsl)
 }
 
-set_attr_member :: proc(decl: ^Ast_Decl, struct_var_name: string)
+set_attr_member :: proc(decl: ^Ast_Decl, struct_var_name: string, is_input: bool)
 {
     shader_stage := writer.proc_def.decl.entrypoint_stage
-    attr_glsl := attribute_to_glsl(decl.attr.?, shader_stage)
+    attr_glsl := attribute_to_glsl(decl.attr.?, shader_stage, is_input)
     if decl.attr.?.type == .Indirect_Data
     {
         // TODO: We just demote from pointer because on the GLSL side it's declared as value
@@ -1188,6 +1205,18 @@ set_attr_member :: proc(decl: ^Ast_Decl, struct_var_name: string)
     }
 
     writefln("%v.%v = %v;", struct_var_name, decl.glsl_name, attr_glsl)
+}
+
+find_entrypoint_data_type :: proc(decl: ^Ast_Decl) -> ^Ast_Type
+{
+    assert(decl.is_entrypoint)
+    for arg in decl.type.args
+    {
+        if arg.attr != nil && arg.attr.?.type == .Data {
+            return arg.type
+        }
+    }
+    return nil
 }
 
 Writer :: struct

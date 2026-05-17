@@ -104,8 +104,7 @@ Ast_Attribute_Type :: enum
     Group_Size,
 
     // With args:
-    Output,
-    Input,
+    IO,
 }
 
 Ast_Attribute_Specifier :: enum
@@ -1168,41 +1167,10 @@ parse_attribute :: proc(using p: ^Parser) -> Maybe(Ast_Attribute)
         case "local_invocation_id":  attr.type = .Local_Invocation_ID
         case "group_size":           attr.type = .Group_Size
         case "global_invocation_id": attr.type = .Global_Invocation_ID
-        case "input":
+        case "io":
         {
             // ??? Why is the compiler making me do this?
-            attr.type, _ = .Input,
-            required_token(p, .LParen)
-            num_token := required_token(p, .IntLit)
-            attr.loc = u32(get_token_lit_int_value(num_token))
-
-            if optional_token(p, .Comma)
-            {
-                for true
-                {
-                    #partial switch tokens[at].type
-                    {
-                        case .Flat: attr.specs += { .Flat }
-                        case .Centroid: attr.specs += { .Centroid }
-                        case .Noperspective: attr.specs += { .No_Perspective }
-                        case: parse_error(p, "Unexpected token '%v': expecting an attribute specifier", tokens[at].text)
-                    }
-
-                    at += 1
-
-                    comma_present := optional_token(p, .Comma)
-                    if !comma_present do break
-                    if comma_present && (tokens[at].type == .RParen || tokens[at].type == .RBrace) do break
-                    if error do break
-                }
-            }
-
-            required_token(p, .RParen)
-        }
-        case "output":
-        {
-            // ??? Why is the compiler making me do this?
-            attr.type, _ = .Output,
+            attr.type, _ = .IO,
             required_token(p, .LParen)
             num_token := required_token(p, .IntLit)
             attr.loc = u32(get_token_lit_int_value(num_token))
