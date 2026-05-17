@@ -19,7 +19,7 @@ import glslang "glslang_odin"
 Options :: struct
 {
     file: ^os.File `args:"pos=0,required,file=r" usage:"Input file."`,
-    out: ^os.File `args:"pos=1,file=cw" usage:"Output file. Default: 'output(.entry_name).spv'"`,
+    out: string `args:"pos=1" usage:"Output file. Default: 'output(.entry_name)'. Can omit extension."`,
     print_glsl: bool `usage:"Print transpiled GLSL output."`,
 }
 
@@ -28,15 +28,7 @@ main :: proc()
     opt: Options
     flags.parse_or_exit(&opt, os.args, .Odin)
 
-    if opt.out == nil
-    {
-        output, err := os.open("./output.spv", { .Read, .Write, .Create, .Trunc })
-        ensure(err == nil)
-        opt.out = output
-    }
-
-    out_info, err_f := os.fstat(opt.out, allocator = context.allocator)
-    if err_f != nil do os.exit(1)
+    if opt.out == "" do opt.out = "./output"
 
     when ODIN_OS == .Windows
     {
@@ -65,9 +57,7 @@ main :: proc()
         shader_stage_hint = .Compute
     }
 
-    // output_path_glsl := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".glsl" }, allocator = perm_arena)
-    // output_path_spv := str.concatenate({ fp.dir(input_path), "/", fp.stem(input_path), ".spv" }, allocator = perm_arena)
-    output_prefix := strings.concatenate({ fp.dir(out_info.fullpath), "/", fp.short_stem(out_info.fullpath) }, allocator = perm_arena)
+    output_prefix := strings.concatenate({ fp.dir(opt.out), "/", fp.short_stem(opt.out) }, allocator = perm_arena)
 
     file_content, ok := load_file_and_null_terminate(input_path, allocator = perm_arena)
     if !ok
@@ -211,7 +201,7 @@ compile_glsl_to_spirv :: proc(shader_type: Shader_Stage, glsl_source: string, in
         case .Compute:  strings.write_string(&sb, "#define _res_type_compute_\n")
     }
     strings.write_string(&sb, glsl_source)
-    
+
     glsl_source_processed := strings.to_cstring(&sb)
 
     input := glslang.input_t {

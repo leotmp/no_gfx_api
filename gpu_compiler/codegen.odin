@@ -1108,7 +1108,7 @@ define_proc_variables :: proc(proc_def: ^Ast_Proc_Def)
         is_param := false
         for param in proc_def.decl.type.args
         {
-            if param.name == var_decl.name && param.attr == nil
+            if param.name == var_decl.name
             {
                 is_param = true
                 break
@@ -1116,8 +1116,6 @@ define_proc_variables :: proc(proc_def: ^Ast_Proc_Def)
         }
 
         var_decl.glsl_name = ident_to_glsl(var_decl.name)
-
-        // Skip function parameters without attributes - they're already declared in the signature
 
         if is_entrypoint && is_param
         {
@@ -1143,7 +1141,7 @@ define_proc_variables :: proc(proc_def: ^Ast_Proc_Def)
                 define_attr_var(var_decl)
             }
         }
-        else if !is_param
+        else if !is_param  // Skip function parameters without attributes - they're already declared in the signature
         {
             declare_var(var_decl, !var_decl.has_init)
         }
