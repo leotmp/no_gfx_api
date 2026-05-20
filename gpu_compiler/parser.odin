@@ -185,8 +185,9 @@ Ast_Member_Access :: struct
 {
     using base_expr: Ast_Expr,
     target: ^Ast_Expr,
-    member_name: string,
+    member: Token,
     is_swizzle: bool,
+    is_module_access: bool,
 }
 
 Ast_Array_Access :: struct
@@ -452,7 +453,7 @@ _parse_file :: proc(using p: ^Parser) -> Ast
                 {
                     append(parse_tasks, Parse_Task { file = { filename = cleaned }, parsed = false })
                     to_append := Ast_Import {
-                        module_name = cleaned,
+                        module_name = os.stem(cleaned),
                         info = &parse_tasks[len(parse_tasks)-1]
                     }
                     append(&ast.imports, to_append)
@@ -1013,7 +1014,7 @@ parse_postfix_expr :: proc(using p: ^Parser) -> ^Ast_Expr
                 at += 1
 
                 ident := required_token(p, .Ident)
-                member_access.member_name = ident.text
+                member_access.member = ident
                 member_access.target = expr
                 expr = member_access
             }

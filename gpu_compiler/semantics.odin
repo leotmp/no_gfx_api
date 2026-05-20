@@ -312,7 +312,7 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
         }
         case ^Ast_Ident_Expr:
         {
-            decl := decl_lookup(c, expr.token)
+            decl := decl_lookup(scope, expr.token)
             if decl == nil {
                 typecheck_error(c, expr.token, "Undeclared identifier '%v'.", expr.token.text)
             } else {
@@ -364,12 +364,32 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
         }
         case ^Ast_Member_Access:
         {
+            // Check module access
+            target_ident, is_ident := expr.target.derived_expr.(^Ast_Ident_Expr)
+            if is_ident
+            {
+                module := find_module(c, target_ident.token.text)
+                if module != nil
+                {
+                    decl := decl_lookup(module.info.ast.scope, expr.member, false)
+                    if decl == nil {
+                        typecheck_error(c, expr.member, "Undeclared identifier '%v' in module '%v'.", expr.member.text, module.module_name)
+                    } else {
+                        expr.type = decl.type
+                    }
+
+                    expr.is_module_access = true
+                    break
+                }
+            }
+
             typecheck_expr(c, expr.target)
             if expr.target.type.kind == .Poison do break
 
+            // Check swizzle
             if expr.target.type.kind == .Primitive
             {
-                type, is_swizzle := handle_vector_swizzle(expr.target.type, expr.member_name)
+                type, is_swizzle := handle_vector_swizzle(expr.target.type, expr.member.text)
                 if is_swizzle
                 {
                     expr.type = type
@@ -389,7 +409,7 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
             field_type := &POISON_TYPE
             for field in base.members
             {
-                if field.name == expr.member_name
+                if field.name == expr.member.text
                 {
                     field_type = field.type
                     break
@@ -397,7 +417,7 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
             }
 
             if field_type == &POISON_TYPE {
-                typecheck_error(c, expr.token, "Member '%v' not found.", expr.member_name)
+                typecheck_error(c, expr.token, "Member '%v' not found.", expr.member.text)
             }
 
             expr.type = field_type
@@ -487,6 +507,17 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
     }
 }
 
+find_module :: proc(using c: ^Checker, s: string) -> ^Ast_Import
+{
+    for &module in ast.imports
+    {
+        if module.module_name == s {
+            return &module
+        }
+    }
+    return nil
+}
+
 POISON_TYPE := Ast_Type { kind = .Poison }
 FLOAT_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Float, name = { text = "float" } }
 UINT_TYPE := Ast_Type { kind = .Primitive, primitive_kind = .Uint, name = { text = "uint" } }
@@ -545,7 +576,7 @@ type_get_base :: proc(type: ^Ast_Type) -> ^Ast_Type
     return type_get_base(type.base)
 }
 
-decl_lookup :: proc(using c: ^Checker, token: Token) -> ^Ast_Decl
+decl_lookup :: proc(scope: ^Ast_Scope, token: Token, allow_intrinsics := true) -> ^Ast_Decl
 {
     cur_scope := scope
     for cur_scope != nil
@@ -564,13 +595,16 @@ decl_lookup :: proc(using c: ^Checker, token: Token) -> ^Ast_Decl
         cur_scope = cur_scope.enclosing_scope
     }
 
-    for intr in INTRINSICS
+    if allow_intrinsics
     {
-        ignore_order := intr.type.kind == .Struct || intr.type.kind == .Proc
-        if !ignore_order && raw_data(intr.token.text) > raw_data(token.text) {
-            continue
+        for intr in INTRINSICS
+        {
+            ignore_order := intr.type.kind == .Struct || intr.type.kind == .Proc
+            if !ignore_order && raw_data(intr.token.text) > raw_data(token.text) {
+                continue
+            }
+            if intr.name == token.text do return intr
         }
-        if intr.name == token.text do return intr
     }
 
     return nil
@@ -686,7 +720,7 @@ resolve_type :: proc(using c: ^Checker, type: ^Ast_Type)
     base := type_get_base(type)
     if base.kind == .Label
     {
-        type_decl := decl_lookup(c, base.name)
+        type_decl := decl_lookup(scope, base.name)
         if type_decl == nil {
             typecheck_error(c, base.name, "Undeclared identifier '%v'.", base.name.text)
             base.kind = .Poison  // Turn the declaration into the poison type

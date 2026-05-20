@@ -579,14 +579,21 @@ codegen_expr :: proc(expression: ^Ast_Expr)
         }
         case ^Ast_Member_Access:
         {
-            codegen_expr(expr.target)
+            if expr.is_module_access
+            {
+                ident_to_glsl(expr.member.text)
+            }
+            else
+            {
+                codegen_expr(expr.target)
 
-            name := expr.member_name if expr.is_swizzle else ident_to_glsl(expr.member_name)
+                name := expr.member.text if expr.is_swizzle else ident_to_glsl(expr.member.text)
 
-            if expr.target.type.kind == .Pointer || expr.target.type.kind == .Slice {
-                writef("._res_.%v", name)
-            } else {
-                writef(".%v", name)
+                if expr.target.type.kind == .Pointer || expr.target.type.kind == .Slice {
+                    writef("._res_.%v", name)
+                } else {
+                    writef(".%v", name)
+                }
             }
         }
         case ^Ast_Array_Access:
