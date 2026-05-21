@@ -71,7 +71,7 @@ codegen_ast_decls :: proc(ast: Ast, input_path: string)
         {
             case .Struct:
             {
-                generate_struct_decl(&generated_struct_decls, decl.type, decl.name)
+                generate_struct_decl(&generated_struct_decls, decl.type, decl.glsl_name)
             }
         }
     }
@@ -117,11 +117,6 @@ codegen_ast_decls :: proc(ast: Ast, input_path: string)
             }
         }
     }
-}
-
-codegen_ast_defs :: proc(ast: Ast, input_path: string, is_module_main: bool)
-{
-    writer.ast = ast
 
     // Generate all global var decls
     for decl in ast.scope.decls
@@ -155,6 +150,11 @@ codegen_ast_defs :: proc(ast: Ast, input_path: string, is_module_main: bool)
             }
         }
     }
+}
+
+codegen_ast_defs :: proc(ast: Ast, input_path: string, is_module_main: bool)
+{
+    writer.ast = ast
 
     for &type in ast.used_types
     {
@@ -692,10 +692,8 @@ generate_struct_decl :: proc(generated: ^map[^Ast_Type]struct{}, type: ^Ast_Type
     // Generate struct decls it depends on first.
     for field in type.members
     {
-        if field.type.kind == .Label
-        {
-            label_name := field.type.name.text
-            generate_struct_decl(generated, field.type.base, label_name)
+        if field.type.kind == .Label {
+            generate_struct_decl(generated, field.type.base, field.type.decl.glsl_name)
         }
     }
 
@@ -818,7 +816,7 @@ type_to_glsl :: proc(type: ^Ast_Type) -> string
         case .Poison: return "<POISON>"
         case .None: return "void"
         case .Unknown: return "<UNKNOWN>"
-        case .Label: return type.name.text
+        case .Label: return type.decl.glsl_name
         case .Pointer: return strings.concatenate({ "_res_ptr_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
         case .Slice: return strings.concatenate({ "_res_slice_", "mut_" if type.is_mut else "", type_to_glsl(type.base) })
         case .Array:
@@ -1398,18 +1396,7 @@ RT_Intrinsics_Code :: `
 
 layout(set = 3, binding = 0) uniform accelerationStructureEXT _res_bvhs_[];
 
-mat4 _res_mat4_from_mat4x3(mat4x3 m)
-{
-    // GLSL is column-major: m[col][row]
-    return mat4(
-        vec4(m[0], 0.0),
-        vec4(m[1], 0.0),
-        vec4(m[2], 0.0),
-        vec4(m[3], 1.0)
-    );
-}
-
-struct Ray_Desc
+struct Ray_Desc_
 {
     uint flags_;
     uint cull_mask_;
@@ -1419,7 +1406,7 @@ struct Ray_Desc
     vec3 dir_;
 };
 
-struct Ray_Result
+struct Ray_Result_
 {
     uint kind_;
     float t_;
@@ -1431,9 +1418,9 @@ struct Ray_Result
     mat4x3 world_to_object_;
 };
 
-Ray_Result rayquery_result(rayQueryEXT rq)
+Ray_Result_ rayquery_result(rayQueryEXT rq)
 {
-    Ray_Result res;
+    Ray_Result_ res;
     res.kind_ = rayQueryGetIntersectionTypeEXT(rq, true);
     res.t_ = rayQueryGetIntersectionTEXT(rq, true);
     res.instance_idx_  = rayQueryGetIntersectionInstanceIdEXT(rq, true);
@@ -1445,9 +1432,9 @@ Ray_Result rayquery_result(rayQueryEXT rq)
     return res;
 }
 
-Ray_Result rayquery_candidate(rayQueryEXT rq)
+Ray_Result_ rayquery_candidate(rayQueryEXT rq)
 {
-    Ray_Result res;
+    Ray_Result_ res;
     res.kind_ = rayQueryGetIntersectionTypeEXT(rq, false);
     res.t_ = rayQueryGetIntersectionTEXT(rq, false);
     res.instance_idx_  = rayQueryGetIntersectionInstanceIdEXT(rq, false);
@@ -1459,7 +1446,7 @@ Ray_Result rayquery_candidate(rayQueryEXT rq)
     return res;
 }
 
-void rayquery_init(rayQueryEXT rq, Ray_Desc desc, uint bvh)
+void rayquery_init(rayQueryEXT rq, Ray_Desc_ desc, uint bvh)
 {
     rayQueryInitializeEXT(rq,
                           _res_bvhs_[nonuniformEXT(bvh)],

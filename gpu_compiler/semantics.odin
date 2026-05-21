@@ -73,6 +73,7 @@ typecheck_ast_decls :: proc(ast: ^Ast, file: File, module_name: string, is_modul
             case .Label, .Primitive, .Pointer, .Slice, .Array:
             {
                 decl.glsl_name = global_ident_to_glsl(decl.name, module_name, is_module_main)
+                resolve_type(&c, decl.type)
             }
         }
     }
@@ -104,9 +105,8 @@ typecheck_ast_defs :: proc(ast: ^Ast, file: File, allocator: runtime.Allocator) 
         for decl in proc_def.scope.decls
         {
             resolve_type(&c, decl.type)
-            if decl.glsl_name == "" {
-                decl.glsl_name = ident_to_glsl(decl.name)
-            }
+            if decl.name == "pi" do fmt.println("changing")
+            decl.glsl_name = ident_to_glsl(decl.name)
 
             if decl.attr != nil && decl.attr.?.type == .Data
             {
@@ -194,7 +194,9 @@ typecheck_statement :: proc(using c: ^Checker, statement: ^Ast_Statement)
         case ^Ast_Define_Var:
         {
             typecheck_expr(c, stmt.expr)
-            stmt.decl.glsl_name = ident_to_glsl(stmt.decl.name)
+            if stmt.decl.glsl_name == "" {
+                stmt.decl.glsl_name = ident_to_glsl(stmt.decl.name)
+            }
 
             if stmt.expr.type.kind == .None
             {
@@ -757,6 +759,7 @@ resolve_type :: proc(using c: ^Checker, type: ^Ast_Type)
             base.primitive_kind = {}
         } else {
             base.base = type_decl.type
+            base.decl = type_decl
         }
     }
 }
@@ -956,7 +959,7 @@ add_intrinsic :: proc(name: string, args: []^Ast_Type, names: []string, ret: ^As
     decl.type.args = arg_decls
     decl.type.ret = ret
     decl.type.is_variadic = is_variadic
-    decl.glsl_name = glsl_name
+    decl.glsl_name = glsl_name if glsl_name != "" else decl.name
     append(&INTRINSICS, decl)
 }
 
@@ -974,6 +977,7 @@ add_intrinsic_struct :: proc(name: string, members: []^Ast_Type, names: []string
 
     decl := new(Ast_Decl)
     decl.name = name
+    decl.glsl_name = ident_to_glsl(name)
     decl.type = new(Ast_Type)
     decl.type.kind = .Struct
     decl.type.members = member_decls
@@ -983,6 +987,7 @@ add_intrinsic_struct :: proc(name: string, members: []^Ast_Type, names: []string
     label_type.kind = .Label
     label_type.name = { text = name, type = .Ident, col_start = 0, line = 0 }
     label_type.base = decl.type
+    label_type.decl = decl
     return label_type
 }
 

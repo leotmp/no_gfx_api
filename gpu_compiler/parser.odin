@@ -366,6 +366,7 @@ Ast_Type :: struct
     kind: Ast_Type_Kind,
     primitive_kind: Ast_Type_Primitive_Kind,  // Only populated if kind == .Primitive
     base: ^Ast_Type,
+    decl: ^Ast_Decl,  // For .Label kind
 
     name: Token,
 
