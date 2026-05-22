@@ -343,7 +343,7 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
         }
         case ^Ast_Ident_Expr:
         {
-            decl := decl_lookup(scope, expr.token)
+            decl := decl_lookup(scope, ast.imports[:], expr.token)
             if decl == nil {
                 typecheck_error(c, expr.token, "Undeclared identifier '%v'.", expr.token.text)
             } else {
@@ -402,7 +402,7 @@ typecheck_expr :: proc(using c: ^Checker, expression: ^Ast_Expr)
                 module := find_module(c, target_ident.token.text)
                 if module != nil
                 {
-                    decl := decl_lookup(module.info.ast.scope, expr.member, false)
+                    decl := decl_lookup(module.info.ast.scope, {}, expr.member, false)
                     if decl == nil {
                         typecheck_error(c, expr.member, "Undeclared identifier '%v' in module '%v'.", expr.member.text, module.module_name)
                     } else {
@@ -608,7 +608,7 @@ type_get_base :: proc(type: ^Ast_Type) -> ^Ast_Type
     return type_get_base(type.base)
 }
 
-decl_lookup :: proc(scope: ^Ast_Scope, token: Token, allow_intrinsics := true) -> ^Ast_Decl
+decl_lookup :: proc(scope: ^Ast_Scope, imports: []Ast_Import, token: Token, allow_intrinsics := true) -> ^Ast_Decl
 {
     cur_scope := scope
     for cur_scope != nil
@@ -637,6 +637,13 @@ decl_lookup :: proc(scope: ^Ast_Scope, token: Token, allow_intrinsics := true) -
             }
             if intr.name == token.text do return intr
         }
+    }
+
+    for imported in imports
+    {
+        if !imported.using_active do continue
+        found := decl_lookup(imported.info.ast.scope, {}, token, false)
+        if found != nil do return found
     }
 
     return nil
@@ -752,7 +759,7 @@ resolve_type :: proc(using c: ^Checker, type: ^Ast_Type)
     base := type_get_base(type)
     if base.kind == .Label
     {
-        type_decl := decl_lookup(scope, base.name)
+        type_decl := decl_lookup(scope, ast.imports[:], base.name)
         if type_decl == nil {
             typecheck_error(c, base.name, "Undeclared identifier '%v'.", base.name.text)
             base.kind = .Poison  // Turn the declaration into the poison type
