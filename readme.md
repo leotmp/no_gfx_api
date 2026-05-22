@@ -179,16 +179,15 @@ Importing **no_gfx** into your own project mostly just involves copying the `gpu
 
 - [Odin >= 2026-03](https://odin-lang.org/)
 - [Vulkan SDK](https://vulkan.lunarg.com/) (not required, but recommended for low-level Vulkan validation)
-- [make](https://www.gnu.org/software/make/)
 
 Binaries for dependencies are included.
 
-See the [Makefile](Makefile) for all available commands.
+- `odin run build`: builds all examples.
+- `odin run build -- build_all_with_slang`: builds all examples using the Slang shaders.
+- `odin run build -- compiler`: builds the NOSL compiler.
+- `odin run build -- shaders_nosl`: produces SPIR-V for all NOSL shaders.
+- `odin run build -- shaders_slang`: produces SPIR-V for all Slang shaders.
 
-## Running examples
-
-Run `make` to build all examples into the `build` directory.
-
-Run `make example1`, `make example2`, etc. to run individual examples.
+See [build.odin](build/build.odin) for all available commands.
 
 Feel free to [contact me on discord](https://discord.com/users/leon2058) for any questions.

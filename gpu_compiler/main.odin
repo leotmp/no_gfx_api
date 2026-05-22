@@ -110,8 +110,6 @@ main :: proc()
     if opt.print_glsl {
         print_file_with_line_nums(glsl_source)
     }
-
-    fmt.println(input_path)
 }
 
 Parse_Task :: struct

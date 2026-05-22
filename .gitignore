@@ -11,5 +11,6 @@ imgui.ini
 *.dll
 *.spv
 build/*
+!build/build.odin
 !build/SDL3.dll
 impl_enabled.odin
