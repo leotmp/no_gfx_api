@@ -1,0 +1,24 @@
+site_name: no_gfx
+
+nav:
+  - Overview: index.md
+  - API Documentation: no_gfx.md
+  - NOSL Specification: NOSL.md
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+
+markdown_extensions:
+  - pymdownx.highlight:
+      use_pygments: false
+  - pymdownx.superfences
+
+extra_javascript:
+  - https://unpkg.com/@highlightjs/cdn-assets@11.11.1/highlight.min.js
+  - https://unpkg.com/highlightjs-odinlang@1.4.0/dist/odin.min.js
+  - javascripts/hljs-init.js
+
+extra_css:
+  - https://unpkg.com/@highlightjs/cdn-assets@11.11.1/styles/github-dark.min.css
