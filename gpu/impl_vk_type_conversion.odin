@@ -106,21 +106,16 @@ to_vk_texture_format :: proc(format: Texture_Format) -> vk.Format
         case .Default: panic("Implementation bug!")
         case .R8_Unorm: return .R8_UNORM
         case .RG8_Unorm: return .R8G8_UNORM
-        case .RGB8_Unorm: return .R8G8B8_UNORM
         case .RGBA8_Unorm: return .R8G8B8A8_UNORM
-        case .BGR8_Unorm: return .B8G8R8_UNORM
         case .ABGR8_Unorm: return .A8B8G8R8_UNORM_PACK32
         case .BGRA8_Unorm: return .B8G8R8A8_UNORM
         case .R8_SRGB: return .R8_SRGB
         case .RG8_SRGB: return .R8G8_SRGB
-        case .RGB8_SRGB: return .R8G8B8_SRGB
         case .RGBA8_SRGB: return .R8G8B8A8_SRGB
-        case .BGR8_SRGB: return .B8G8R8_SRGB
         case .ABGR8_SRGB: return .A8B8G8R8_SRGB_PACK32
         case .BGRA8_SRGB: return .B8G8R8A8_SRGB
         case .R16_Unorm: return .R16_UNORM
         case .RG16_Unorm: return .R16G16_UNORM
-        case .RGB16_Unorm: return .R16G16B16_UNORM
         case .RGBA16_Unorm: return .R16G16B16A16_UNORM
         case .D16_Unorm: return .D16_UNORM
         case .D16_Unorm_S8_Uint: return .D16_UNORM_S8_UINT
@@ -129,11 +124,9 @@ to_vk_texture_format :: proc(format: Texture_Format) -> vk.Format
         case .D32_Float: return .D32_SFLOAT
         case .R16_Float: return .R16_SFLOAT
         case .RG16_Float: return .R16G16_SFLOAT
-        case .RGB16_Float: return .R16G16B16_SFLOAT
         case .RGBA16_Float: return .R16G16B16A16_SFLOAT
         case .R32_Float: return .R32_SFLOAT
         case .RG32_Float: return .R32G32_SFLOAT
-        case .RGB32_Float: return .R32G32B32_SFLOAT
         case .RGBA32_Float: return .R32G32B32A32_SFLOAT
         case .BC1_RGBA_Unorm: return .BC1_RGBA_UNORM_BLOCK
         case .BC3_RGBA_Unorm: return .BC3_UNORM_BLOCK
