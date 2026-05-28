@@ -108,7 +108,7 @@ void computeMain(uint3 global_invocation_id : SV_DispatchThreadID, uniform Compu
         if (data->accum_counter > 1)
         {
             float weight = 1.0 / float(data->accum_counter);
-            float3 prev_color = getTexture2DRW(data->output_texture_id).Load(int2(global_invocation_id.xy), 0).rgb;
+            float3 prev_color = getTexture2DRW(data->output_texture_id)[int2(global_invocation_id.xy)].rgb;
             color = prev_color * (1.0 - weight) + color * weight;
             color = max(color, float3(0.0, 0.0, 0.0));
         }
