@@ -2326,7 +2326,7 @@ _cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, textures, textures_rw, sampl
 
     vk_cmd_buf := cmd_buf.handle
 
-    if textures == {} && textures_rw == {} && samplers == {} && bvhs != {} do return
+    if textures == {} && textures_rw == {} && samplers == {} && bvhs == {} do return
 
     infos: [4]vk.DescriptorBufferBindingInfoEXT
     // Fill in infos with the subset of valid pointers
