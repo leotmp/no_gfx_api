@@ -40,7 +40,8 @@ float4 raymarch(ComputeData* data, uint3 global_invocation_id)
     float z = frac(dot(C, sin(C))) - 0.5;
     float4 o = float4(0.0, 0.0, 0.0, 0.0);
     float4 p;
-    float2 r = getTextureDimensionsRW(data->output_texture_id);
+    float2 r = float2(0.0);
+    getTexture2DRW(data->output_texture_id).GetDimensions(r.x, r.y);
     float4 O;
 
     // Loop: ++i < 77 means i goes from 1 to 76 (76 iterations)
@@ -101,7 +102,8 @@ void computeMain(uint3 global_invocation_id : SV_DispatchThreadID, uniform Compu
 {
     ComputeData* data = pipeline_data.data;
 
-    float2 resolution = getTextureDimensionsRW(data->output_texture_id);
+    float2 resolution = float2(0.0);
+    getTexture2DRW(data->output_texture_id).GetDimensions(resolution.x, resolution.y);
 
     // Out of bounds check: only execute if thread is within resolution
     if (global_invocation_id.x < resolution.x)
@@ -109,7 +111,7 @@ void computeMain(uint3 global_invocation_id : SV_DispatchThreadID, uniform Compu
         if (global_invocation_id.y < resolution.y)
         {
             float4 color = raymarch(data, global_invocation_id);
-            imageStore(data.output_texture_id, int2(global_invocation_id.xy), color);
+            getTexture2DRW(data.output_texture_id)[int2(global_invocation_id.xy)] = color;
         }
     }
 }

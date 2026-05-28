@@ -64,19 +64,17 @@ GBufferOutput fragmentMain(
     GraphicsPipelineData<void, FragmentData> data)
 {
     GBufferOutput gbuffer_out;
-    float4 base_color = sampleTexture(data.frag.base_color_map, data.frag.base_color_map_sampler, uv);
+    float4 base_color = getTexture2D(data.frag.base_color_map).Sample(getSampler(data.frag.base_color_map_sampler), uv);
     if(base_color.a < 0.1) discard;
 
-    float4 normal_map_sample = sampleTexture(data.frag.normal_map, data.frag.normal_map_sampler, uv);
+    float4 normal_map_sample = getTexture2D(data.frag.normal_map).Sample(getSampler(data.frag.normal_map_sampler), uv);
 
     // TODO: Use normal_map_sample with tangent/bitangent when available.
     float3 world_normal = normalize(normal_vert.xyz);
     float4 packed_normal = float4(world_normal * 0.5 + 0.5, 1.0);
 
-    float4 metallic_roughness_sample = sampleTexture(
-        data.frag.metallic_roughness_map,
-        data.frag.metallic_roughness_map_sampler,
-        uv);
+    float4 metallic_roughness_sample = getTexture2D(data.frag.metallic_roughness_map).Sample(
+        getSampler(data.frag.metallic_roughness_map_sampler), uv);
 
     gbuffer_out.albedo = base_color;
     gbuffer_out.normal = packed_normal;

@@ -2,10 +2,29 @@
 
 module shared;
 
-[[vk::binding(0, 0)]] public Texture2D textureHeap[];
-[[vk::binding(0, 1)]] public RWTexture2D<float4> textureHeapRW[];
-[[vk::binding(0, 2)]] public SamplerState samplerHeap[];
-[[vk::binding(0, 3)]] RaytracingAccelerationStructure bvhHeap[];
+#define TEXTURE_HEAP_BINDING 0
+#define RWTEXTURE_HEAP_BINDING 1
+#define SAMPLER_HEAP_BINDING 2
+#define BVH_HEAP_BINDING 3
+
+#pragma warning(disable: 39001)
+
+[[vk::binding(0, TEXTURE_HEAP_BINDING)]] public Texture2D texture2DHeap[];
+[[vk::binding(0, TEXTURE_HEAP_BINDING)]] public Texture1D texture1DHeap[];
+[[vk::binding(0, TEXTURE_HEAP_BINDING)]] public Texture3D texture3DHeap[];
+[[vk::binding(0, TEXTURE_HEAP_BINDING)]] public TextureCube textureCubeHeap[];
+[[vk::binding(0, TEXTURE_HEAP_BINDING)]] public Texture2DArray texture2DArrayHeap[];
+[[vk::binding(0, TEXTURE_HEAP_BINDING)]] public TextureCubeArray textureCubeArrayHeap[];
+[[vk::binding(0, TEXTURE_HEAP_BINDING)]] public Texture1DArray texture1DArrayHeap[];
+
+[[vk::binding(0, RWTEXTURE_HEAP_BINDING)]] public RWTexture2D<float4> texture2DHeapRW[];
+[[vk::binding(0, RWTEXTURE_HEAP_BINDING)]] public RWTexture1D<float4> texture1DHeapRW[];
+[[vk::binding(0, RWTEXTURE_HEAP_BINDING)]] public RWTexture3D<float4> texture3DHeapRW[];
+[[vk::binding(0, RWTEXTURE_HEAP_BINDING)]] public RWTexture2DArray<float4> texture2DArrayHeapRW[];
+[[vk::binding(0, RWTEXTURE_HEAP_BINDING)]] public RWTexture1DArray<float4> texture1DArrayHeapRW[];
+
+[[vk::binding(0, SAMPLER_HEAP_BINDING)]] public SamplerState samplerHeap[];
+[[vk::binding(0, BVH_HEAP_BINDING)]] RaytracingAccelerationStructure bvhHeap[];
 
 // Push constant blocks - different structures for graphics vs compute shaders
 public struct __PushConstants_Graphics
@@ -54,17 +73,17 @@ public struct GraphicsPipelineData<TVertexData = void, TFragmentData = void, TDr
 
     public property drawData : TDrawData {
         [ForceInline]
-        get {
+        get { 
             __DrawCommand<TDrawData>* buffer = (__DrawCommand<TDrawData>*)__push_graphics.indirectData;
-            return buffer[draw_id].data;
+            return buffer[draw_id].data; 
         }
     }
 
     public property drawCmd : DrawIndexedIndirectCommand {
         [ForceInline]
-        get {
+        get { 
             __DrawCommand<TDrawData>* buffer = (__DrawCommand<TDrawData>*)__push_graphics.indirectData;
-            return buffer[draw_id].cmd;
+            return buffer[draw_id].cmd; 
         }
     }
 }
@@ -76,58 +95,69 @@ public struct ComputePipelineData<TData = void> {
     }
 }
 
-// Sampling helpers
-public float4 sampleTexture(uint textureIndex, uint samplerIndex, float2 uv)
+public SamplerState getSampler(uint samplerIndex) 
 {
-    return textureHeap[NonUniformResourceIndex(textureIndex)]
-        .Sample(samplerHeap[NonUniformResourceIndex(samplerIndex)], uv);
+    return samplerHeap[NonUniformResourceIndex(samplerIndex)];
 }
 
-public float4 sampleTextureLevel(uint textureIndex, uint samplerIndex, float2 uv, float lod)
+public Texture2D getTexture2D(uint textureIndex)
 {
-    return textureHeap[NonUniformResourceIndex(textureIndex)]
-        .SampleLevel(samplerHeap[NonUniformResourceIndex(samplerIndex)], uv, lod);
+    return texture2DHeap[NonUniformResourceIndex(textureIndex)];
 }
 
-public float4 sampleTextureGrad(uint textureIndex, uint samplerIndex, float2 uv, float2 ddx, float2 ddy)
+public Texture3D getTexture3D(uint textureIndex)
 {
-    return textureHeap[NonUniformResourceIndex(textureIndex)]
-        .SampleGrad(samplerHeap[NonUniformResourceIndex(samplerIndex)], uv, ddx, ddy);
+    return texture3DHeap[NonUniformResourceIndex(textureIndex)];
 }
 
-public float4 loadTexture(uint textureIndex, int2 coord, int mipLevel)
+public Texture1D getTexture1D(uint textureIndex)
 {
-    return textureHeap[NonUniformResourceIndex(textureIndex)].Load(int3(coord, mipLevel));
+    return texture1DHeap[NonUniformResourceIndex(textureIndex)];
 }
 
-public float4 loadTextureRW(uint textureIndex, int2 coord, int mipLevel)
+public TextureCube getTextureCube(uint textureIndex)
 {
-    return textureHeapRW[NonUniformResourceIndex(textureIndex)][coord];
+    return textureCubeHeap[NonUniformResourceIndex(textureIndex)];
 }
 
-public uint2 getTextureDimensions(uint textureIndex, uint samplerIndex, int lod)
+public Texture2DArray getTexture2DArray(uint textureIndex)
 {
-    uint width;
-    uint height;
-    uint mip_levels;
-    textureHeap[NonUniformResourceIndex(textureIndex)]
-        .GetDimensions(lod, width, height, mip_levels);
-    return uint2(width, height);
+    return texture2DArrayHeap[NonUniformResourceIndex(textureIndex)];
 }
 
-public uint2 getTextureDimensionsRW(uint textureIndex)
+public TextureCubeArray getTextureCubeArray(uint textureIndex)
 {
-    uint width;
-    uint height;
-    textureHeapRW[NonUniformResourceIndex(textureIndex)]
-        .GetDimensions(width, height);
-    return uint2(width, height);
+    return textureCubeArrayHeap[NonUniformResourceIndex(textureIndex)];
 }
 
-// Image store helper for writing to RWTexture2D
-public void imageStore(uint textureIndex, int2 coord, float4 color)
+public Texture1DArray getTexture1DArray(uint textureIndex)
 {
-    textureHeapRW[NonUniformResourceIndex(textureIndex)][coord] = color;
+    return texture1DArrayHeap[NonUniformResourceIndex(textureIndex)];
+}
+
+public RWTexture2D<float4> getTexture2DRW(uint textureIndex)
+{
+    return texture2DHeapRW[NonUniformResourceIndex(textureIndex)];
+}
+
+public RWTexture1D<float4> getTexture1DRW(uint textureIndex)
+{
+    return texture1DHeapRW[NonUniformResourceIndex(textureIndex)];
+}
+
+public RWTexture3D<float4> getTexture3DRW(uint textureIndex)
+{
+    return texture3DHeapRW[NonUniformResourceIndex(textureIndex)];
+}
+
+public RWTexture2DArray<float4> getTexture2DArrayRW(uint textureIndex)
+{
+    return texture2DArrayHeapRW[NonUniformResourceIndex(textureIndex)];
+}
+
+public RWTexture1DArray<float4> getTexture1DArrayRW(uint textureIndex)
+{
+    return texture1DArrayHeapRW[NonUniformResourceIndex(textureIndex)];
 }
 
 public RaytracingAccelerationStructure getBVH(uint bvhIndex)

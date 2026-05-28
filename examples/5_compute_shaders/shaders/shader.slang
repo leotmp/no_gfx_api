@@ -36,5 +36,5 @@ struct FragmentData
 [shader("fragment")]
 float4 fragmentMain(float2 uv : TEXCOORD0, GraphicsPipelineData<void, FragmentData> data) : SV_Target
 {
-    return sampleTexture(data.frag.texture_id, data.frag.sampler_id, uv);
+    return getTexture2D(data.frag.texture_id).Sample(getSampler(data.frag.sampler_id), uv);
 }

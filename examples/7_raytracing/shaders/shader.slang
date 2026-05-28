@@ -35,7 +35,7 @@ struct FragmentData
 [shader("fragment")]
 float4 fragmentMain(float2 uv : TEXCOORD0, GraphicsPipelineData<void, FragmentData> data) : SV_Target
 {
-    float4 linear = sampleTexture(data.frag.texture_id, data.frag.sampler_id, uv);
+    float4 linear = getTexture2D(data.frag.texture_id).Sample(getSampler(data.frag.sampler_id), uv);
     return linear_to_srgb(hdr_to_ldr(max(linear, float4(0.0, 0.0, 0.0, 0.0))));
 }
 
