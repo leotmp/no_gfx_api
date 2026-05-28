@@ -545,7 +545,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
                 shaderInt64 = true,
                 vertexPipelineStoresAndAtomics = true,
                 samplerAnisotropy = true,
-                shaderStorageImageMultisample = true,
             }
         }
         raytracing_features := &vk.PhysicalDeviceAccelerationStructureFeaturesKHR {
