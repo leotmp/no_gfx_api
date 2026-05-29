@@ -2324,37 +2324,6 @@ _bvh_root_ptr :: proc(bvh: BVH, loc := #caller_location) -> rawptr
     })
 }
 
-_bvh_descriptor :: proc(bvh: BVH, loc := #caller_location) -> BVH_Descriptor
-{
-    if ctx.validation
-    {
-        ok := true
-        ok &= pool_check(&ctx.bvhs, bvh, "bvh", loc)
-        if !ok do return {}
-    }
-
-    bvh_info := pool_get(&ctx.bvhs, bvh)
-
-    bvh_addr := vk.GetAccelerationStructureDeviceAddressKHR(ctx.device, &{
-        sType = .ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-        accelerationStructure = bvh_info.handle,
-    })
-
-    desc: BVH_Descriptor
-    info := vk.DescriptorGetInfoEXT {
-        sType = .DESCRIPTOR_GET_INFO_EXT,
-        type = .ACCELERATION_STRUCTURE_KHR,
-        data = { accelerationStructure = bvh_addr }
-    }
-    vk.GetDescriptorEXT(ctx.device, &info, int(ctx.bvh_desc_size), &desc)
-    return desc
-}
-
-_bvh_descriptor_size :: proc() -> u32
-{
-    return ctx.bvh_desc_size
-}
-
 _bvh_destroy :: proc(bvh: BVH, loc := #caller_location)
 {
     if ctx.validation

@@ -30,7 +30,6 @@ Descriptor_Heap :: distinct Handle
 //BVH_Descriptor :: struct { bytes: [4]u64 }
 Texture_Descriptor :: distinct Big_Handle
 Sampler_Descriptor :: distinct Handle
-BVH_Descriptor :: struct { _bytes: [4]u64 }
 
 // Enums
 Feature :: enum { Raytracing = 0 }
@@ -357,8 +356,6 @@ bvh_size_and_align :: proc { blas_size_and_align, tlas_size_and_align }
 bvh_create :: proc { blas_create, tlas_create }
 bvh_build_scratch_buffer_size_and_align :: proc { blas_build_scratch_buffer_size_and_align, tlas_build_scratch_buffer_size_and_align }
 bvh_root_ptr: proc(bvh: BVH, loc := #caller_location) -> rawptr : _bvh_root_ptr
-bvh_descriptor: proc(bvh: BVH, loc := #caller_location) -> BVH_Descriptor : _bvh_descriptor
-bvh_descriptor_size: proc() -> u32 : _bvh_descriptor_size
 bvh_destroy: proc(bvh: BVH, loc := #caller_location) : _bvh_destroy
 
 // Command buffer
@@ -846,7 +843,7 @@ Descriptor_Pool :: struct
     texture_pool: Descriptor_Pool_Resource(Texture_Descriptor),
     texture_rw_pool: Descriptor_Pool_Resource(Texture_Descriptor),
     sampler_pool: Descriptor_Pool_Resource(Sampler_Descriptor),
-    bvh_pool: Descriptor_Pool_Resource(BVH_Descriptor),
+    bvh_pool: Descriptor_Pool_Resource(BVH),
 }
 
 // Using null descriptors most likely will result in a crash
@@ -859,14 +856,13 @@ desc_pool_create :: proc(#any_int texture_count: i64 = 65535,
                          default_texture_desc := Texture_Descriptor {},
                          default_texture_rw_desc := Texture_Descriptor {},
                          default_sampler_desc := Sampler_Descriptor {},
-                         default_bvh_desc := BVH_Descriptor {},
                          loc := #caller_location) -> Descriptor_Pool
 {
     res: Descriptor_Pool
     res.texture_pool = desc_pool_resource_init(texture_view_descriptor_size(), texture_count, default_texture_desc)
     res.sampler_pool = desc_pool_resource_init(sampler_descriptor_size(), sampler_count, default_sampler_desc)
     res.texture_rw_pool = desc_pool_resource_init(texture_rw_view_descriptor_size(), texture_rw_count, default_texture_rw_desc)
-    res.bvh_pool = desc_pool_resource_init(bvh_descriptor_size(), texture_count, default_bvh_desc)
+    //res.bvh_pool = desc_pool_resource_init(bvh_descriptor_size(), texture_count, default_bvh_desc)
     return res
 }
 
@@ -901,7 +897,7 @@ desc_pool_alloc_texture_rw_single :: #force_inline proc(pool: ^Descriptor_Pool, 
 desc_pool_alloc_sampler_single :: #force_inline proc(pool: ^Descriptor_Pool, desc: Sampler_Descriptor) -> u32 {
     return desc_pool_alloc_sampler_multi(pool, { desc })
 }
-desc_pool_alloc_bvh_single :: #force_inline proc(pool: ^Descriptor_Pool, desc: BVH_Descriptor) -> u32 {
+desc_pool_alloc_bvh_single :: #force_inline proc(pool: ^Descriptor_Pool, desc: BVH) -> u32 {
     return desc_pool_alloc_bvh_multi(pool, { desc })
 }
 
@@ -914,7 +910,7 @@ desc_pool_update_texture_rw :: #force_inline proc(pool: ^Descriptor_Pool, idx: u
 desc_pool_update_sampler :: #force_inline proc(pool: ^Descriptor_Pool, idx: u32, desc: Sampler_Descriptor) {
     desc_pool_resource_update(&pool.sampler_pool, idx, desc)
 }
-desc_pool_update_bvh :: #force_inline proc(pool: ^Descriptor_Pool, idx: u32, desc: BVH_Descriptor) {
+desc_pool_update_bvh :: #force_inline proc(pool: ^Descriptor_Pool, idx: u32, desc: BVH) {
     desc_pool_resource_update(&pool.bvh_pool, idx, desc)
 }
 
@@ -978,7 +974,7 @@ desc_pool_alloc_sampler_multi :: proc(pool: ^Descriptor_Pool, samplers: []Sample
     return idx
 }
 
-desc_pool_alloc_bvh_multi :: proc(pool: ^Descriptor_Pool, bvhs: []BVH_Descriptor) -> u32
+desc_pool_alloc_bvh_multi :: proc(pool: ^Descriptor_Pool, bvhs: []BVH) -> u32
 {
     assert(len(bvhs) <= int(max(u8)))
     idx := desc_pool_resource_alloc(&pool.bvh_pool, i64(len(bvhs)))

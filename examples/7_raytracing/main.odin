@@ -93,11 +93,6 @@ main :: proc()
     output_texture := gpu.texture_alloc_and_create(output_desc)
     defer gpu.texture_free_and_destroy(&output_texture)
 
-    // BVH descriptor heap
-    bvh_heap_size := gpu.bvh_descriptor_size()
-    bvh_heap := gpu.mem_alloc_raw(bvh_heap_size, 10, 64, alloc_type = .Descriptors)
-    defer gpu.mem_free_raw(bvh_heap)
-
     Compute_Data :: struct {
         output_texture_id: u32,
         tlas_id: u32,
@@ -152,7 +147,7 @@ main :: proc()
     texture_id := gpu.desc_pool_alloc_texture(&desc_pool, gpu.texture_view_descriptor(output_texture, {}))
     texture_rw_id := gpu.desc_pool_alloc_texture_rw(&desc_pool, gpu.texture_rw_view_descriptor(output_texture, {}))
     sampler_id := gpu.desc_pool_alloc_sampler(&desc_pool, gpu.sampler_descriptor({}))
-    bvh_id := gpu.desc_pool_alloc_bvh(&desc_pool, gpu.bvh_descriptor(scene.bvh))
+    bvh_id := gpu.desc_pool_alloc_bvh(&desc_pool, scene.bvh)
 
     now_ts := sdl.GetPerformanceCounter()
     total_time: f32 = 0.0
