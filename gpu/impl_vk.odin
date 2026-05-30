@@ -17,7 +17,7 @@ import "vma"
 @(private="file")
 Max_Textures :: 65535
 @(private="file")
-Max_BVHs :: 65535
+Max_BVHs :: 16
 
 @(private="file")
 Graphics_Shader_Push_Constants :: struct #packed {
@@ -69,6 +69,7 @@ Context :: struct
     frames_in_flight: u32,
 
     // Descriptor sizes
+    desc_buf_align: u32,
     texture_desc_size: u32,
     texture_rw_desc_size: u32,
     sampler_desc_size: u32,
@@ -416,6 +417,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     if .Raytracing in ctx.features {
         ensure(desc_buf_props.accelerationStructureDescriptorSize <= 32, "Unexpected BVH descriptor size.")
     }
+    ctx.desc_buf_align = u32(desc_buf_props.descriptorBufferOffsetAlignment)
     ctx.texture_desc_size = u32(desc_buf_props.sampledImageDescriptorSize)
     ctx.texture_rw_desc_size = u32(desc_buf_props.storageImageDescriptorSize)
     ctx.sampler_desc_size = u32(desc_buf_props.samplerDescriptorSize)
@@ -545,7 +547,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
                 shaderInt64 = true,
                 vertexPipelineStoresAndAtomics = true,
                 samplerAnisotropy = true,
-                shaderStorageImageMultisample = true,
             }
         }
         raytracing_features := &vk.PhysicalDeviceAccelerationStructureFeaturesKHR {
@@ -1310,6 +1311,9 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
     vk.GetBufferMemoryRequirements(ctx.device, buf, &mem_requirements)
 
     mem_requirements.alignment = vk.DeviceSize(max(i64(mem_requirements.alignment), align))
+    if alloc_type == .Descriptors {
+        mem_requirements.alignment = vk.DeviceSize(max(u32(mem_requirements.alignment), ctx.desc_buf_align))
+    }
 
     alloc_ci := vma.Allocation_Create_Info {
         flags = vma.Allocation_Create_Flags { .Mapped } if mem_type != .GPU else {},
@@ -2322,7 +2326,7 @@ _cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, textures, textures_rw, sampl
 
     vk_cmd_buf := cmd_buf.handle
 
-    if textures == {} && textures_rw == {} && samplers == {} && bvhs != {} do return
+    if textures == {} && textures_rw == {} && samplers == {} && bvhs == {} do return
 
     infos: [4]vk.DescriptorBufferBindingInfoEXT
     // Fill in infos with the subset of valid pointers

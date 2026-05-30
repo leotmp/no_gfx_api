@@ -860,7 +860,7 @@ Descriptor_Pool :: struct
 desc_pool_create :: proc(#any_int texture_count: i64 = 65535,
                          #any_int texture_rw_count: i64 = 256,
                          #any_int sampler_count: i64 = 256,
-                         #any_int bvh_count: i64 = 256,
+                         #any_int bvh_count: i64 = 16,
                          default_texture_desc := Texture_Descriptor {},
                          default_texture_rw_desc := Texture_Descriptor {},
                          default_sampler_desc := Sampler_Descriptor {},
