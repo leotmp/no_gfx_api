@@ -422,12 +422,12 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     }
 
     // Check descriptor sizes
-    ensure(desc_buf_props.storageImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected storage image descriptor size.")
-    ensure(desc_buf_props.sampledImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected sampled texture descriptor size.")
-    ensure(desc_buf_props.samplerDescriptorSize <= size_of(Sampler_Descriptor), "Unexpected sampler descriptor size.")
-    if .Raytracing in ctx.features {
-        ensure(desc_buf_props.accelerationStructureDescriptorSize <= 32, "Unexpected BVH descriptor size.")
-    }
+    //ensure(desc_buf_props.storageImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected storage image descriptor size.")
+    //ensure(desc_buf_props.sampledImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected sampled texture descriptor size.")
+    //ensure(desc_buf_props.samplerDescriptorSize <= size_of(Sampler_Descriptor), "Unexpected sampler descriptor size.")
+    //if .Raytracing in ctx.features {
+    //    ensure(desc_buf_props.accelerationStructureDescriptorSize <= 32, "Unexpected BVH descriptor size.")
+    //}
     ctx.desc_buf_align = u32(desc_buf_props.descriptorBufferOffsetAlignment)
     ctx.texture_desc_size = u32(desc_buf_props.sampledImageDescriptorSize)
     ctx.texture_rw_desc_size = u32(desc_buf_props.storageImageDescriptorSize)
@@ -596,7 +596,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
@@ -612,7 +611,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
@@ -628,7 +626,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
@@ -645,7 +642,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
@@ -705,6 +701,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             }
             desc_pool_ci := vk.DescriptorPoolCreateInfo {
                 sType = .DESCRIPTOR_POOL_CREATE_INFO,
+                flags = { .FREE_DESCRIPTOR_SET },
                 maxSets = 128,
                 poolSizeCount = u32(len(pool_sizes)),
                 pPoolSizes = raw_data(pool_sizes)
@@ -1982,7 +1979,7 @@ _desc_heap_set_bvhs :: proc(heap: Descriptor_Heap, start_idx: u32, bvhs: []BVH, 
     write := vk.WriteDescriptorSet {
         sType = .WRITE_DESCRIPTOR_SET,
         pNext = &write_bvh,
-        dstSet = heap_info.textures,
+        dstSet = heap_info.bvhs,
         dstBinding = 0,
         dstArrayElement = start_idx,
         descriptorCount = u32(len(bvhs)),
