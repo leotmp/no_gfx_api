@@ -143,6 +143,16 @@ to_vk_texture_format :: proc(format: Texture_Format) -> vk.Format
     return {}
 }
 
+to_vk_image_aspect_flags :: #force_inline proc(format: Texture_Format) -> vk.ImageAspectFlags {
+    #partial switch format
+    {
+        case .Default: panic("Implementation bug!")
+        case .D16_Unorm, .D16_Unorm_S8_Uint, .D24_Unorm_Pack32, .D24_Unorm_S8_Uint, .D32_Float: 
+            return { .DEPTH }
+        case: return { .COLOR }
+    }
+}
+
 to_vk_sample_count :: proc(sample_count: u32) -> vk.SampleCountFlags
 {
     switch sample_count

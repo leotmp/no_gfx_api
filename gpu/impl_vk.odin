@@ -1406,7 +1406,7 @@ _texture_size_and_align :: proc(desc: Texture_Desc, loc := #caller_location) -> 
 
     image_ci := to_vk_image_create_info(desc_clean)
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if desc_clean.format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(desc_clean.format)
 
     info := vk.DeviceImageMemoryRequirements {
         sType = .DEVICE_IMAGE_MEMORY_REQUIREMENTS,
@@ -1441,7 +1441,7 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
     image_ci := to_vk_image_create_info(desc_clean)
     vk_check(vma.create_aliasing_image2(ctx.vma_allocator, alloc_info.allocation, vk.DeviceSize(offset), image_ci, &image))
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if desc_clean.format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(desc_clean.format)
 
     // Transition layout from UNDEFINED to GENERAL
     {
@@ -1571,7 +1571,7 @@ _texture_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc,
         format = texture.format
     }
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(format)
 
     image_view_ci := vk.ImageViewCreateInfo {
         sType = .IMAGE_VIEW_CREATE_INFO,
@@ -1613,7 +1613,7 @@ _texture_rw_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_De
         format = texture.format
     }
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(format)
 
     image_view_ci := vk.ImageViewCreateInfo {
         sType = .IMAGE_VIEW_CREATE_INFO,
@@ -2224,7 +2224,7 @@ _cmd_copy_to_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr,
     src_buf, src_offset, ok_s := get_buf_offset_from_gpu_ptr(src)
     assert(ok_s)
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if dst.format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(dst.format)
     is_compressed := is_block_compressed(dst.format)
 
     mip_width := max(1, dst.dimensions.x >> region.mip_level)
@@ -3587,7 +3587,7 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         format = attach.texture.format
     }
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(format)
 
     view: vk.ImageView
     if has_output
