@@ -31,7 +31,6 @@ Sampler_Descriptor :: distinct Handle
 // Enums
 Feature :: enum { Raytracing = 0 }
 Features :: bit_set[Feature; u32]
-Allocation_Type :: enum { Default = 0, Descriptors }
 Memory :: enum { Default = 0, GPU, Readback }
 Queue :: enum { Main = 0, Compute, Transfer }
 Texture_Type :: enum { D2 = 0, D3, D1 }
@@ -302,7 +301,7 @@ device_limits: proc() -> Device_Limits : _device_limits
 gpuptr :: struct { ptr: rawptr, _impl: [2]u64 }
 ptr :: struct { cpu: rawptr, using gpu: gpuptr }
 null :: gpuptr {}
-mem_alloc_raw: proc(#any_int el_size, #any_int el_count, #any_int align: i64, mem_type := Memory.Default, alloc_type := Allocation_Type.Default, loc := #caller_location) -> ptr : _mem_alloc_raw
+mem_alloc_raw: proc(#any_int el_size, #any_int el_count, #any_int align: i64, mem_type := Memory.Default, loc := #caller_location) -> ptr : _mem_alloc_raw
 mem_suballoc: proc(addr: ptr, offset, el_size, el_count: i64, loc := #caller_location) -> ptr : _mem_suballoc
 mem_free_raw: proc(addr: gpuptr, loc := #caller_location) : _mem_free_raw
 
@@ -321,11 +320,6 @@ desc_heap_set_bvhs: proc(heap: Descriptor_Heap, start_idx: u32, bvhs: []BVH, loc
 texture_view_descriptor: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor : _texture_descriptor
 texture_rw_view_descriptor: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor : _texture_rw_descriptor
 sampler_descriptor: proc(sampler_desc: Sampler_Desc, loc := #caller_location) -> Sampler_Descriptor : _sampler_descriptor
-
-// @tmp Remove
-texture_view_descriptor_size: proc() -> u32 : _texture_view_descriptor_size
-texture_rw_view_descriptor_size: proc() -> u32 : _texture_rw_view_descriptor_size
-sampler_descriptor_size: proc() -> u32 : _sampler_descriptor_size
 
 // Shaders
 shader_create: proc(code: []u32, type: Shader_Type_Graphics, entry_point_name := "main", name := "", loc := #caller_location) -> Shader : _shader_create
@@ -958,7 +952,7 @@ desc_pool_alloc_bvh_multi :: proc(pool: ^Descriptor_Pool, bvhs: []BVH) -> u32
     return idx
 }
 
-cmd_set_desc_pool :: cmd_set_desc_heap_2
+cmd_set_desc_pool :: cmd_set_desc_heap
 
 @(private="file")
 desc_pool_resource_init :: proc(res_size: u32, res_count: i64, $T: typeid) -> Descriptor_Pool_Resource(T)

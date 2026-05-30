@@ -70,13 +70,6 @@ Context :: struct
     swapchain_image_idx: u32,
     frames_in_flight: u32,
 
-    // Descriptor sizes
-    desc_buf_align: u32,
-    texture_desc_size: u32,
-    texture_rw_desc_size: u32,
-    sampler_desc_size: u32,
-    bvh_desc_size: u32,
-
     lock: sync.Atomic_Mutex, // Ensures thread-safe access to ctx and VK operations
     tls_contexts: [dynamic]^Thread_Local_Context,
 }
@@ -124,7 +117,6 @@ Alloc_Info :: struct
     gpu: rawptr,
     align: u32,
     buf_size: vk.DeviceSize,
-    alloc_type: Allocation_Type,
 }
 
 Alloc_Impl_Info :: struct
@@ -408,31 +400,14 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     accel_props := vk.PhysicalDeviceAccelerationStructurePropertiesKHR {
         sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR
     }
-    desc_buf_props := vk.PhysicalDeviceDescriptorBufferPropertiesEXT {
-        sType = .PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT,
-        pNext = &accel_props,
-    }
     props2 := vk.PhysicalDeviceProperties2 {
         sType = .PHYSICAL_DEVICE_PROPERTIES_2,
-        pNext = &desc_buf_props,
+        pNext = &accel_props,
     }
     vk.GetPhysicalDeviceProperties2(ctx.phys_device, &props2)
     ctx.physical_properties = {
         accel_props, props2
     }
-
-    // Check descriptor sizes
-    //ensure(desc_buf_props.storageImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected storage image descriptor size.")
-    //ensure(desc_buf_props.sampledImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected sampled texture descriptor size.")
-    //ensure(desc_buf_props.samplerDescriptorSize <= size_of(Sampler_Descriptor), "Unexpected sampler descriptor size.")
-    //if .Raytracing in ctx.features {
-    //    ensure(desc_buf_props.accelerationStructureDescriptorSize <= 32, "Unexpected BVH descriptor size.")
-    //}
-    ctx.desc_buf_align = u32(desc_buf_props.descriptorBufferOffsetAlignment)
-    ctx.texture_desc_size = u32(desc_buf_props.sampledImageDescriptorSize)
-    ctx.texture_rw_desc_size = u32(desc_buf_props.storageImageDescriptorSize)
-    ctx.sampler_desc_size = u32(desc_buf_props.samplerDescriptorSize)
-    ctx.bvh_desc_size = u32(desc_buf_props.accelerationStructureDescriptorSize)
 
     // Queues create info
     priority: f32 = 1.0
@@ -535,11 +510,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             pNext = next,
             dynamicRendering = true,
             synchronization2 = true,
-        }
-        next = &vk.PhysicalDeviceDescriptorBufferFeaturesEXT {
-            sType = .PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
-            pNext = next,
-            descriptorBuffer = true,
         }
         next = &vk.PhysicalDeviceShaderObjectFeaturesEXT {
             sType = .PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
@@ -1285,7 +1255,7 @@ _device_limits :: proc() -> Device_Limits
 @(private="file")
 Descriptor_Buffer_Usage :: vk.BufferUsageFlags { .RESOURCE_DESCRIPTOR_BUFFER_EXT, .SHADER_DEVICE_ADDRESS, .TRANSFER_SRC, .TRANSFER_DST }
 
-_mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64, mem_type := Memory.Default, alloc_type := Allocation_Type.Default, loc := #caller_location) -> ptr
+_mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64, mem_type := Memory.Default, loc := #caller_location) -> ptr
 {
     bytes := el_size * el_count
     if bytes == 0 do return {}
@@ -1312,19 +1282,9 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
     }
 
     buf_usage: vk.BufferUsageFlags
-    switch alloc_type
-    {
-        case .Default:
-        {
-            buf_usage = { .SHADER_DEVICE_ADDRESS, .STORAGE_BUFFER, .INDEX_BUFFER, .TRANSFER_SRC, .TRANSFER_DST, .INDIRECT_BUFFER }
-            if .Raytracing in ctx.features {
-                buf_usage += { .ACCELERATION_STRUCTURE_STORAGE_KHR, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR }
-            }
-        }
-        case .Descriptors:
-        {
-            buf_usage = Descriptor_Buffer_Usage
-        }
+    buf_usage = { .SHADER_DEVICE_ADDRESS, .STORAGE_BUFFER, .INDEX_BUFFER, .TRANSFER_SRC, .TRANSFER_DST, .INDIRECT_BUFFER }
+    if .Raytracing in ctx.features {
+        buf_usage += { .ACCELERATION_STRUCTURE_STORAGE_KHR, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR }
     }
 
     buf_ci := vk.BufferCreateInfo {
@@ -1341,9 +1301,6 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
     vk.GetBufferMemoryRequirements(ctx.device, buf, &mem_requirements)
 
     mem_requirements.alignment = vk.DeviceSize(max(i64(mem_requirements.alignment), align))
-    if alloc_type == .Descriptors {
-        mem_requirements.alignment = vk.DeviceSize(max(u32(mem_requirements.alignment), ctx.desc_buf_align))
-    }
 
     alloc_ci := vma.Allocation_Create_Info {
         flags = vma.Allocation_Create_Flags { .Mapped } if mem_type != .GPU else {},
@@ -1373,7 +1330,6 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
         gpu = p.gpu.ptr,
         align = u32(align),
         buf_size = cast(vk.DeviceSize) bytes,
-        alloc_type = alloc_type,
     }
     alloc_handle := pool_add(&ctx.allocs, alloc_info, { created_at = loc })
     end_ptr := rawptr(uintptr(p.gpu.ptr) + uintptr(bytes))
@@ -1864,21 +1820,6 @@ _desc_heap_set_bvhs :: proc(heap: Descriptor_Heap, start_idx: u32, bvhs: []BVH, 
         descriptorType = .ACCELERATION_STRUCTURE_KHR,
     }
     vk.UpdateDescriptorSets(ctx.device, 1, &write, 0, nil)
-}
-
-_texture_view_descriptor_size :: proc() -> u32
-{
-    return ctx.texture_desc_size
-}
-
-_texture_rw_view_descriptor_size :: proc() -> u32
-{
-    return ctx.texture_rw_desc_size
-}
-
-_sampler_descriptor_size :: proc() -> u32
-{
-    return ctx.sampler_desc_size
 }
 
 // Shaders
