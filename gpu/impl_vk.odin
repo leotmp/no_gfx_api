@@ -1118,6 +1118,7 @@ _swapchain_acquire_next :: proc() -> Texture
         format = .BGRA8_Unorm,
         mip_count = 1,
         sample_count = 1,
+        layer_count = 1,
         handle = ctx.swapchain.texture_handles[ctx.swapchain_image_idx],
     }
 }
@@ -1494,6 +1495,7 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
         format = desc_clean.format,
         mip_count = desc_clean.mip_count,
         sample_count = desc_clean.sample_count,
+        layer_count = desc_clean.layer_count,
         handle = pool_add(&ctx.textures, tex_info, { name = name, created_at = loc } )
     }
 }
@@ -1585,7 +1587,7 @@ _texture_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc,
         subresourceRange = {
             aspectMask = plane_aspect,
             levelCount = texture.mip_count,
-            layerCount = 1,
+            layerCount = texture.layer_count,
         }
     }
     view := get_or_add_image_view(texture.handle, image_view_ci)
@@ -1626,8 +1628,8 @@ _texture_rw_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_De
         format = to_vk_texture_format(format),
         subresourceRange = {
             aspectMask = plane_aspect,
-            levelCount = 1,
-            layerCount = 1,
+            levelCount = texture.mip_count,
+            layerCount = texture.layer_count,
         }
     }
     view := get_or_add_image_view(texture.handle, image_view_ci)

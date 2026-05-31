@@ -202,6 +202,7 @@ Texture :: struct #all_or_none
     dimensions: [3]u32,
     format: Texture_Format,
     mip_count: u32,
+    layer_count: u32,
     sample_count: u32,
     handle: Texture_Handle
 }
