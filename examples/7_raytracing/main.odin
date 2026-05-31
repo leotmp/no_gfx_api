@@ -221,7 +221,7 @@ main :: proc()
         compute_data.cpu.camera_to_world = intr.matrix_flatten(camera_to_world)
 
         cmd_buf := gpu.commands_begin(.Main)
-        gpu.cmd_set_desc_pool(cmd_buf, desc_pool)
+        gpu.cmd_set_desc_heap(cmd_buf, desc_pool)
 
         if accum_counter < max_accums
         {

@@ -182,7 +182,7 @@ main :: proc()
 
         cmd_buf := gpu.commands_begin(.Main)
 
-        gpu.cmd_set_desc_pool(cmd_buf, desc_pool)
+        gpu.cmd_set_desc_heap(cmd_buf, desc_pool)
 
         // Dispatch compute shader to write to texture
         gpu.cmd_set_compute_shader(cmd_buf, compute_shader)

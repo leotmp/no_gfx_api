@@ -929,8 +929,6 @@ desc_pool_alloc_bvhs :: proc(pool: ^Descriptor_Pool, bvhs: []BVH) -> u32
     return idx
 }
 
-cmd_set_desc_pool :: cmd_set_desc_heap
-
 @(private="file")
 desc_pool_resource_init :: proc(res_count: i64, $T: typeid) -> Descriptor_Pool_Resource(T)
 {
