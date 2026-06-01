@@ -15,7 +15,9 @@ import vk "vendor:vulkan"
 import "vma"
 
 @(private="file")
-Max_Textures :: 65535
+Max_Textures :: 65536
+@(private="file")
+Max_Samplers :: 256
 @(private="file")
 Max_BVHs :: 16
 
@@ -60,6 +62,7 @@ Context :: struct
     shaders: Resource_Pool(Shader, Shader_Info),
     command_buffers: Resource_Pool(Command_Buffer, Command_Buffer_Info),
     semaphores: Resource_Pool(Semaphore, vk.Semaphore),
+    desc_heaps: Resource_Pool(Descriptor_Heap, Descriptor_Heap_Info),
 
     cmd_bufs_sem_vals: [Queue]Semaphore_Value,
 
@@ -67,13 +70,6 @@ Context :: struct
     swapchain: Swapchain,
     swapchain_image_idx: u32,
     frames_in_flight: u32,
-
-    // Descriptor sizes
-    desc_buf_align: u32,
-    texture_desc_size: u32,
-    texture_rw_desc_size: u32,
-    sampler_desc_size: u32,
-    bvh_desc_size: u32,
 
     lock: sync.Atomic_Mutex, // Ensures thread-safe access to ctx and VK operations
     tls_contexts: [dynamic]^Thread_Local_Context,
@@ -122,7 +118,6 @@ Alloc_Info :: struct
     gpu: rawptr,
     align: u32,
     buf_size: vk.DeviceSize,
-    alloc_type: Allocation_Type,
 }
 
 Alloc_Impl_Info :: struct
@@ -179,6 +174,16 @@ Command_Buffer_Info :: struct {
 
     wait_sems: [dynamic]Semaphore_Value,
     signal_sems: [dynamic]Semaphore_Value,
+}
+
+@(private="file")
+Descriptor_Heap_Info :: struct
+{
+    desc_pool: vk.DescriptorPool,
+    textures: vk.DescriptorSet,
+    textures_rw: vk.DescriptorSet,
+    samplers: vk.DescriptorSet,
+    bvhs: vk.DescriptorSet,
 }
 
 @(private="file")
@@ -397,31 +402,14 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     accel_props := vk.PhysicalDeviceAccelerationStructurePropertiesKHR {
         sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR
     }
-    desc_buf_props := vk.PhysicalDeviceDescriptorBufferPropertiesEXT {
-        sType = .PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT,
-        pNext = &accel_props,
-    }
     props2 := vk.PhysicalDeviceProperties2 {
         sType = .PHYSICAL_DEVICE_PROPERTIES_2,
-        pNext = &desc_buf_props,
+        pNext = &accel_props,
     }
     vk.GetPhysicalDeviceProperties2(ctx.phys_device, &props2)
     ctx.physical_properties = {
         accel_props, props2
     }
-
-    // Check descriptor sizes
-    ensure(desc_buf_props.storageImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected storage image descriptor size.")
-    ensure(desc_buf_props.sampledImageDescriptorSize <= size_of(Texture_Descriptor), "Unexpected sampled texture descriptor size.")
-    ensure(desc_buf_props.samplerDescriptorSize <= size_of(Sampler_Descriptor), "Unexpected sampler descriptor size.")
-    if .Raytracing in ctx.features {
-        ensure(desc_buf_props.accelerationStructureDescriptorSize <= 32, "Unexpected BVH descriptor size.")
-    }
-    ctx.desc_buf_align = u32(desc_buf_props.descriptorBufferOffsetAlignment)
-    ctx.texture_desc_size = u32(desc_buf_props.sampledImageDescriptorSize)
-    ctx.texture_rw_desc_size = u32(desc_buf_props.storageImageDescriptorSize)
-    ctx.sampler_desc_size = u32(desc_buf_props.samplerDescriptorSize)
-    ctx.bvh_desc_size = u32(desc_buf_props.accelerationStructureDescriptorSize)
 
     // Queues create info
     priority: f32 = 1.0
@@ -465,7 +453,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         required_extensions := make([dynamic]cstring, allocator = scratch)
         append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
         append(&required_extensions, vk.EXT_SHADER_OBJECT_EXTENSION_NAME)
-        append(&required_extensions, vk.EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME)
         append(&required_extensions, vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)
         for req_ext in EXTRA_DEVICE_EXTENSIONS {
             append(&required_extensions, req_ext)
@@ -509,6 +496,9 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             runtimeDescriptorArray = true,
             shaderSampledImageArrayNonUniformIndexing = true,
             shaderStorageImageArrayNonUniformIndexing = true,
+            descriptorBindingSampledImageUpdateAfterBind = true,
+            descriptorBindingStorageImageUpdateAfterBind = true,
+            descriptorBindingPartiallyBound = true,
             timelineSemaphore = true,
             bufferDeviceAddress = true,
             drawIndirectCount = true,
@@ -524,11 +514,6 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             pNext = next,
             dynamicRendering = true,
             synchronization2 = true,
-        }
-        next = &vk.PhysicalDeviceDescriptorBufferFeaturesEXT {
-            sType = .PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
-            pNext = next,
-            descriptorBuffer = true,
         }
         next = &vk.PhysicalDeviceShaderObjectFeaturesEXT {
             sType = .PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
@@ -553,6 +538,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
             pNext = next,
             accelerationStructure = true,
+            descriptorBindingAccelerationStructureUpdateAfterBind = true,
         }
         if .Raytracing in ctx.features do next = raytracing_features
         rayquery_features := &vk.PhysicalDeviceRayQueryFeaturesKHR {
@@ -582,10 +568,17 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
 
     // Common resources
     {
+        flags_ci := vk.DescriptorSetLayoutBindingFlagsCreateInfo {
+            sType = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+            bindingCount = 1,
+            pBindingFlags = &vk.DescriptorBindingFlags { .UPDATE_AFTER_BIND, .PARTIALLY_BOUND },
+        }
+
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
+                pNext = &flags_ci,
+                flags = { .UPDATE_AFTER_BIND_POOL },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
@@ -601,7 +594,8 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
+                pNext = &flags_ci,
+                flags = { .UPDATE_AFTER_BIND_POOL },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
@@ -617,12 +611,13 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
+                pNext = &flags_ci,
+                flags = { .UPDATE_AFTER_BIND_POOL },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
                     descriptorType = .SAMPLER,
-                    descriptorCount = Max_Textures,
+                    descriptorCount = Max_Samplers,
                     stageFlags = { .VERTEX, .FRAGMENT, .COMPUTE },
                 },
             }
@@ -634,7 +629,8 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         {
             layout_ci := vk.DescriptorSetLayoutCreateInfo {
                 sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                flags = { .DESCRIPTOR_BUFFER_EXT },
+                pNext = &flags_ci,
+                flags = { .UPDATE_AFTER_BIND_POOL },
                 bindingCount = 1,
                 pBindings = &vk.DescriptorSetLayoutBinding {
                     binding = 0,
@@ -692,6 +688,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     pool_init(&ctx.shaders)
     pool_init(&ctx.command_buffers)
     pool_init(&ctx.semaphores)
+    pool_init(&ctx.desc_heaps)
 
     // VMA allocator
     vma_vulkan_procs := vma.create_vulkan_functions()
@@ -917,13 +914,16 @@ _cleanup :: proc(loc := #caller_location)
 
     destroy_swapchain(&ctx.swapchain)
 
-    for &layout in ctx.desc_layouts {
-        vk.DestroyDescriptorSetLayout(ctx.device, layout, nil)
-    }
-    delete(ctx.desc_layouts)
+    // Common resources
+    {
+        for &layout in ctx.desc_layouts {
+            vk.DestroyDescriptorSetLayout(ctx.device, layout, nil)
+        }
+        delete(ctx.desc_layouts)
 
-    vk.DestroyPipelineLayout(ctx.device, ctx.common_pipeline_layout_graphics, nil)
-    vk.DestroyPipelineLayout(ctx.device, ctx.common_pipeline_layout_compute, nil)
+        vk.DestroyPipelineLayout(ctx.device, ctx.common_pipeline_layout_graphics, nil)
+        vk.DestroyPipelineLayout(ctx.device, ctx.common_pipeline_layout_compute, nil)
+    }
 
     for semaphore in ctx.cmd_bufs_sem_vals {
         semaphore_destroy(semaphore.sem)
@@ -1253,10 +1253,7 @@ _device_limits :: proc() -> Device_Limits
 
 // Memory
 
-@(private="file")
-Descriptor_Buffer_Usage :: vk.BufferUsageFlags { .RESOURCE_DESCRIPTOR_BUFFER_EXT, .SHADER_DEVICE_ADDRESS, .TRANSFER_SRC, .TRANSFER_DST }
-
-_mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64, mem_type := Memory.Default, alloc_type := Allocation_Type.Default, loc := #caller_location) -> ptr
+_mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64, mem_type := Memory.Default, loc := #caller_location) -> ptr
 {
     bytes := el_size * el_count
     if bytes == 0 do return {}
@@ -1283,19 +1280,9 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
     }
 
     buf_usage: vk.BufferUsageFlags
-    switch alloc_type
-    {
-        case .Default:
-        {
-            buf_usage = { .SHADER_DEVICE_ADDRESS, .STORAGE_BUFFER, .INDEX_BUFFER, .TRANSFER_SRC, .TRANSFER_DST, .INDIRECT_BUFFER }
-            if .Raytracing in ctx.features {
-                buf_usage += { .ACCELERATION_STRUCTURE_STORAGE_KHR, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR }
-            }
-        }
-        case .Descriptors:
-        {
-            buf_usage = Descriptor_Buffer_Usage
-        }
+    buf_usage = { .SHADER_DEVICE_ADDRESS, .STORAGE_BUFFER, .INDEX_BUFFER, .TRANSFER_SRC, .TRANSFER_DST, .INDIRECT_BUFFER }
+    if .Raytracing in ctx.features {
+        buf_usage += { .ACCELERATION_STRUCTURE_STORAGE_KHR, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR }
     }
 
     buf_ci := vk.BufferCreateInfo {
@@ -1312,9 +1299,6 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
     vk.GetBufferMemoryRequirements(ctx.device, buf, &mem_requirements)
 
     mem_requirements.alignment = vk.DeviceSize(max(i64(mem_requirements.alignment), align))
-    if alloc_type == .Descriptors {
-        mem_requirements.alignment = vk.DeviceSize(max(u32(mem_requirements.alignment), ctx.desc_buf_align))
-    }
 
     alloc_ci := vma.Allocation_Create_Info {
         flags = vma.Allocation_Create_Flags { .Mapped } if mem_type != .GPU else {},
@@ -1344,7 +1328,6 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
         gpu = p.gpu.ptr,
         align = u32(align),
         buf_size = cast(vk.DeviceSize) bytes,
-        alloc_type = alloc_type,
     }
     alloc_handle := pool_add(&ctx.allocs, alloc_info, { created_at = loc })
     end_ptr := rawptr(uintptr(p.gpu.ptr) + uintptr(bytes))
@@ -1560,7 +1543,7 @@ get_or_add_sampler :: proc(info: vk.SamplerCreateInfo) -> vk.Sampler
     return sampler
 }
 
-_texture_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
+_texture_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
 {
     if ctx.validation
     {
@@ -1592,17 +1575,10 @@ _texture_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc,
     }
     view := get_or_add_image_view(texture.handle, image_view_ci)
 
-    desc: Texture_Descriptor
-    info := vk.DescriptorGetInfoEXT {
-        sType = .DESCRIPTOR_GET_INFO_EXT,
-        type = .SAMPLED_IMAGE,
-        data = { pSampledImage = &{ imageView = view, imageLayout = .GENERAL } }
-    }
-    vk.GetDescriptorEXT(ctx.device, &info, int(ctx.texture_desc_size), &desc)
-    return desc
+    return { transmute(u64) texture.handle, cast(u64) view }
 }
 
-_texture_rw_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
+_texture_rw_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
 {
     if ctx.validation
     {
@@ -1634,14 +1610,7 @@ _texture_rw_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_De
     }
     view := get_or_add_image_view(texture.handle, image_view_ci)
 
-    desc: Texture_Descriptor
-    info := vk.DescriptorGetInfoEXT {
-        sType = .DESCRIPTOR_GET_INFO_EXT,
-        type = .STORAGE_IMAGE,
-        data = { pStorageImage = &{ imageView = view, imageLayout = .GENERAL } }
-    }
-    vk.GetDescriptorEXT(ctx.device, &info, int(ctx.texture_rw_desc_size), &desc)
-    return desc
+    return { transmute(u64) texture.handle, cast(u64) view }
 }
 
 _sampler_descriptor :: proc(sampler_desc: Sampler_Desc, loc := #caller_location) -> Sampler_Descriptor
@@ -1670,29 +1639,231 @@ _sampler_descriptor :: proc(sampler_desc: Sampler_Desc, loc := #caller_location)
     }
     sampler := get_or_add_sampler(sampler_ci)
 
-    desc: Sampler_Descriptor
-    info := vk.DescriptorGetInfoEXT {
-        sType = .DESCRIPTOR_GET_INFO_EXT,
-        type = .SAMPLER,
-        data = { pSampledImage = &{ sampler = sampler, imageView = {}, imageLayout = .GENERAL } }
+    return transmute(Sampler_Descriptor) sampler
+}
+
+_desc_heap_create :: proc(texture_count: u32 = 65536,
+                          texture_rw_count: u32 = 65536,
+                          sampler_count: u32 = 32,
+                          bvh_count: u32 = 16,
+                          name := "", loc := #caller_location) -> Descriptor_Heap
+{
+    if ctx.validation
+    {
+        ok := true
+        if texture_count > Max_Textures {
+            log.errorf("'texture_count' is %v and is greater than the maximum allowed by no_gfx (%v)", texture_count, Max_Textures, location = loc)
+            ok = false
+        }
+        if texture_rw_count > Max_Textures {
+            log.errorf("'texture_rw_count' is %v and is greater than the maximum allowed by no_gfx (%v)", texture_rw_count, Max_Textures, location = loc)
+            ok = false
+        }
+        if sampler_count > Max_Samplers {
+            log.errorf("'sampler_count' is %v and is greater than the maximum allowed by no_gfx (%v)", sampler_count, Max_Samplers, location = loc)
+            ok = false
+        }
+        if bvh_count > Max_BVHs {
+            log.errorf("'bvh_count' is %v and is greater than the maximum allowed by no_gfx (%v)", bvh_count, Max_BVHs, location = loc)
+            ok = false
+        }
+        if !ok do return {}
     }
-    vk.GetDescriptorEXT(ctx.device, &info, int(ctx.sampler_desc_size), &desc)
-    return desc
+
+    pool_sizes := []vk.DescriptorPoolSize {
+        { type = .SAMPLED_IMAGE, descriptorCount = Max_Textures },
+        { type = .STORAGE_IMAGE, descriptorCount = Max_Textures },
+        { type = .SAMPLER,       descriptorCount = Max_Samplers },
+        { type = .ACCELERATION_STRUCTURE_KHR, descriptorCount = Max_BVHs },
+    }
+    desc_pool_ci := vk.DescriptorPoolCreateInfo {
+        sType = .DESCRIPTOR_POOL_CREATE_INFO,
+        flags = { .FREE_DESCRIPTOR_SET, .UPDATE_AFTER_BIND },
+        maxSets = 4,
+        poolSizeCount = u32(len(pool_sizes)),
+        pPoolSizes = raw_data(pool_sizes)
+    }
+    desc_pool: vk.DescriptorPool
+    vk_check(vk.CreateDescriptorPool(ctx.device, &desc_pool_ci, nil, &desc_pool))
+
+    alloc_info := vk.DescriptorSetAllocateInfo {
+        sType = .DESCRIPTOR_SET_ALLOCATE_INFO,
+        descriptorPool = desc_pool,
+        descriptorSetCount = u32(len(ctx.desc_layouts)),  // NOTE: This is 3 if the device doesn't support RT
+        pSetLayouts = raw_data(ctx.desc_layouts),
+    }
+
+    desc_sets: [4]vk.DescriptorSet
+    vk_check(vk.AllocateDescriptorSets(ctx.device, &alloc_info, &desc_sets[0]))
+
+    desc_heap_info := Descriptor_Heap_Info {
+        textures = desc_sets[0],
+        textures_rw = desc_sets[1],
+        samplers = desc_sets[2],
+        bvhs = desc_sets[3],
+        desc_pool = desc_pool,
+    }
+    return pool_add(&ctx.desc_heaps, desc_heap_info, { created_at = loc, name = name })
 }
 
-_texture_view_descriptor_size :: proc() -> u32
+_desc_heap_destroy :: proc(heap: Descriptor_Heap, loc := #caller_location)
 {
-    return ctx.texture_desc_size
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.desc_heaps, heap, "heap", loc)
+        if !ok do return
+    }
+
+    heap_info := pool_get(&ctx.desc_heaps, heap)
+
+    to_free := [4]vk.DescriptorSet {
+        heap_info.textures, heap_info.textures_rw, heap_info.samplers, heap_info.bvhs
+    }
+    vk_check(vk.FreeDescriptorSets(ctx.device, heap_info.desc_pool, u32(len(ctx.desc_layouts)), &to_free[0]))
+
+    vk.DestroyDescriptorPool(ctx.device, heap_info.desc_pool, nil)
+
+    pool_remove(&ctx.desc_heaps, heap)
 }
 
-_texture_rw_view_descriptor_size :: proc() -> u32
+_desc_heap_set_textures :: proc(heap: Descriptor_Heap, start_idx: u32, textures: []Texture_Descriptor, loc := #caller_location)
 {
-    return ctx.texture_rw_desc_size
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.desc_heaps, heap, "heap", loc)
+        for desc, i in textures {
+            ok &= check_texture_descriptor(desc, "textures", i, loc)
+        }
+        if !ok do return
+    }
+
+    heap_info := pool_get(&ctx.desc_heaps, heap)
+
+    scratch, _ := acquire_scratch()
+    image_infos := make([]vk.DescriptorImageInfo, len(textures), allocator = scratch)
+    for &info, i in image_infos
+    {
+        info = {
+            sampler = {},
+            imageView = texture_descriptor_get_vk_view(textures[i]),
+            imageLayout = .GENERAL,
+        }
+    }
+
+    write := vk.WriteDescriptorSet {
+        sType = .WRITE_DESCRIPTOR_SET,
+        dstSet = heap_info.textures,
+        dstBinding = 0,
+        dstArrayElement = start_idx,
+        descriptorCount = u32(len(textures)),
+        descriptorType = .SAMPLED_IMAGE,
+        pImageInfo = raw_data(image_infos),
+    }
+    vk.UpdateDescriptorSets(ctx.device, 1, &write, 0, nil)
 }
 
-_sampler_descriptor_size :: proc() -> u32
+_desc_heap_set_textures_rw :: proc(heap: Descriptor_Heap, start_idx: u32, textures: []Texture_Descriptor, loc := #caller_location)
 {
-    return ctx.sampler_desc_size
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.desc_heaps, heap, "heap", loc)
+        if !ok do return
+    }
+
+    heap_info := pool_get(&ctx.desc_heaps, heap)
+
+    scratch, _ := acquire_scratch()
+    image_infos := make([]vk.DescriptorImageInfo, len(textures), allocator = scratch)
+    for &info, i in image_infos
+    {
+        info = {
+            sampler = {},
+            imageView = texture_descriptor_get_vk_view(textures[i]),
+            imageLayout = .GENERAL,
+        }
+    }
+
+    write := vk.WriteDescriptorSet {
+        sType = .WRITE_DESCRIPTOR_SET,
+        dstSet = heap_info.textures_rw,
+        dstBinding = 0,
+        dstArrayElement = start_idx,
+        descriptorCount = u32(len(textures)),
+        descriptorType = .STORAGE_IMAGE,
+        pImageInfo = raw_data(image_infos),
+    }
+    vk.UpdateDescriptorSets(ctx.device, 1, &write, 0, nil)
+}
+
+_desc_heap_set_samplers :: proc(heap: Descriptor_Heap, start_idx: u32, samplers: []Sampler_Descriptor, loc := #caller_location)
+{
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.desc_heaps, heap, "heap", loc)
+        if !ok do return
+    }
+
+    heap_info := pool_get(&ctx.desc_heaps, heap)
+
+    scratch, _ := acquire_scratch()
+    sampler_infos := make([]vk.DescriptorImageInfo, len(samplers), allocator = scratch)
+    for &info, i in sampler_infos
+    {
+        info = {
+            sampler = transmute(vk.Sampler) samplers[i],
+            imageView = {},
+            imageLayout = {},
+        }
+    }
+
+    write := vk.WriteDescriptorSet {
+        sType = .WRITE_DESCRIPTOR_SET,
+        dstSet = heap_info.samplers,
+        dstBinding = 0,
+        dstArrayElement = start_idx,
+        descriptorCount = u32(len(samplers)),
+        descriptorType = .SAMPLER,
+        pImageInfo = raw_data(sampler_infos)
+    }
+    vk.UpdateDescriptorSets(ctx.device, 1, &write, 0, nil)
+}
+
+_desc_heap_set_bvhs :: proc(heap: Descriptor_Heap, start_idx: u32, bvhs: []BVH, loc := #caller_location)
+{
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.desc_heaps, heap, "heap", loc)
+        if !ok do return
+    }
+
+    heap_info := pool_get(&ctx.desc_heaps, heap)
+
+    scratch, _ := acquire_scratch()
+    vk_bvhs := make([]vk.AccelerationStructureKHR, len(bvhs), allocator = scratch)
+    for i in 0..<len(bvhs) {
+        vk_bvhs[i] = pool_get(&ctx.bvhs, bvhs[i]).handle
+    }
+
+    write_bvh := vk.WriteDescriptorSetAccelerationStructureKHR {
+        sType = .WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
+        accelerationStructureCount = u32(len(bvhs)),
+        pAccelerationStructures = raw_data(vk_bvhs),
+    }
+    write := vk.WriteDescriptorSet {
+        sType = .WRITE_DESCRIPTOR_SET,
+        pNext = &write_bvh,
+        dstSet = heap_info.bvhs,
+        dstBinding = 0,
+        dstArrayElement = start_idx,
+        descriptorCount = u32(len(bvhs)),
+        descriptorType = .ACCELERATION_STRUCTURE_KHR,
+    }
+    vk.UpdateDescriptorSets(ctx.device, 1, &write, 0, nil)
 }
 
 // Shaders
@@ -2013,37 +2184,6 @@ _bvh_root_ptr :: proc(bvh: BVH, loc := #caller_location) -> rawptr
     })
 }
 
-_bvh_descriptor :: proc(bvh: BVH, loc := #caller_location) -> BVH_Descriptor
-{
-    if ctx.validation
-    {
-        ok := true
-        ok &= pool_check(&ctx.bvhs, bvh, "bvh", loc)
-        if !ok do return {}
-    }
-
-    bvh_info := pool_get(&ctx.bvhs, bvh)
-
-    bvh_addr := vk.GetAccelerationStructureDeviceAddressKHR(ctx.device, &{
-        sType = .ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-        accelerationStructure = bvh_info.handle,
-    })
-
-    desc: BVH_Descriptor
-    info := vk.DescriptorGetInfoEXT {
-        sType = .DESCRIPTOR_GET_INFO_EXT,
-        type = .ACCELERATION_STRUCTURE_KHR,
-        data = { accelerationStructure = bvh_addr }
-    }
-    vk.GetDescriptorEXT(ctx.device, &info, int(ctx.bvh_desc_size), &desc)
-    return desc
-}
-
-_bvh_descriptor_size :: proc() -> u32
-{
-    return ctx.bvh_desc_size
-}
-
 _bvh_destroy :: proc(bvh: BVH, loc := #caller_location)
 {
     if ctx.validation
@@ -2311,89 +2451,29 @@ _cmd_blit_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, dst_rect: Blit_
     vk.CmdBlitImage(cmd_buf_info.handle, src_info.handle, .GENERAL, dst_info.handle, .GENERAL, 1, &region, vk_filter)
 }
 
-_cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, textures, textures_rw, samplers, bvhs: gpuptr, loc := #caller_location)
+_cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, heap: Descriptor_Heap, loc := #caller_location)
 {
     if ctx.validation
     {
         ok := true
         ok &= pool_check(&ctx.command_buffers, cmd_buf, "cmd_buf", loc)
-        ok &= check_ptr_allow_nil(textures, "textures", loc)
-        ok &= check_ptr_allow_nil(textures_rw, "textures_rw", loc)
-        ok &= check_ptr_allow_nil(samplers, "samplers", loc)
-        ok &= check_ptr_allow_nil(bvhs, "bvhs", loc)
+        ok &= pool_check(&ctx.desc_heaps, heap, "heap", loc)
         if !ok do return
     }
 
-    cmd_buf := pool_get(&ctx.command_buffers, cmd_buf)
+    cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
+    vk_cmd_buf := cmd_buf_info.handle
 
-    vk_cmd_buf := cmd_buf.handle
+    heap_info := pool_get(&ctx.desc_heaps, heap)
 
-    if textures == {} && textures_rw == {} && samplers == {} && bvhs == {} do return
-
-    infos: [4]vk.DescriptorBufferBindingInfoEXT
-    // Fill in infos with the subset of valid pointers
-    cursor := u32(0)
-    if textures != {}
-    {
-        infos[cursor] = {
-            sType = .DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-            address = transmute(vk.DeviceAddress) textures.ptr,
-            usage = Descriptor_Buffer_Usage
-        }
-        cursor += 1
+    sets := [4]vk.DescriptorSet {
+        heap_info.textures,
+        heap_info.textures_rw,
+        heap_info.samplers,
+        heap_info.bvhs,
     }
-    if textures_rw != {}
-    {
-        infos[cursor] = {
-            sType = .DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-            address = transmute(vk.DeviceAddress) textures_rw.ptr,
-            usage = Descriptor_Buffer_Usage
-        }
-        cursor += 1
-    }
-    if samplers != {}
-    {
-        infos[cursor] = {
-            sType = .DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-            address = transmute(vk.DeviceAddress) samplers.ptr,
-            usage = Descriptor_Buffer_Usage
-        }
-        cursor += 1
-    }
-    if bvhs != {}
-    {
-        infos[cursor] = {
-            sType = .DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-            address = transmute(vk.DeviceAddress) bvhs.ptr,
-            usage = Descriptor_Buffer_Usage
-        }
-        cursor += 1
-    }
-
-    vk.CmdBindDescriptorBuffersEXT(vk_cmd_buf, cursor, &infos[0])
-
-    buffer_offsets := []vk.DeviceSize { 0, 0, 0, 0 }
-    cursor = 0
-    if textures != {} {
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .GRAPHICS, ctx.common_pipeline_layout_graphics, 0, 1, &cursor, &buffer_offsets[0])
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .COMPUTE, ctx.common_pipeline_layout_compute, 0, 1, &cursor, &buffer_offsets[0])
-        cursor += 1
-    }
-    if textures_rw != {} {
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .GRAPHICS, ctx.common_pipeline_layout_graphics, 1, 1, &cursor, &buffer_offsets[1])
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .COMPUTE, ctx.common_pipeline_layout_compute, 1, 1, &cursor, &buffer_offsets[1])
-        cursor += 1
-    }
-    if samplers != {} {
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .GRAPHICS, ctx.common_pipeline_layout_graphics, 2, 1, &cursor, &buffer_offsets[2])
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .COMPUTE, ctx.common_pipeline_layout_compute, 2, 1, &cursor, &buffer_offsets[2])
-        cursor += 1
-    }
-    if bvhs != {} && .Raytracing in ctx.features {
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .GRAPHICS, ctx.common_pipeline_layout_graphics, 3, 1, &cursor, &buffer_offsets[3])
-        vk.CmdSetDescriptorBufferOffsetsEXT(vk_cmd_buf, .COMPUTE, ctx.common_pipeline_layout_compute, 3, 1, &cursor, &buffer_offsets[3])
-        cursor += 1
-    }
+    vk.CmdBindDescriptorSets(vk_cmd_buf, .GRAPHICS, ctx.common_pipeline_layout_graphics, 0, u32(len(ctx.desc_layouts)), &sets[0], 0, nil)
+    vk.CmdBindDescriptorSets(vk_cmd_buf, .COMPUTE, ctx.common_pipeline_layout_compute, 0, u32(len(ctx.desc_layouts)), &sets[0], 0, nil)
 }
 
 _cmd_add_wait_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_value: u64, loc := #caller_location)
@@ -3810,6 +3890,29 @@ check_bvh_must_be_blas :: proc(bvh: BVH, name: string, loc: runtime.Source_Code_
     }
 
     return true
+}
+
+@(private="file")
+check_texture_descriptor :: proc(desc: Texture_Descriptor, name: string, index: int, loc: runtime.Source_Code_Location) -> bool
+{
+    if !pool_check_no_message(&ctx.textures, texture_descriptor_get_handle(desc)) {
+        log.errorf("'%v[%v]' texture descriptor is stale, the underlying texture has been freed.", name, index, location = loc)
+        return false
+    }
+
+    return true
+}
+
+@(private="file")
+texture_descriptor_get_handle :: #force_inline proc(desc: Texture_Descriptor) -> Texture_Handle
+{
+    return transmute(Texture_Handle) (cast([2]u64)desc)[0]
+}
+
+@(private="file")
+texture_descriptor_get_vk_view :: #force_inline proc(desc: Texture_Descriptor) -> vk.ImageView
+{
+    return cast(vk.ImageView) (cast([2]u64)desc)[1]
 }
 
 vk_set_debug_name :: proc(name: string, handle: u64, type: vk.ObjectType)

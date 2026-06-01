@@ -161,8 +161,8 @@ main :: proc()
             output_texture = gpu.texture_alloc_and_create(output_desc)
 
             // Update descriptor for new texture
-            gpu.desc_pool_update_texture(&desc_pool, texture_id, gpu.texture_view_descriptor(output_texture, {}))
-            gpu.desc_pool_update_texture_rw(&desc_pool, texture_rw_id, gpu.texture_rw_view_descriptor(output_texture, {}))
+            gpu.desc_heap_set_textures(&desc_pool, texture_id, { gpu.texture_view_descriptor(output_texture, {}) })
+            gpu.desc_heap_set_textures_rw(&desc_pool, texture_rw_id, { gpu.texture_rw_view_descriptor(output_texture, {}) })
         }
 
         swapchain := gpu.swapchain_acquire_next()  // Blocks CPU until at least one frame is available.
@@ -182,7 +182,7 @@ main :: proc()
 
         cmd_buf := gpu.commands_begin(.Main)
 
-        gpu.cmd_set_desc_pool(cmd_buf, desc_pool)
+        gpu.cmd_set_desc_heap(cmd_buf, desc_pool)
 
         // Dispatch compute shader to write to texture
         gpu.cmd_set_compute_shader(cmd_buf, compute_shader)

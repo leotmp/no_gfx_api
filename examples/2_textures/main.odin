@@ -155,7 +155,7 @@ main :: proc()
             }
         })
         gpu.cmd_set_shaders(cmd_buf, vert_shader, frag_shader)
-        gpu.cmd_set_desc_pool(cmd_buf, desc_pool)
+        gpu.cmd_set_desc_heap(cmd_buf, desc_pool)
         Vert_Data :: struct {
             verts: rawptr,
         }

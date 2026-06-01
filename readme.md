@@ -110,7 +110,6 @@ Like most things in life, this is not without its tradeoffs:
 
 1. It assumes relatively recent hardware. It requires Vulkan 1.3 with the following extensions: VK_EXT_shader_object, VK_EXT_descriptor_buffer, VK_KHR_draw_indirect_count. It can use more extensions for optional features such as raytracing.
 2. Shader arguments are all passed via a single pointer. This is very flexible and easy to work with, but it can also prevent some prefetching/optimizations that drivers usually implement with standard bindings and vertex buffers. This will probably make shaders in general slightly slower. How much impact this will have, I can't say for sure right now. On the other hand, working with a nicer and better API can make optimization easier and quicker.
-3. If you're trying to debug the examples using RenderDoc, and you can't, that's because debugging of descriptor buffers is simply broken on AMD Windows due to a driver bug, and this project uses them. [The bug has been reported](https://github.com/baldurk/renderdoc/issues/2880) on July 2025, so you can either switch to an NVidia card or annoy AMD if you want this fixed (half joking).
 
 ## Shaders
 
