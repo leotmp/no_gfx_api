@@ -3658,6 +3658,7 @@ _vk_wrap_image :: proc(image: vk.Image, desc: Texture_Desc, name := "", loc := #
         format = desc_clean.format,
         mip_count = desc_clean.mip_count,
         sample_count = desc_clean.sample_count,
+        layer_count = desc_clean.layer_count,
         handle = pool_add(&ctx.textures, tex_info, { name = name, created_at = loc }),
     }
 }
