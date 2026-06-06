@@ -20,7 +20,6 @@ vk_add_device_extension: proc(extension: cstring) : _vk_add_device_extension
 // Wraps an externally owned VkImage, e.g. an OpenXR swapchain image, as a no_gfx texture.
 // no_gfx owns image views it creates for the wrapper, but it does not destroy the VkImage.
 vk_wrap_image: proc(image: vk.Image, desc: Texture_Desc, name := "", loc := #caller_location) -> Texture : _vk_wrap_image
-vk_unwrap_image: proc(texture: Texture, loc := #caller_location) : _vk_unwrap_image
 
 // NOTE: vk_move_* type procedures move ownership to no_gfx, handles MUST ONLY be destroyed on the no_gfx side.
 vk_move_semaphore: proc(semaphore: vk.Semaphore, loc := #caller_location) -> Semaphore : _vk_move_semaphore
