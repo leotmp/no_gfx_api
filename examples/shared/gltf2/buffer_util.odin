@@ -28,8 +28,6 @@ case [][4]i16:
 */
 package gltf2
 
-import "core:mem"
-
 // All accessor type and component type combinations
 Buffer_Slice :: union {
     []u8,
@@ -105,113 +103,113 @@ buffer_slice :: proc(data: ^Data, accessor_index: Integer) -> Buffer_Slice {
         case .Scalar:
             switch accessor.component_type {
             case .Unsigned_Byte:
-                return (transmute([^]u8)start_ptr)[:accessor.count]
+                return (cast([^]u8)start_ptr)[:accessor.count]
             case .Byte:
-                return (transmute([^]i8)start_ptr)[:accessor.count]
+                return (cast([^]i8)start_ptr)[:accessor.count]
             case .Short:
-                return (transmute([^]i16)start_ptr)[:accessor.count]
+                return (cast([^]i16)start_ptr)[:accessor.count]
             case .Unsigned_Short:
-                return (transmute([^]u16)start_ptr)[:accessor.count]
+                return (cast([^]u16)start_ptr)[:accessor.count]
             case .Unsigned_Int:
-                return (transmute([^]u32)start_ptr)[:accessor.count]
+                return (cast([^]u32)start_ptr)[:accessor.count]
             case .Float:
-                return (transmute([^]f32)start_ptr)[:accessor.count]
+                return (cast([^]f32)start_ptr)[:accessor.count]
             }
 
         case .Vector2:
             switch accessor.component_type {
             case .Unsigned_Byte:
-                return (transmute([^][2]u8)start_ptr)[:accessor.count]
+                return (cast([^][2]u8)start_ptr)[:accessor.count]
             case .Byte:
-                return (transmute([^][2]i8)start_ptr)[:accessor.count]
+                return (cast([^][2]i8)start_ptr)[:accessor.count]
             case .Short:
-                return (transmute([^][2]i16)start_ptr)[:accessor.count]
+                return (cast([^][2]i16)start_ptr)[:accessor.count]
             case .Unsigned_Short:
-                return (transmute([^][2]u16)start_ptr)[:accessor.count]
+                return (cast([^][2]u16)start_ptr)[:accessor.count]
             case .Unsigned_Int:
-                return (transmute([^][2]u32)start_ptr)[:accessor.count]
+                return (cast([^][2]u32)start_ptr)[:accessor.count]
             case .Float:
-                return (transmute([^][2]f32)start_ptr)[:accessor.count]
+                return (cast([^][2]f32)start_ptr)[:accessor.count]
             }
 
         case .Vector3:
             switch accessor.component_type {
             case .Unsigned_Byte:
-                return (transmute([^][3]u8)start_ptr)[:accessor.count]
+                return (cast([^][3]u8)start_ptr)[:accessor.count]
             case .Byte:
-                return (transmute([^][3]i8)start_ptr)[:accessor.count]
+                return (cast([^][3]i8)start_ptr)[:accessor.count]
             case .Short:
-                return (transmute([^][3]i16)start_ptr)[:accessor.count]
+                return (cast([^][3]i16)start_ptr)[:accessor.count]
             case .Unsigned_Short:
-                return (transmute([^][3]u16)start_ptr)[:accessor.count]
+                return (cast([^][3]u16)start_ptr)[:accessor.count]
             case .Unsigned_Int:
-                return (transmute([^][3]u32)start_ptr)[:accessor.count]
+                return (cast([^][3]u32)start_ptr)[:accessor.count]
             case .Float:
-                return (transmute([^][3]f32)start_ptr)[:accessor.count]
+                return (cast([^][3]f32)start_ptr)[:accessor.count]
             }
 
         case .Vector4:
             switch accessor.component_type {
             case .Unsigned_Byte:
-                return (transmute([^][4]u8)start_ptr)[:accessor.count]
+                return (cast([^][4]u8)start_ptr)[:accessor.count]
             case .Byte:
-                return (transmute([^][4]i8)start_ptr)[:accessor.count]
+                return (cast([^][4]i8)start_ptr)[:accessor.count]
             case .Short:
-                return (transmute([^][4]i16)start_ptr)[:accessor.count]
+                return (cast([^][4]i16)start_ptr)[:accessor.count]
             case .Unsigned_Short:
-                return (transmute([^][4]u16)start_ptr)[:accessor.count]
+                return (cast([^][4]u16)start_ptr)[:accessor.count]
             case .Unsigned_Int:
-                return (transmute([^][4]u32)start_ptr)[:accessor.count]
+                return (cast([^][4]u32)start_ptr)[:accessor.count]
             case .Float:
-                return (transmute([^][4]f32)start_ptr)[:accessor.count]
+                return (cast([^][4]f32)start_ptr)[:accessor.count]
             }
 
         case .Matrix2:
             switch accessor.component_type {
             case .Unsigned_Byte:
-                return (transmute([^]matrix[2, 2]u8)start_ptr)[:accessor.count]
+                return (cast([^]matrix[2, 2]u8)start_ptr)[:accessor.count]
             case .Byte:
-                return (transmute([^]matrix[2, 2]i8)start_ptr)[:accessor.count]
+                return (cast([^]matrix[2, 2]i8)start_ptr)[:accessor.count]
             case .Short:
-                return (transmute([^]matrix[2, 2]i16)start_ptr)[:accessor.count]
+                return (cast([^]matrix[2, 2]i16)start_ptr)[:accessor.count]
             case .Unsigned_Short:
-                return (transmute([^]matrix[2, 2]u16)start_ptr)[:accessor.count]
+                return (cast([^]matrix[2, 2]u16)start_ptr)[:accessor.count]
             case .Unsigned_Int:
-                return (transmute([^]matrix[2, 2]u32)start_ptr)[:accessor.count]
+                return (cast([^]matrix[2, 2]u32)start_ptr)[:accessor.count]
             case .Float:
-                return (transmute([^]matrix[2, 2]f32)start_ptr)[:accessor.count]
+                return (cast([^]matrix[2, 2]f32)start_ptr)[:accessor.count]
             }
 
         case .Matrix3:
             switch accessor.component_type {
             case .Unsigned_Byte:
-                return (transmute([^]matrix[3, 3]u8)start_ptr)[:accessor.count]
+                return (cast([^]matrix[3, 3]u8)start_ptr)[:accessor.count]
             case .Byte:
-                return (transmute([^]matrix[3, 3]i8)start_ptr)[:accessor.count]
+                return (cast([^]matrix[3, 3]i8)start_ptr)[:accessor.count]
             case .Short:
-                return (transmute([^]matrix[3, 3]i16)start_ptr)[:accessor.count]
+                return (cast([^]matrix[3, 3]i16)start_ptr)[:accessor.count]
             case .Unsigned_Short:
-                return (transmute([^]matrix[3, 3]u16)start_ptr)[:accessor.count]
+                return (cast([^]matrix[3, 3]u16)start_ptr)[:accessor.count]
             case .Unsigned_Int:
-                return (transmute([^]matrix[3, 3]u32)start_ptr)[:accessor.count]
+                return (cast([^]matrix[3, 3]u32)start_ptr)[:accessor.count]
             case .Float:
-                return (transmute([^]matrix[3, 3]f32)start_ptr)[:accessor.count]
+                return (cast([^]matrix[3, 3]f32)start_ptr)[:accessor.count]
             }
 
         case .Matrix4:
             switch accessor.component_type {
             case .Unsigned_Byte:
-                return (transmute([^]matrix[4, 4]u8)start_ptr)[:accessor.count]
+                return (cast([^]matrix[4, 4]u8)start_ptr)[:accessor.count]
             case .Byte:
-                return (transmute([^]matrix[4, 4]i8)start_ptr)[:accessor.count]
+                return (cast([^]matrix[4, 4]i8)start_ptr)[:accessor.count]
             case .Short:
-                return (transmute([^]matrix[4, 4]i16)start_ptr)[:accessor.count]
+                return (cast([^]matrix[4, 4]i16)start_ptr)[:accessor.count]
             case .Unsigned_Short:
-                return (transmute([^]matrix[4, 4]u16)start_ptr)[:accessor.count]
+                return (cast([^]matrix[4, 4]u16)start_ptr)[:accessor.count]
             case .Unsigned_Int:
-                return (transmute([^]matrix[4, 4]u32)start_ptr)[:accessor.count]
+                return (cast([^]matrix[4, 4]u32)start_ptr)[:accessor.count]
             case .Float:
-                return (transmute([^]matrix[4, 4]f32)start_ptr)[:accessor.count]
+                return (cast([^]matrix[4, 4]f32)start_ptr)[:accessor.count]
             }
 
         }
