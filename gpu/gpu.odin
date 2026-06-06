@@ -67,6 +67,7 @@ Texture_Format :: enum
     BC5_RG_Unorm,
     BC6H_RGB_Float,
     BC7_RGBA_Unorm,
+    BC7_RGBA_SRGB,
     ASTC_4x4_RGBA_Unorm,
     ETC2_RGB8_Unorm,
     ETC2_RGBA8_Unorm,

@@ -134,6 +134,7 @@ to_vk_texture_format :: proc(format: Texture_Format) -> vk.Format
         case .BC5_RG_Unorm: return .BC5_UNORM_BLOCK
         case .BC6H_RGB_Float: return .BC6H_SFLOAT_BLOCK
         case .BC7_RGBA_Unorm: return .BC7_UNORM_BLOCK
+        case .BC7_RGBA_SRGB: return .BC7_SRGB_BLOCK
         case .ASTC_4x4_RGBA_Unorm: return .ASTC_4x4_UNORM_BLOCK
         case .ETC2_RGB8_Unorm: return .ETC2_R8G8B8_UNORM_BLOCK
         case .ETC2_RGBA8_Unorm: return .ETC2_R8G8B8A8_UNORM_BLOCK
