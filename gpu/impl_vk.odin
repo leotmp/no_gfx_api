@@ -130,7 +130,8 @@ Alloc_Impl_Info :: struct
 Texture_Info :: struct
 {
     handle: vk.Image,
-    views: [dynamic]Image_View_Info
+    views: [dynamic]Image_View_Info,
+    owns_image: bool,
 }
 
 @(private="file")
@@ -1470,7 +1471,7 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
 
     vk_set_debug_name(name, u64(image), .IMAGE)
 
-    tex_info := Texture_Info { image, {} }
+    tex_info := Texture_Info { handle = image, owns_image = true }
     sync.guard(&ctx.lock)
     return Texture {
         dimensions = desc_clean.dimensions,
@@ -1499,7 +1500,9 @@ _texture_destroy :: proc(texture: Texture, loc := #caller_location)
     delete(tex_info.views)
     tex_info.views = {}
 
-    vk.DestroyImage(ctx.device, vk_image, nil)
+    if tex_info.owns_image {
+        vk.DestroyImage(ctx.device, vk_image, nil)
+    }
     pool_remove(&ctx.textures, texture.handle)
 }
 
@@ -3634,6 +3637,46 @@ _vk_get_buffer :: proc(addr: gpuptr) -> (vk.Buffer, u32)
     buf, offset, ok := get_buf_offset_from_gpu_ptr(addr)
     ensure(ok)
     return buf, offset
+}
+
+_vk_wrap_image :: proc(image: vk.Image, desc: Texture_Desc, name := "", loc := #caller_location) -> Texture
+{
+    desc_clean := texture_desc_cleanup(desc)
+
+    if ctx.validation {
+        ensure(image != {}, "Cannot wrap a nil VkImage.")
+    }
+
+    tex_info := Texture_Info {
+        handle = image,
+        owns_image = false,
+    }
+
+    sync.guard(&ctx.lock)
+    return Texture {
+        dimensions = desc_clean.dimensions,
+        format = desc_clean.format,
+        mip_count = desc_clean.mip_count,
+        sample_count = desc_clean.sample_count,
+        handle = pool_add(&ctx.textures, tex_info, { name = name, created_at = loc }),
+    }
+}
+
+_vk_unwrap_image :: proc(texture: Texture, loc := #caller_location)
+{
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.textures, texture.handle, "texture", loc)
+        if !ok do return
+    }
+
+    tex_info := pool_get(&ctx.textures, texture.handle)
+    for view in tex_info.views {
+        vk.DestroyImageView(ctx.device, view.view, nil)
+    }
+    delete(tex_info.views)
+    pool_remove(&ctx.textures, texture.handle)
 }
 
 @(thread_local) EXTRA_OPT_DEVICE_EXTENSIONS: [dynamic]cstring
