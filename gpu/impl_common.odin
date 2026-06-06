@@ -300,6 +300,7 @@ texture_desc_cleanup :: #force_inline proc(desc: Texture_Desc) -> Texture_Desc
 {
     res := desc
     if res.type == .Default do res.type = .D2
+    if res.format == .Default do res.format = .RGBA8_Unorm
     res.mip_count = max(1, res.mip_count)
     res.layer_count = max(1, res.layer_count)
     res.sample_count = max(1, res.sample_count)
