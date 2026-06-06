@@ -1,13 +1,17 @@
 
+#+vet !unused-imports
+
 package main
 
 import log "core:log"
-import "../../gpu"
+import "core:image"
+import "core:image/png"
 import "core:math"
 import "core:math/linalg"
 import "core:fmt"
 import intr "base:intrinsics"
 
+import "../../gpu"
 import sdl "vendor:sdl3"
 
 import shared "../shared"
@@ -70,10 +74,16 @@ main :: proc()
         gpu.shader_destroy(cloud_frag_shader)
     }
 
+    desc_pool := gpu.desc_pool_create()
+    defer gpu.desc_pool_destroy(&desc_pool)
+
     upload_arena := gpu.arena_init()
     defer gpu.arena_destroy(&upload_arena)
 
     upload_cmd_buf := gpu.commands_begin(.Main)
+
+    sky_cubemap := build_sky_cubemap(&upload_arena, upload_cmd_buf)
+    defer gpu.texture_free_and_destroy(&sky_cubemap)
 
     sky_verts, sky_indices := build_sky_mesh(&upload_arena, upload_cmd_buf)
     defer {
@@ -83,6 +93,9 @@ main :: proc()
 
     gpu.cmd_barrier(upload_cmd_buf, .Transfer, .All, {})
     gpu.queue_submit(.Main, { upload_cmd_buf })
+
+    sky_cubemap_id := gpu.desc_pool_alloc_texture(&desc_pool, gpu.texture_view_descriptor(sky_cubemap, {}))
+    linear_sampler_id := gpu.desc_pool_alloc_sampler(&desc_pool, gpu.sampler_descriptor({}))
 
     now_ts := sdl.GetPerformanceCounter()
 
@@ -142,6 +155,8 @@ main :: proc()
             },
         })
 
+        gpu.cmd_set_desc_heap(cmd_buf, desc_pool)
+
         // Draw skysphere
         {
             gpu.cmd_set_shaders(cmd_buf, sky_vert_shader, sky_frag_shader)
@@ -165,7 +180,17 @@ main :: proc()
                 view_to_proj = intr.matrix_flatten(view_to_proj),
             }
 
-            gpu.cmd_draw_indexed(cmd_buf, verts_data, {}, sky_indices)
+            Frag_Data :: struct #all_or_none {
+                sky_texture: u32,
+                sky_sampler: u32,
+            }
+            frag_data := gpu.arena_alloc(frame_arena, Frag_Data)
+            frag_data.cpu^ = {
+                sky_texture = sky_cubemap_id,
+                sky_sampler = linear_sampler_id,
+            }
+
+            gpu.cmd_draw_indexed(cmd_buf, verts_data, frag_data, sky_indices)
         }
 
         // Draw cloud
@@ -222,4 +247,43 @@ build_sky_mesh :: proc(upload_arena: ^gpu.Arena, cmd_buf: gpu.Command_Buffer) ->
     gpu.cmd_mem_copy(cmd_buf, verts_local, verts_staging)
     gpu.cmd_mem_copy(cmd_buf, indices_local, indices_staging)
     return verts_local, indices_local
+}
+
+Sky_Textures: [gpu.Cubemap_Side][]u8 = {
+    .PX = #load("textures/px.png"),
+    .NX = #load("textures/nx.png"),
+    .PY = #load("textures/py.png"),
+    .NY = #load("textures/ny.png"),
+    .PZ = #load("textures/pz.png"),
+    .NZ = #load("textures/nz.png"),
+}
+build_sky_cubemap :: proc(upload_arena: ^gpu.Arena, cmd_buf: gpu.Command_Buffer) -> gpu.Owned_Texture
+{
+    texture: gpu.Owned_Texture
+
+    for side in gpu.Cubemap_Side
+    {
+        options := image.Options {
+            .alpha_add_if_missing,
+        }
+        img, err := image.load_from_bytes(Sky_Textures[side], options)
+        ensure(err == nil, "Could not load texture.")
+        defer image.destroy(img)
+
+        if texture == {}
+        {
+            texture = gpu.texture_alloc_and_create({
+                type = .Cube,
+                dimensions = { u32(img.width), u32(img.height), 1 },
+                format = .RGBA8_Unorm,
+                usage = { .Sampled },
+                layer_count = 6,
+            })
+        }
+
+        staging := gpu.arena_alloc(upload_arena, u8, len(img.pixels.buf))
+        copy(staging.cpu, img.pixels.buf[:])
+        gpu.cmd_copy_to_texture(cmd_buf, texture, staging, region = { base_layer = u32(side) })
+    }
+    return texture
 }

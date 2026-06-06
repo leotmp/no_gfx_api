@@ -73,6 +73,7 @@ to_vk_texture_type :: #force_inline proc(type: Texture_Type) -> vk.ImageType
 {
     switch type
     {
+        case .Default: return .D2
         case .D2: return .D2
         case .D3: return .D3
         case .D1: return .D1
@@ -88,6 +89,7 @@ to_vk_texture_view_type :: #force_inline proc(type: Texture_Type) -> vk.ImageVie
 {
     switch type
     {
+        case .Default: panic("Implementation bug!")
         case .D2: return .D2
         case .D3: return .D3
         case .D1: return .D1
@@ -148,7 +150,7 @@ to_vk_image_aspect_flags :: #force_inline proc(format: Texture_Format) -> vk.Ima
     #partial switch format
     {
         case .Default: panic("Implementation bug!")
-        case .D16_Unorm, .D16_Unorm_S8_Uint, .D24_Unorm_Pack32, .D24_Unorm_S8_Uint, .D32_Float: 
+        case .D16_Unorm, .D16_Unorm_S8_Uint, .D24_Unorm_Pack32, .D24_Unorm_S8_Uint, .D32_Float:
             return { .DEPTH }
         case: return { .COLOR }
     }
@@ -349,7 +351,7 @@ to_vk_image_create_info :: proc(desc: Texture_Desc) -> vk.ImageCreateInfo
     }
 }
 
-to_vk_image_create_flags :: proc(type: Texture_Type) -> vk.ImageCreateFlags 
+to_vk_image_create_flags :: proc(type: Texture_Type) -> vk.ImageCreateFlags
 {
     flags: vk.ImageCreateFlags
     if type == .D3                          do flags += { .D2_ARRAY_COMPATIBLE }

@@ -1115,6 +1115,7 @@ _swapchain_acquire_next :: proc() -> Texture
     }
 
     return Texture {
+        type = .D2,
         dimensions = { ctx.swapchain.width, ctx.swapchain.height, 1 },
         format = .BGRA8_Unorm,
         mip_count = 1,
@@ -1474,6 +1475,7 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
 
     tex_info := Texture_Info { handle = image, owns_image = true }
     return Texture {
+        type = desc_clean.type,
         dimensions = desc_clean.dimensions,
         format = desc_clean.format,
         mip_count = desc_clean.mip_count,
@@ -1557,18 +1559,15 @@ _texture_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc 
     tex_info := pool_get(&ctx.textures, texture.handle)
     vk_image := tex_info.handle
 
-    format := view_desc.format
-    if format == .Default {
-        format = texture.format
-    }
+    view_desc_clean := texture_view_desc_cleanup(texture, view_desc)
 
-    plane_aspect := to_vk_image_aspect_flags(format)
+    plane_aspect := to_vk_image_aspect_flags(view_desc_clean.format)
 
     image_view_ci := vk.ImageViewCreateInfo {
         sType = .IMAGE_VIEW_CREATE_INFO,
         image = vk_image,
-        viewType = to_vk_texture_view_type(view_desc.type),
-        format = to_vk_texture_format(format),
+        viewType = to_vk_texture_view_type(view_desc_clean.type),
+        format = to_vk_texture_format(view_desc_clean.format),
         subresourceRange = {
             aspectMask = plane_aspect,
             levelCount = texture.mip_count,
@@ -1592,18 +1591,15 @@ _texture_rw_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, l
     tex_info := pool_get(&ctx.textures, texture.handle)
     vk_image := tex_info.handle
 
-    format := view_desc.format
-    if format == .Default {
-        format = texture.format
-    }
+    view_desc_clean := texture_view_desc_cleanup(texture, view_desc)
 
-    plane_aspect := to_vk_image_aspect_flags(format)
+    plane_aspect := to_vk_image_aspect_flags(view_desc_clean.format)
 
     image_view_ci := vk.ImageViewCreateInfo {
         sType = .IMAGE_VIEW_CREATE_INFO,
         image = vk_image,
-        viewType = to_vk_texture_view_type(view_desc.type),
-        format = to_vk_texture_format(format),
+        viewType = to_vk_texture_view_type(view_desc_clean.type),
+        format = to_vk_texture_format(view_desc_clean.format),
         subresourceRange = {
             aspectMask = plane_aspect,
             levelCount = texture.mip_count,
@@ -3654,6 +3650,7 @@ _vk_wrap_image :: proc(image: vk.Image, desc: Texture_Desc, name := "", loc := #
     }
 
     return Texture {
+        type = desc_clean.type,
         dimensions = desc_clean.dimensions,
         format = desc_clean.format,
         mip_count = desc_clean.mip_count,
@@ -3693,12 +3690,10 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
     has_resolve := resolve_texture != {}
     vk_resolve_image := pool_get(&ctx.textures, resolve_texture.handle).handle if has_resolve else vk.Image(0)
 
-    format := view_desc.format
-    if format == .Default {
-        format = attach.texture.format
-    }
+    view_desc_clean := texture_view_desc_cleanup(texture, view_desc)
+    resolve_view_desc_clean := texture_view_desc_cleanup(resolve_texture, resolve_view_desc)
 
-    plane_aspect := to_vk_image_aspect_flags(format)
+    plane_aspect := to_vk_image_aspect_flags(view_desc_clean.format)
 
     view: vk.ImageView
     if has_output
@@ -3706,8 +3701,8 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         image_view_ci := vk.ImageViewCreateInfo {
             sType = .IMAGE_VIEW_CREATE_INFO,
             image = vk_image,
-            viewType = to_vk_texture_view_type(view_desc.type),
-            format = to_vk_texture_format(format),
+            viewType = to_vk_texture_view_type(view_desc_clean.type),
+            format = to_vk_texture_format(view_desc_clean.format),
             subresourceRange = {
                 aspectMask = plane_aspect,
                 levelCount = 1,
@@ -3723,8 +3718,8 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         resolve_image_view_ci := vk.ImageViewCreateInfo {
             sType = .IMAGE_VIEW_CREATE_INFO,
             image = vk_resolve_image,
-            viewType = to_vk_texture_view_type(resolve_view_desc.type),
-            format = to_vk_texture_format(format),
+            viewType = to_vk_texture_view_type(resolve_view_desc_clean.type),
+            format = to_vk_texture_format(resolve_view_desc_clean.format),
             subresourceRange = {
                 aspectMask = plane_aspect,
                 levelCount = 1,

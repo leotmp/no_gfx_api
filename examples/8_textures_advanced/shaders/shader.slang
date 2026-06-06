@@ -30,9 +30,16 @@ VertexOutput vertexMain(uint vert_id : SV_VertexID, GraphicsPipelineData<VertexD
     return vert_out;
 }
 
+struct FragmentData
+{
+    uint sky_texture;
+    uint sky_sampler;
+}
+
 [shader("fragment")]
-float4 fragmentMain(VertexOutput input) : SV_Target
+float4 fragmentMain(VertexOutput input, GraphicsPipelineData<void, FragmentData> data) : SV_Target
 {
     float3 frag_dir = normalize(input.dir);
-    return float4(frag_dir, 1.0);
+    float3 sky_color = getTextureCube(data.frag.sky_texture).Sample(getSampler(data.frag.sky_sampler), frag_dir).rgb;
+    return float4(sky_color, 1.0);
 }

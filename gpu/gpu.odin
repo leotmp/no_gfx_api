@@ -33,7 +33,7 @@ Feature :: enum { Raytracing = 0 }
 Features :: bit_set[Feature; u32]
 Memory :: enum { Default = 0, GPU, Readback }
 Queue :: enum { Main = 0, Compute, Transfer }
-Texture_Type :: enum { D2 = 0, D3, D1, Cube, D2_Array, D1_Array, Cube_Array }
+Texture_Type :: enum { Default = 0, D2, D3, D1, Cube, D2_Array, D1_Array, Cube_Array }
 Texture_Format :: enum
 {
     Default = 0,
@@ -74,6 +74,7 @@ Texture_Format :: enum
     EAC_R11_Unorm,
     EAC_RG11_Unorm,
 }
+Cubemap_Side :: enum { PX = 0, NX = 1, PY = 2, NY = 3, PZ = 4, NZ = 5 }
 Usage :: enum { Sampled = 0, Storage, Transfer_Src, Color_Attachment, Depth_Stencil_Attachment }
 Usage_Flags :: bit_set[Usage; u32]
 Shader_Type_Graphics :: enum { Vertex = 0, Fragment }
@@ -168,12 +169,12 @@ Sampler_Desc :: struct
 
 Texture_View_Desc :: struct
 {
-    type: Texture_Type,
+    type: Texture_Type,      // .Default = inherits the texture's type
     format: Texture_Format,  // .Default = inherits the texture's format
     base_mip: u32,
-    mip_count: u8,     // 0 = all mips
+    mip_count: u8,           // 0 = all mips
     base_layer: u16,
-    layer_count: u16,  // 0 = all layers
+    layer_count: u16,        // 0 = all layers
 }
 
 Render_Attachment :: struct
@@ -200,6 +201,7 @@ Render_Pass_Desc :: struct
 
 Texture :: struct #all_or_none
 {
+    type: Texture_Type,
     dimensions: [3]u32,
     format: Texture_Format,
     mip_count: u32,
@@ -377,7 +379,7 @@ commands_begin: proc(queue: Queue, loc := #caller_location) -> Command_Buffer : 
 
 // Commands
 cmd_mem_copy_raw: proc(cmd_buf: Command_Buffer, dst, src: gpuptr, #any_int bytes: i64, loc := #caller_location) : _cmd_mem_copy_raw
-cmd_copy_to_texture: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr, region: Texture_Region, loc := #caller_location) : _cmd_copy_to_texture
+cmd_copy_to_texture: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr, region: Texture_Region = {}, loc := #caller_location) : _cmd_copy_to_texture
 // TODO: Missing cmd_copy_from_texture
 cmd_blit_texture: proc(cmd_buf: Command_Buffer, dst: Texture, dst_rect: Blit_Rect, src: Texture, src_rect: Blit_Rect, filter: Filter, loc := #caller_location) : _cmd_blit_texture
 
