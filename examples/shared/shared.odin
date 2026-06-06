@@ -864,3 +864,45 @@ transform_to_gpu_transform :: proc(transform: matrix[4, 4]f32) -> [12]f32 {
 	flattened := linalg.matrix_flatten(transform_row_major)
 	return [12]f32 { flattened[0], flattened[1], flattened[2], flattened[3], flattened[4], flattened[5], flattened[6], flattened[7], flattened[8], flattened[9], flattened[10], flattened[11], }
 }
+
+// Basic meshes
+
+build_sphere :: proc(radius: f32 = 0.5, lat_segments := 32, lon_segments := 32) -> (verts: [dynamic][3]f32, indices: [dynamic]u32)
+{
+    // Generate verts
+    for lat in 0..=lat_segments
+    {
+        theta := math.PI * f32(lat) / f32(lat_segments)
+        sin_theta := math.sin(theta)
+        cos_theta := math.cos(theta)
+
+        for lon in 0..=lon_segments
+        {
+            phi := 2.0 * math.PI * f32(lon) / f32(lon_segments)
+
+			vert: [3]f32
+            vert.x = radius * sin_theta * math.cos(phi)
+            vert.y = radius * cos_theta
+            vert.z = radius * sin_theta * math.sin(phi)
+            append(&verts, vert)
+        }
+    }
+
+    // Generate indices
+    stride := lon_segments + 1
+    for lat in 0..<lat_segments
+    {
+        for lon in 0..<lon_segments
+        {
+            a := lat * stride + lon
+            b := a + stride
+            c := a + 1
+            d := b + 1
+
+            append(&indices, u32(a), u32(b), u32(c))
+            append(&indices, u32(c), u32(b), u32(d))
+        }
+    }
+
+    return verts, indices
+}
