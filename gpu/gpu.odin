@@ -74,6 +74,7 @@ Texture_Format :: enum
     EAC_R11_Unorm,
     EAC_RG11_Unorm,
 }
+// Each side corresponds to a texture layer
 Cubemap_Side :: enum { PX = 0, NX = 1, PY = 2, NY = 3, PZ = 4, NZ = 5 }
 Usage :: enum { Sampled = 0, Storage, Transfer_Src, Color_Attachment, Depth_Stencil_Attachment }
 Usage_Flags :: bit_set[Usage; u32]
