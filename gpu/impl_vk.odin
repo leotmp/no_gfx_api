@@ -504,6 +504,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             bufferDeviceAddress = true,
             drawIndirectCount = true,
             scalarBlockLayout = true,
+            shaderInt8 = true,
         }
         next = &vk.PhysicalDeviceVulkan11Features {
             sType = .PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
@@ -531,6 +532,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             pNext = next,
             features = {
                 shaderInt64 = true,
+                shaderInt16 = true,
                 vertexPipelineStoresAndAtomics = true,
                 samplerAnisotropy = true,
             }
@@ -743,7 +745,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     return true
 
     // From GLFW: https://github.com/glfw/glfw
-    get_instance_proc_address :: proc "c"(p: rawptr, name: cstring) -> rawptr
+    get_instance_proc_address :: proc "system"(p: rawptr, name: cstring) -> rawptr
     {
         context = runtime.default_context()
 
@@ -1678,7 +1680,7 @@ _desc_heap_create :: proc(texture_count: u32 = 65536,
         sType = .DESCRIPTOR_POOL_CREATE_INFO,
         flags = { .FREE_DESCRIPTOR_SET, .UPDATE_AFTER_BIND },
         maxSets = 4,
-        poolSizeCount = u32(len(pool_sizes)),
+        poolSizeCount = u32(len(ctx.desc_layouts)),
         pPoolSizes = raw_data(pool_sizes)
     }
     desc_pool: vk.DescriptorPool
