@@ -91,6 +91,12 @@ main :: proc()
         gpu.mem_free(sky_indices)
     }
 
+    cloud_verts, cloud_indices := build_cloud_mesh(&upload_arena, upload_cmd_buf)
+    defer {
+        gpu.mem_free(cloud_verts)
+        gpu.mem_free(cloud_indices)
+    }
+
     gpu.cmd_barrier(upload_cmd_buf, .Transfer, .All, {})
     gpu.queue_submit(.Main, { upload_cmd_buf })
 
@@ -208,14 +214,14 @@ main :: proc()
             }
             verts_data := gpu.arena_alloc(frame_arena, Vert_Data)
             verts_data.cpu^ = {
-                positions = sky_verts.gpu.ptr,
+                positions = cloud_verts.gpu.ptr,
                 model_to_world = intr.matrix_flatten(cast(matrix[4, 4]f32) 1),
                 model_to_world_normal = intr.matrix_flatten(cast(matrix[4, 4]f32) 1),
                 world_to_view = intr.matrix_flatten(world_to_view),
                 view_to_proj = intr.matrix_flatten(view_to_proj),
             }
 
-            gpu.cmd_draw_indexed(cmd_buf, verts_data, {}, sky_indices)
+            gpu.cmd_draw_indexed(cmd_buf, verts_data, {}, cloud_indices)
         }
 
         gpu.cmd_end_render_pass(cmd_buf)
@@ -237,6 +243,22 @@ build_sky_mesh :: proc(upload_arena: ^gpu.Arena, cmd_buf: gpu.Command_Buffer) ->
         delete(indices)
     }
 
+    verts_staging := gpu.arena_alloc(upload_arena, [3]f32, len(verts))
+    indices_staging := gpu.arena_alloc(upload_arena, u32, len(indices))
+    copy(verts_staging.cpu, verts[:])
+    copy(indices_staging.cpu, indices[:])
+
+    verts_local := gpu.mem_alloc([3]f32, len(verts))
+    indices_local := gpu.mem_alloc(u32, len(indices))
+    gpu.cmd_mem_copy(cmd_buf, verts_local, verts_staging)
+    gpu.cmd_mem_copy(cmd_buf, indices_local, indices_staging)
+    return verts_local, indices_local
+}
+
+build_cloud_mesh :: proc(upload_arena: ^gpu.Arena, cmd_buf: gpu.Command_Buffer) -> (gpu.slice_t([3]f32), gpu.slice_t(u32))
+{
+    verts := shared.UNIT_CUBE_VERTS[:]
+    indices := shared.CUBE_INDICES[:]
     verts_staging := gpu.arena_alloc(upload_arena, [3]f32, len(verts))
     indices_staging := gpu.arena_alloc(upload_arena, u32, len(indices))
     copy(verts_staging.cpu, verts[:])
