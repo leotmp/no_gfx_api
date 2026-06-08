@@ -428,11 +428,9 @@ handle_window_events :: proc(window: ^sdl.Window) -> (proceed: bool) {
 	return
 }
 
-first_person_camera_view :: proc(delta_time: f32) -> matrix[4, 4]f32 {
-	@(static) cam_pos: [3]f32 = {-7.581631, 1.1906259, 0.25928685}
-
-	@(static) angle: [2]f32 = {1.570796, 0.3665192}
-
+CAM_POS: [3]f32
+CAM_ANGLE: [2]f32
+first_person_camera_view :: proc(delta_time: f32) -> (matrix[4, 4]f32) {
 	cam_rot: quaternion128 = 1
 
 	mouse_sensitivity := math.to_radians_f32(0.2) // Radians per pixel
@@ -442,15 +440,15 @@ first_person_camera_view :: proc(delta_time: f32) -> matrix[4, 4]f32 {
 		mouse.y = INPUT.mouse_dy * mouse_sensitivity
 	}
 
-	angle += mouse
+	CAM_ANGLE += mouse
 
-	// Wrap angle.x
-	for angle.x < 0 do angle.x += 2 * math.PI
-	for angle.x > 2 * math.PI do angle.x -= 2 * math.PI
+	// Wrap CAM_ANGLE.x
+	for CAM_ANGLE.x < 0 do CAM_ANGLE.x += 2 * math.PI
+	for CAM_ANGLE.x > 2 * math.PI do CAM_ANGLE.x -= 2 * math.PI
 
-	angle.y = clamp(angle.y, math.to_radians_f32(-90), math.to_radians_f32(90))
-	y_rot := linalg.quaternion_angle_axis(angle.y, [3]f32{-1, 0, 0})
-	x_rot := linalg.quaternion_angle_axis(angle.x, [3]f32{0, 1, 0})
+	CAM_ANGLE.y = clamp(CAM_ANGLE.y, math.to_radians_f32(-90), math.to_radians_f32(90))
+	y_rot := linalg.quaternion_angle_axis(CAM_ANGLE.y, [3]f32{-1, 0, 0})
+	x_rot := linalg.quaternion_angle_axis(CAM_ANGLE.x, [3]f32{0, 1, 0})
 	cam_rot = x_rot * y_rot
 
 	// Movement
@@ -482,9 +480,9 @@ first_person_camera_view :: proc(delta_time: f32) -> matrix[4, 4]f32 {
 	target_vel.y += keyboard_dir_y * move_speed
 
 	cur_vel = approach_linear(cur_vel, target_vel, move_accel * delta_time)
-	cam_pos += cur_vel * delta_time
+	CAM_POS += cur_vel * delta_time
 
-	return world_to_view_mat(cam_pos, cam_rot)
+	return world_to_view_mat(CAM_POS, cam_rot)
 
 	approach_linear :: proc(cur: [3]f32, target: [3]f32, delta: f32) -> [3]f32 {
 		diff := target - cur

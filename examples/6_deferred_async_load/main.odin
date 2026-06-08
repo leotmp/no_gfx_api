@@ -76,6 +76,9 @@ upload_sem: gpu.Semaphore
 upload_sem_val: u64
 
 main :: proc() {
+    shared.CAM_POS = {-7.581631, 1.1906259, 0.25928685}
+	shared.CAM_ANGLE = {1.570796, 0.3665192}
+
 	ok_i := sdl.Init({.VIDEO})
 	assert(ok_i)
 
