@@ -3680,10 +3680,10 @@ _vk_move_semaphore :: proc(semaphore: vk.Semaphore, loc := #caller_location) -> 
 @(private)
 to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.RenderingAttachmentInfo
 {
-    view_desc := attach.view
+    view_desc := texture_view_desc_cleanup(attach.view)
     texture := attach.texture
     resolve_texture := attach.resolve_texture
-    resolve_view_desc := attach.resolve_view
+    resolve_view_desc := texture_view_desc_cleanup(attach.resolve_view)
 
     has_output := texture != {}
     vk_image := pool_get(&ctx.textures, texture.handle).handle if has_output else vk.Image(0)
@@ -3709,7 +3709,7 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
                 aspectMask = plane_aspect,
                 levelCount = 1,
                 baseArrayLayer = u32(view_desc.base_layer),
-                layerCount = u32(view_desc.layer_count) if view_desc.layer_count > 0 else 1,
+                layerCount = u32(view_desc.layer_count),
             }
         }
         view = get_or_add_image_view(texture.handle, image_view_ci)
@@ -3727,7 +3727,7 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
                 aspectMask = plane_aspect,
                 levelCount = 1,
                 baseArrayLayer = u32(resolve_view_desc.base_layer),
-                layerCount = u32(resolve_view_desc.layer_count) if resolve_view_desc.layer_count > 0 else 1,
+                layerCount = u32(resolve_view_desc.layer_count),
             }
         }
         resolve_view = get_or_add_image_view(resolve_texture.handle, resolve_image_view_ci)
