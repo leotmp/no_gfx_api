@@ -354,7 +354,6 @@ to_vk_image_create_info :: proc(desc: Texture_Desc) -> vk.ImageCreateInfo
 to_vk_image_create_flags :: proc(type: Texture_Type) -> vk.ImageCreateFlags
 {
     flags: vk.ImageCreateFlags
-    if type == .D3                          do flags += { .D2_ARRAY_COMPATIBLE }
     if type == .Cube || type == .Cube_Array do flags += { .CUBE_COMPATIBLE }
     return flags
 }
