@@ -1153,7 +1153,9 @@ type_cast_allowed :: proc(from: ^Ast_Type, to: ^Ast_Type) -> bool
         return from.dimensions == to.dimensions && type_cast_allowed(from.base, to.base)
     }
     if from.primitive_kind == .Matrix && to.primitive_kind == .Matrix {
-        return from.dimensions == to.dimensions && type_cast_allowed(from.base, to.base)
+        return from.dimensions.x >= to.dimensions.x &&
+               from.dimensions.y >= to.dimensions.y &&
+               type_cast_allowed(from.base, to.base)
     }
 
     for i in 0..<2
