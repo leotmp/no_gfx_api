@@ -4,8 +4,6 @@ import "../../shared.slang";
 struct VertexData
 {
     float3* positions;
-    float4x4 model_to_world;
-    float4x4 model_to_world_normal;
     float4x4 world_to_view;
     float4x4 view_to_proj;
 }

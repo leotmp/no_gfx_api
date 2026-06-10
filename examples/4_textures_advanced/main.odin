@@ -62,8 +62,8 @@ main :: proc()
     depth_texture := gpu.texture_alloc_and_create(depth_desc)
     defer gpu.texture_free_and_destroy(&depth_texture)
 
-    sky_vert_shader := gpu.shader_create(#load("shaders/shader.vert.spv", []u32), .Vertex)
-    sky_frag_shader := gpu.shader_create(#load("shaders/shader.frag.spv", []u32), .Fragment)
+    sky_vert_shader := gpu.shader_create(#load("shaders/sky.vert.spv", []u32), .Vertex)
+    sky_frag_shader := gpu.shader_create(#load("shaders/sky.frag.spv", []u32), .Fragment)
     defer {
         gpu.shader_destroy(sky_vert_shader)
         gpu.shader_destroy(sky_frag_shader)
@@ -178,16 +178,12 @@ main :: proc()
 
             Vert_Data :: struct #all_or_none {
                 positions: rawptr,
-                model_to_world: [16]f32,
-                model_to_world_normal: [16]f32,
                 world_to_view: [16]f32,
                 view_to_proj: [16]f32,
             }
             verts_data := gpu.arena_alloc(frame_arena, Vert_Data)
             verts_data.cpu^ = {
                 positions = sky_verts.gpu.ptr,
-                model_to_world = intr.matrix_flatten(cast(matrix[4, 4]f32) 1),
-                model_to_world_normal = intr.matrix_flatten(cast(matrix[4, 4]f32) 1),
                 world_to_view = intr.matrix_flatten(world_to_view),
                 view_to_proj = intr.matrix_flatten(view_to_proj),
             }
@@ -224,7 +220,6 @@ main :: proc()
             Vert_Data :: struct #all_or_none {
                 positions: rawptr,
                 model_to_world: [16]f32,
-                model_to_world_normal: [16]f32,
                 world_to_view: [16]f32,
                 view_to_proj: [16]f32,
             }
@@ -232,7 +227,6 @@ main :: proc()
             verts_data.cpu^ = {
                 positions = cloud_verts.gpu.ptr,
                 model_to_world = intr.matrix_flatten(cast(matrix[4, 4]f32) 1),
-                model_to_world_normal = intr.matrix_flatten(cast(matrix[4, 4]f32) 1),
                 world_to_view = intr.matrix_flatten(world_to_view),
                 view_to_proj = intr.matrix_flatten(view_to_proj),
             }

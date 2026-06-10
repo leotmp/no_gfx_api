@@ -2,8 +2,6 @@
 Vert_Data :: struct
 {
     positions: []vec3,
-    model_to_world: mat4,
-    model_to_world_normal: mat4,
     world_to_view: mat4,
     view_to_proj: mat4,
 }
@@ -17,8 +15,7 @@ Vert_Output :: struct
 vert :: #vertex (vert_id: uint @vert_id, data: ^Vert_Data @data) -> Vert_Output
 {
     clip_pos := vec4(data.positions[vert_id].xyz, 1);
-    clip_pos = vec4(mat3(data.model_to_world) * clip_pos.xyz, 1);
-    clip_pos = data.world_to_view * clip_pos;
+    clip_pos = vec4(mat3(data.world_to_view) * clip_pos.xyz, 1);
     clip_pos = data.view_to_proj * clip_pos;
     clip_pos.y = -clip_pos.y;
 

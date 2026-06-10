@@ -3,7 +3,6 @@ Vert_Data :: struct
 {
     positions: []vec3,
     model_to_world: mat4,
-    model_to_world_normal: mat4,
     world_to_view: mat4,
     view_to_proj: mat4,
 }
