@@ -428,11 +428,9 @@ handle_window_events :: proc(window: ^sdl.Window) -> (proceed: bool) {
 	return
 }
 
-first_person_camera_view :: proc(delta_time: f32) -> matrix[4, 4]f32 {
-	@(static) cam_pos: [3]f32 = {-7.581631, 1.1906259, 0.25928685}
-
-	@(static) angle: [2]f32 = {1.570796, 0.3665192}
-
+CAM_POS: [3]f32
+CAM_ANGLE: [2]f32
+first_person_camera_view :: proc(delta_time: f32) -> (matrix[4, 4]f32) {
 	cam_rot: quaternion128 = 1
 
 	mouse_sensitivity := math.to_radians_f32(0.2) // Radians per pixel
@@ -442,15 +440,15 @@ first_person_camera_view :: proc(delta_time: f32) -> matrix[4, 4]f32 {
 		mouse.y = INPUT.mouse_dy * mouse_sensitivity
 	}
 
-	angle += mouse
+	CAM_ANGLE += mouse
 
-	// Wrap angle.x
-	for angle.x < 0 do angle.x += 2 * math.PI
-	for angle.x > 2 * math.PI do angle.x -= 2 * math.PI
+	// Wrap CAM_ANGLE.x
+	for CAM_ANGLE.x < 0 do CAM_ANGLE.x += 2 * math.PI
+	for CAM_ANGLE.x > 2 * math.PI do CAM_ANGLE.x -= 2 * math.PI
 
-	angle.y = clamp(angle.y, math.to_radians_f32(-90), math.to_radians_f32(90))
-	y_rot := linalg.quaternion_angle_axis(angle.y, [3]f32{-1, 0, 0})
-	x_rot := linalg.quaternion_angle_axis(angle.x, [3]f32{0, 1, 0})
+	CAM_ANGLE.y = clamp(CAM_ANGLE.y, math.to_radians_f32(-90), math.to_radians_f32(90))
+	y_rot := linalg.quaternion_angle_axis(CAM_ANGLE.y, [3]f32{-1, 0, 0})
+	x_rot := linalg.quaternion_angle_axis(CAM_ANGLE.x, [3]f32{0, 1, 0})
 	cam_rot = x_rot * y_rot
 
 	// Movement
@@ -482,9 +480,9 @@ first_person_camera_view :: proc(delta_time: f32) -> matrix[4, 4]f32 {
 	target_vel.y += keyboard_dir_y * move_speed
 
 	cur_vel = approach_linear(cur_vel, target_vel, move_accel * delta_time)
-	cam_pos += cur_vel * delta_time
+	CAM_POS += cur_vel * delta_time
 
-	return world_to_view_mat(cam_pos, cam_rot)
+	return world_to_view_mat(CAM_POS, cam_rot)
 
 	approach_linear :: proc(cur: [3]f32, target: [3]f32, delta: f32) -> [3]f32 {
 		diff := target - cur
@@ -863,4 +861,65 @@ transform_to_gpu_transform :: proc(transform: matrix[4, 4]f32) -> [12]f32 {
 	transform_row_major := intr.transpose(transform)
 	flattened := linalg.matrix_flatten(transform_row_major)
 	return [12]f32 { flattened[0], flattened[1], flattened[2], flattened[3], flattened[4], flattened[5], flattened[6], flattened[7], flattened[8], flattened[9], flattened[10], flattened[11], }
+}
+
+// Basic meshes
+
+build_sphere :: proc(radius: f32 = 0.5, lat_segments := 32, lon_segments := 32) -> (verts: [dynamic][3]f32, indices: [dynamic]u32)
+{
+    // Generate verts
+    for lat in 0..=lat_segments
+    {
+        theta := math.PI * f32(lat) / f32(lat_segments)
+        sin_theta := math.sin(theta)
+        cos_theta := math.cos(theta)
+
+        for lon in 0..=lon_segments
+        {
+            phi := 2.0 * math.PI * f32(lon) / f32(lon_segments)
+
+			vert: [3]f32
+            vert.x = radius * sin_theta * math.cos(phi)
+            vert.y = radius * cos_theta
+            vert.z = radius * sin_theta * math.sin(phi)
+            append(&verts, vert)
+        }
+    }
+
+    // Generate indices
+    stride := lon_segments + 1
+    for lat in 0..<lat_segments
+    {
+        for lon in 0..<lon_segments
+        {
+            a := lat * stride + lon
+            b := a + stride
+            c := a + 1
+            d := b + 1
+
+            append(&indices, u32(a), u32(b), u32(c))
+            append(&indices, u32(c), u32(b), u32(d))
+        }
+    }
+
+    return verts, indices
+}
+
+UNIT_CUBE_VERTS := [][3]f32{
+    {-0.5, -0.5, -0.5},
+    { 0.5, -0.5, -0.5},
+    { 0.5,  0.5, -0.5},
+    {-0.5,  0.5, -0.5},
+    {-0.5, -0.5,  0.5},
+    { 0.5, -0.5,  0.5},
+    { 0.5,  0.5,  0.5},
+    {-0.5,  0.5,  0.5},
+}
+CUBE_INDICES := []u32{
+    4, 6, 5, 4, 7, 6, // Front (+Z)
+    1, 3, 0, 1, 2, 3, // Back (-Z)
+    0, 7, 4, 0, 3, 7, // Left (-X)
+    5, 2, 1, 5, 6, 2, // Right (+X)
+    3, 6, 7, 3, 2, 6, // Top (+Y)
+    0, 5, 1, 0, 4, 5, // Bottom (-Y)
 }

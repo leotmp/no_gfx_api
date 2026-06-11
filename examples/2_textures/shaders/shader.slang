@@ -38,7 +38,7 @@ struct FragmentData
 [shader("fragment")]
 float4 fragmentMain(float2 uv : TEXCOORD0, GraphicsPipelineData<void, FragmentData> data) : SV_Target
 {
-    float4 tex_a = sampleTexture(data.frag.texture_a, data.frag.s, uv);
-    float4 tex_b = sampleTexture(data.frag.texture_b, data.frag.s, uv);
+    float4 tex_a = getTexture2D(data.frag.texture_a).Sample(getSampler(data.frag.s), uv);
+    float4 tex_b = getTexture2D(data.frag.texture_b).Sample(getSampler(data.frag.s), uv);
     return lerp(tex_a, tex_b, data.frag.fade);
 }

@@ -1323,6 +1323,10 @@ write_preamble :: proc(used_features: Lang_Features)
     writeln("#endif")
 
     writeln("layout(set = 0, binding = 0) uniform texture2D _res_textures_[];")
+    writeln("layout(set = 0, binding = 0) uniform textureCube _res_textures_cube_[];")
+    writeln("layout(set = 0, binding = 0) uniform texture2DArray _res_textures_2darray_[];")
+    writeln("layout(set = 0, binding = 0) uniform textureCubeArray _res_textures_cubearray_[];")
+    writeln("layout(set = 0, binding = 0) uniform texture3D _res_textures_3d_[];")
     writeln("layout(set = 1, binding = 0) uniform image2D _res_textures_rw_[];")
     writeln("layout(set = 2, binding = 0) uniform sampler _res_samplers_[];")
     writeln("")
@@ -1382,11 +1386,15 @@ write_indentation :: proc()
 Intrinsics_Code :: `
 // Intrinsics:
 
-#define texture_sample(t, s, uv)       texture(sampler2D(_res_textures_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), uv)
-#define texture_load(t, coord)         imageLoad(_res_textures_rw_[nonuniformEXT(t)], coord)
-#define texture_store(t, coord, value) imageStore(_res_textures_rw_[nonuniformEXT(t)], coord, value)
-#define texture_size(t, s, lod)        textureSize(sampler2D(_res_textures_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), lod)
-#define image_size(t)                  imageSize(_res_textures_rw_[nonuniformEXT(t)])
+#define texture_sample(t, s, uv)        texture(sampler2D(_res_textures_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), uv)
+#define texture_sample_cube(t, s, dir)  texture(samplerCube(_res_textures_cube_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), dir)
+#define texture_sample_array(t, s, uvw) texture(sampler2DArray(_res_textures_2darray_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), uvw)
+#define texture_sample_cube_array(t, s, dir_layer) texture(samplerCubeArray(_res_textures_cubearray_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), dir_layer)
+#define texture_sample_3d(t, s, uvw)    texture(sampler3D(_res_textures_3d_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), uvw)
+#define texture_load(t, coord)          imageLoad(_res_textures_rw_[nonuniformEXT(t)], coord)
+#define texture_store(t, coord, value)  imageStore(_res_textures_rw_[nonuniformEXT(t)], coord, value)
+#define texture_size(t, s, lod)         textureSize(sampler2D(_res_textures_[nonuniformEXT(t)], _res_samplers_[nonuniformEXT(s)]), lod)
+#define image_size(t)                   imageSize(_res_textures_rw_[nonuniformEXT(t)])
 
 // Intrinsics end.
 `

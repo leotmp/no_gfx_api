@@ -73,9 +73,14 @@ to_vk_texture_type :: #force_inline proc(type: Texture_Type) -> vk.ImageType
 {
     switch type
     {
+        case .Default: return .D2
         case .D2: return .D2
         case .D3: return .D3
         case .D1: return .D1
+        case .Cube: return .D2
+        case .D2_Array: return .D2
+        case .D1_Array: return .D1
+        case .Cube_Array: return .D2
     }
     return {}
 }
@@ -84,9 +89,14 @@ to_vk_texture_view_type :: #force_inline proc(type: Texture_Type) -> vk.ImageVie
 {
     switch type
     {
+        case .Default: panic("Implementation bug!")
         case .D2: return .D2
         case .D3: return .D3
         case .D1: return .D1
+        case .Cube: return .CUBE
+        case .D2_Array: return .D2_ARRAY
+        case .D1_Array: return .D1_ARRAY
+        case .Cube_Array: return .CUBE_ARRAY
     }
     return {}
 }
@@ -96,15 +106,37 @@ to_vk_texture_format :: proc(format: Texture_Format) -> vk.Format
     switch format
     {
         case .Default: panic("Implementation bug!")
+        case .R8_Unorm: return .R8_UNORM
+        case .RG8_Unorm: return .R8G8_UNORM
         case .RGBA8_Unorm: return .R8G8B8A8_UNORM
+        case .ABGR8_Unorm: return .A8B8G8R8_UNORM_PACK32
         case .BGRA8_Unorm: return .B8G8R8A8_UNORM
+        case .R8_SRGB: return .R8_SRGB
+        case .RG8_SRGB: return .R8G8_SRGB
         case .RGBA8_SRGB: return .R8G8B8A8_SRGB
+        case .ABGR8_SRGB: return .A8B8G8R8_SRGB_PACK32
+        case .BGRA8_SRGB: return .B8G8R8A8_SRGB
+        case .R16_Unorm: return .R16_UNORM
+        case .RG16_Unorm: return .R16G16_UNORM
+        case .RGBA16_Unorm: return .R16G16B16A16_UNORM
+        case .D16_Unorm: return .D16_UNORM
+        case .D16_Unorm_S8_Uint: return .D16_UNORM_S8_UINT
+        case .D24_Unorm_Pack32: return .X8_D24_UNORM_PACK32
+        case .D24_Unorm_S8_Uint: return .D24_UNORM_S8_UINT
         case .D32_Float: return .D32_SFLOAT
+        case .R16_Float: return .R16_SFLOAT
+        case .RG16_Float: return .R16G16_SFLOAT
         case .RGBA16_Float: return .R16G16B16A16_SFLOAT
+        case .R32_Float: return .R32_SFLOAT
+        case .RG32_Float: return .R32G32_SFLOAT
         case .RGBA32_Float: return .R32G32B32A32_SFLOAT
         case .BC1_RGBA_Unorm: return .BC1_RGBA_UNORM_BLOCK
         case .BC3_RGBA_Unorm: return .BC3_UNORM_BLOCK
+        case .BC4_R_Unorm: return .BC4_UNORM_BLOCK
+        case .BC5_RG_Unorm: return .BC5_UNORM_BLOCK
+        case .BC6H_RGB_Float: return .BC6H_SFLOAT_BLOCK
         case .BC7_RGBA_Unorm: return .BC7_UNORM_BLOCK
+        case .BC7_RGBA_SRGB: return .BC7_SRGB_BLOCK
         case .ASTC_4x4_RGBA_Unorm: return .ASTC_4x4_UNORM_BLOCK
         case .ETC2_RGB8_Unorm: return .ETC2_R8G8B8_UNORM_BLOCK
         case .ETC2_RGBA8_Unorm: return .ETC2_R8G8B8A8_UNORM_BLOCK
@@ -112,6 +144,16 @@ to_vk_texture_format :: proc(format: Texture_Format) -> vk.Format
         case .EAC_RG11_Unorm: return .EAC_R11G11_UNORM_BLOCK
     }
     return {}
+}
+
+to_vk_image_aspect_flags :: #force_inline proc(format: Texture_Format) -> vk.ImageAspectFlags {
+    #partial switch format
+    {
+        case .Default: panic("Implementation bug!")
+        case .D16_Unorm, .D16_Unorm_S8_Uint, .D24_Unorm_Pack32, .D24_Unorm_S8_Uint, .D32_Float:
+            return { .DEPTH }
+        case: return { .COLOR }
+    }
 }
 
 to_vk_sample_count :: proc(sample_count: u32) -> vk.SampleCountFlags
@@ -297,6 +339,7 @@ to_vk_image_create_info :: proc(desc: Texture_Desc) -> vk.ImageCreateInfo
 {
     return {
         sType = .IMAGE_CREATE_INFO,
+        flags = to_vk_image_create_flags(desc.type),
         imageType = to_vk_texture_type(desc.type),
         format = to_vk_texture_format(desc.format),
         extent = vk.Extent3D { desc.dimensions.x, desc.dimensions.y, desc.dimensions.z },
@@ -306,6 +349,13 @@ to_vk_image_create_info :: proc(desc: Texture_Desc) -> vk.ImageCreateInfo
         usage = to_vk_texture_usage(desc.usage) + { .TRANSFER_DST },
         initialLayout = .UNDEFINED,
     }
+}
+
+to_vk_image_create_flags :: proc(type: Texture_Type) -> vk.ImageCreateFlags
+{
+    flags: vk.ImageCreateFlags
+    if type == .Cube || type == .Cube_Array do flags += { .CUBE_COMPATIBLE }
+    return flags
 }
 
 to_vk_viewport :: proc(viewport: Viewport) -> vk.Viewport

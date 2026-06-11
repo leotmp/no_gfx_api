@@ -799,6 +799,10 @@ add_intrinsics :: proc()
 {
     // Resource access
     add_intrinsic("texture_sample", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &VEC2_TYPE }, { "tex_idx", "sampler_idx", "uv" }, &VEC4_TYPE)
+    add_intrinsic("texture_sample_cube", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &VEC3_TYPE }, { "tex_idx", "sampler_idx", "direction" }, &VEC4_TYPE)
+    add_intrinsic("texture_sample_array", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &VEC3_TYPE }, { "tex_idx", "sampler_idx", "uvw" }, &VEC4_TYPE)
+    add_intrinsic("texture_sample_cube_array", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &VEC4_TYPE }, { "tex_idx", "sampler_idx", "direction_layer" }, &VEC4_TYPE);
+    add_intrinsic("texture_sample_3d", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &VEC3_TYPE }, { "tex_idx", "sampler_idx", "uvw" }, &VEC4_TYPE);
     add_intrinsic("texture_store", { &TEXTURE_RW_ID_TYPE, &IVEC2_TYPE, &VEC4_TYPE }, { "tex_idx", "coord", "value" }, nil)
     add_intrinsic("texture_load", { &TEXTURE_RW_ID_TYPE, &IVEC2_TYPE }, { "tex_idx", "coord" }, &VEC4_TYPE)
     add_intrinsic("texture_size", { &TEXTURE_ID_TYPE, &SAMPLER_ID_TYPE, &INT_TYPE }, { "tex_idx", "sampler_idx", "lod" }, &IVEC2_TYPE)
@@ -1149,7 +1153,9 @@ type_cast_allowed :: proc(from: ^Ast_Type, to: ^Ast_Type) -> bool
         return from.dimensions == to.dimensions && type_cast_allowed(from.base, to.base)
     }
     if from.primitive_kind == .Matrix && to.primitive_kind == .Matrix {
-        return from.dimensions == to.dimensions && type_cast_allowed(from.base, to.base)
+        return from.dimensions.x >= to.dimensions.x &&
+               from.dimensions.y >= to.dimensions.y &&
+               type_cast_allowed(from.base, to.base)
     }
 
     for i in 0..<2

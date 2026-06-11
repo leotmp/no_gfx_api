@@ -44,18 +44,16 @@ float4 fragmentMain(float2 uv : TEXCOORD0, GraphicsPipelineData<void, FragmentDa
     float4 result;
     if (data.frag.selected_texture_type == 0)
     {
-        result = sampleTexture(data.frag.gbuffer_albedo, data.frag.gbuffer_albedo_sampler, uv);
+        result = getTexture2D(data.frag.gbuffer_albedo).Sample(getSampler(data.frag.gbuffer_albedo_sampler), uv);
     }
     else if (data.frag.selected_texture_type == 1)
     {
-        result = sampleTexture(data.frag.gbuffer_normal, data.frag.gbuffer_normal_sampler, uv);
+        result = getTexture2D(data.frag.gbuffer_normal).Sample(getSampler(data.frag.gbuffer_normal_sampler), uv);
     }
     else
     {
-        result = sampleTexture(
-            data.frag.gbuffer_metallic_roughness,
-            data.frag.gbuffer_metallic_roughness_sampler,
-            uv);
+        result = getTexture2D(data.frag.gbuffer_metallic_roughness).Sample(
+            getSampler(data.frag.gbuffer_metallic_roughness_sampler), uv);
     }
 
     return result;

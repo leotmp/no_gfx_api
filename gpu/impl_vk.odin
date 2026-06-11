@@ -535,6 +535,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
                 shaderInt16 = true,
                 vertexPipelineStoresAndAtomics = true,
                 samplerAnisotropy = true,
+                imageCubeArray = true,
             }
         }
         raytracing_features := &vk.PhysicalDeviceAccelerationStructureFeaturesKHR {
@@ -1117,10 +1118,12 @@ _swapchain_acquire_next :: proc() -> Texture
     }
 
     return Texture {
+        type = .D2,
         dimensions = { ctx.swapchain.width, ctx.swapchain.height, 1 },
         format = .BGRA8_Unorm,
         mip_count = 1,
         sample_count = 1,
+        layer_count = 1,
         handle = ctx.swapchain.texture_handles[ctx.swapchain_image_idx],
     }
 }
@@ -1396,7 +1399,7 @@ _texture_size_and_align :: proc(desc: Texture_Desc, loc := #caller_location) -> 
 
     image_ci := to_vk_image_create_info(desc_clean)
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if desc_clean.format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(desc_clean.format)
 
     info := vk.DeviceImageMemoryRequirements {
         sType = .DEVICE_IMAGE_MEMORY_REQUIREMENTS,
@@ -1431,7 +1434,7 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
     image_ci := to_vk_image_create_info(desc_clean)
     vk_check(vma.create_aliasing_image2(ctx.vma_allocator, alloc_info.allocation, vk.DeviceSize(offset), image_ci, &image))
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if desc_clean.format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(desc_clean.format)
 
     // Transition layout from UNDEFINED to GENERAL
     {
@@ -1475,10 +1478,12 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
 
     tex_info := Texture_Info { handle = image, owns_image = true }
     return Texture {
+        type = desc_clean.type,
         dimensions = desc_clean.dimensions,
         format = desc_clean.format,
         mip_count = desc_clean.mip_count,
         sample_count = desc_clean.sample_count,
+        layer_count = desc_clean.layer_count,
         handle = pool_add(&ctx.textures, tex_info, { name = name, created_at = loc } )
     }
 }
@@ -1557,22 +1562,19 @@ _texture_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc 
     tex_info := pool_get(&ctx.textures, texture.handle)
     vk_image := tex_info.handle
 
-    format := view_desc.format
-    if format == .Default {
-        format = texture.format
-    }
+    view_desc_clean := texture_view_desc_cleanup(texture, view_desc)
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(view_desc_clean.format)
 
     image_view_ci := vk.ImageViewCreateInfo {
         sType = .IMAGE_VIEW_CREATE_INFO,
         image = vk_image,
-        viewType = to_vk_texture_view_type(view_desc.type),
-        format = to_vk_texture_format(format),
+        viewType = to_vk_texture_view_type(view_desc_clean.type),
+        format = to_vk_texture_format(view_desc_clean.format),
         subresourceRange = {
             aspectMask = plane_aspect,
             levelCount = texture.mip_count,
-            layerCount = 1,
+            layerCount = texture.layer_count,
         }
     }
     view := get_or_add_image_view(texture.handle, image_view_ci)
@@ -1592,22 +1594,19 @@ _texture_rw_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, l
     tex_info := pool_get(&ctx.textures, texture.handle)
     vk_image := tex_info.handle
 
-    format := view_desc.format
-    if format == .Default {
-        format = texture.format
-    }
+    view_desc_clean := texture_view_desc_cleanup(texture, view_desc)
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(view_desc_clean.format)
 
     image_view_ci := vk.ImageViewCreateInfo {
         sType = .IMAGE_VIEW_CREATE_INFO,
         image = vk_image,
-        viewType = to_vk_texture_view_type(view_desc.type),
-        format = to_vk_texture_format(format),
+        viewType = to_vk_texture_view_type(view_desc_clean.type),
+        format = to_vk_texture_format(view_desc_clean.format),
         subresourceRange = {
             aspectMask = plane_aspect,
-            levelCount = 1,
-            layerCount = 1,
+            levelCount = texture.mip_count,
+            layerCount = texture.layer_count,
         }
     }
     view := get_or_add_image_view(texture.handle, image_view_ci)
@@ -2372,7 +2371,7 @@ _cmd_copy_to_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr,
     src_buf, src_offset, ok_s := get_buf_offset_from_gpu_ptr(src)
     assert(ok_s)
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if dst.format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(dst.format)
     is_compressed := is_block_compressed(dst.format)
 
     mip_width := max(1, dst.dimensions.x >> region.mip_level)
@@ -3662,10 +3661,12 @@ _vk_wrap_image :: proc(image: vk.Image, desc: Texture_Desc, name := "", loc := #
     }
 
     return Texture {
+        type = desc_clean.type,
         dimensions = desc_clean.dimensions,
         format = desc_clean.format,
         mip_count = desc_clean.mip_count,
         sample_count = desc_clean.sample_count,
+        layer_count = desc_clean.layer_count,
         handle = pool_add(&ctx.textures, tex_info, { name = name, created_at = loc }),
     }
 }
@@ -3700,12 +3701,10 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
     has_resolve := resolve_texture != {}
     vk_resolve_image := pool_get(&ctx.textures, resolve_texture.handle).handle if has_resolve else vk.Image(0)
 
-    format := view_desc.format
-    if format == .Default {
-        format = attach.texture.format
-    }
+    view_desc_clean := texture_view_desc_cleanup(texture, view_desc)
+    resolve_view_desc_clean := texture_view_desc_cleanup(resolve_texture, resolve_view_desc)
 
-    plane_aspect: vk.ImageAspectFlags = { .DEPTH } if format == .D32_Float else { .COLOR }
+    plane_aspect := to_vk_image_aspect_flags(view_desc_clean.format)
 
     view: vk.ImageView
     if has_output
@@ -3713,8 +3712,8 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         image_view_ci := vk.ImageViewCreateInfo {
             sType = .IMAGE_VIEW_CREATE_INFO,
             image = vk_image,
-            viewType = to_vk_texture_view_type(view_desc.type),
-            format = to_vk_texture_format(format),
+            viewType = to_vk_texture_view_type(view_desc_clean.type),
+            format = to_vk_texture_format(view_desc_clean.format),
             subresourceRange = {
                 aspectMask = plane_aspect,
                 levelCount = 1,
@@ -3730,8 +3729,8 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         resolve_image_view_ci := vk.ImageViewCreateInfo {
             sType = .IMAGE_VIEW_CREATE_INFO,
             image = vk_resolve_image,
-            viewType = to_vk_texture_view_type(resolve_view_desc.type),
-            format = to_vk_texture_format(format),
+            viewType = to_vk_texture_view_type(resolve_view_desc_clean.type),
+            format = to_vk_texture_format(resolve_view_desc_clean.format),
             subresourceRange = {
                 aspectMask = plane_aspect,
                 levelCount = 1,

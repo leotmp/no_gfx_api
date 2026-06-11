@@ -84,7 +84,8 @@ void computeMain(uint3 global_invocation_id : SV_DispatchThreadID, uniform Compu
 {
     ComputeData* data = pipeline_data.data;
 
-    float2 resolution = float2(getTextureDimensionsRW(data->output_texture_id));
+    float2 resolution = float2(0.0);
+    getTexture2DRW(data->output_texture_id).GetDimensions(resolution.x, resolution.y);
 
     float2 uv = float2(global_invocation_id.xy) / resolution;
     float2 coord = 2.0 * uv - 1.0;
@@ -107,12 +108,12 @@ void computeMain(uint3 global_invocation_id : SV_DispatchThreadID, uniform Compu
         if (data->accum_counter > 1)
         {
             float weight = 1.0 / float(data->accum_counter);
-            float3 prev_color = loadTextureRW(data->output_texture_id, int2(global_invocation_id.xy), 0).xyz;
+            float3 prev_color = getTexture2DRW(data->output_texture_id)[int2(global_invocation_id.xy)].rgb;
             color = prev_color * (1.0 - weight) + color * weight;
             color = max(color, float3(0.0, 0.0, 0.0));
         }
 
-        imageStore(data->output_texture_id, int2(global_invocation_id.xy), float4(color, 1.0));
+        getTexture2DRW(data->output_texture_id)[int2(global_invocation_id.xy)] = float4(color, 1.0);
     }
 }
 

@@ -33,25 +33,27 @@ Feature :: enum { Raytracing = 0 }
 Features :: bit_set[Feature; u32]
 Memory :: enum { Default = 0, GPU, Readback }
 Queue :: enum { Main = 0, Compute, Transfer }
-Texture_Type :: enum { D2 = 0, D3, D1 }
+Texture_Type :: enum { Default = 0, D2, D3, D1, Cube, D2_Array, D1_Array, Cube_Array }
 Texture_Format :: enum
 {
     Default = 0,
-    RGBA8_Unorm,
-    BGRA8_Unorm,
-    RGBA8_SRGB,
-    D32_Float,
-    RGBA16_Float,
-    RGBA32_Float,
+    R8_Unorm, RG8_Unorm, RGBA8_Unorm, ABGR8_Unorm, BGRA8_Unorm,
+    R8_SRGB, RG8_SRGB, RGBA8_SRGB, ABGR8_SRGB, BGRA8_SRGB,
+    R16_Unorm, RG16_Unorm, RGBA16_Unorm,
+    D16_Unorm, D16_Unorm_S8_Uint, D24_Unorm_Pack32, D24_Unorm_S8_Uint, D32_Float,
+    R16_Float, RG16_Float, RGBA16_Float, R32_Float, RG32_Float, RGBA32_Float,
     BC1_RGBA_Unorm,
     BC3_RGBA_Unorm,
-    BC7_RGBA_Unorm,
+    BC4_R_Unorm,
+    BC5_RG_Unorm,
+    BC6H_RGB_Float,
+    BC7_RGBA_Unorm, BC7_RGBA_SRGB,
     ASTC_4x4_RGBA_Unorm,
-    ETC2_RGB8_Unorm,
-    ETC2_RGBA8_Unorm,
-    EAC_R11_Unorm,
-    EAC_RG11_Unorm,
+    ETC2_RGB8_Unorm, ETC2_RGBA8_Unorm,
+    EAC_R11_Unorm, EAC_RG11_Unorm,
 }
+// Each side corresponds to a texture layer
+Cubemap_Side :: enum { PX = 0, NX = 1, PY = 2, NY = 3, PZ = 4, NZ = 5 }
 Usage :: enum { Sampled = 0, Storage, Transfer_Src, Color_Attachment, Depth_Stencil_Attachment }
 Usage_Flags :: bit_set[Usage; u32]
 Shader_Type_Graphics :: enum { Vertex = 0, Fragment }
@@ -146,12 +148,12 @@ Sampler_Desc :: struct
 
 Texture_View_Desc :: struct
 {
-    type: Texture_Type,
+    type: Texture_Type,      // .Default = inherits the texture's type
     format: Texture_Format,  // .Default = inherits the texture's format
     base_mip: u32,
-    mip_count: u8,     // 0 = all mips
+    mip_count: u8,           // 0 = all mips
     base_layer: u16,
-    layer_count: u16,  // 0 = all layers
+    layer_count: u16,        // 0 = all layers
 }
 
 Render_Attachment :: struct
@@ -178,9 +180,11 @@ Render_Pass_Desc :: struct
 
 Texture :: struct #all_or_none
 {
+    type: Texture_Type,
     dimensions: [3]u32,
     format: Texture_Format,
     mip_count: u32,
+    layer_count: u32,
     sample_count: u32,
     handle: Texture_Handle
 }
@@ -354,7 +358,7 @@ commands_begin: proc(queue: Queue, loc := #caller_location) -> Command_Buffer : 
 
 // Commands
 cmd_mem_copy_raw: proc(cmd_buf: Command_Buffer, dst, src: gpuptr, #any_int bytes: i64, loc := #caller_location) : _cmd_mem_copy_raw
-cmd_copy_to_texture: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr, region: Texture_Region, loc := #caller_location) : _cmd_copy_to_texture
+cmd_copy_to_texture: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr, region: Texture_Region = {}, loc := #caller_location) : _cmd_copy_to_texture
 // TODO: Missing cmd_copy_from_texture
 cmd_blit_texture: proc(cmd_buf: Command_Buffer, dst: Texture, dst_rect: Blit_Rect, src: Texture, src_rect: Blit_Rect, filter: Filter, loc := #caller_location) : _cmd_blit_texture
 
