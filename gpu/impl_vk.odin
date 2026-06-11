@@ -2882,6 +2882,14 @@ _cmd_begin_render_pass :: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Desc, 
     }
     vk.CmdSetScissorWithCount(vk_cmd_buf, 1, &scissor)
     vk.CmdSetRasterizerDiscardEnable(vk_cmd_buf, false)
+    vk.CmdSetColorBlendEquationEXT(vk_cmd_buf, 0, 1, &vk.ColorBlendEquationEXT {
+        srcColorBlendFactor = .SRC_ALPHA,
+        dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+        colorBlendOp        = .ADD,
+        srcAlphaBlendFactor = .ONE,
+        dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
+        alphaBlendOp        = .ADD,
+    })
 
     // Unused
     vk.CmdSetVertexInputEXT(vk_cmd_buf, 0, nil, 0, nil)
