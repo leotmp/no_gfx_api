@@ -13,10 +13,7 @@ when ODIN_OS == .Windows
         "libs/glslang-default-resource-limits.lib",
         "libs/glslang.lib",
         "libs/MachineIndependent.lib",
-        // NOTE: I manually split the .lib in two parts because it was originally >100MB
-        // which meant I couldn't push it to github.com ... Ugh...
-        "libs/SPIRV-Tools-opt-1.lib",
-        "libs/SPIRV-Tools-opt-2.lib",
+        "libs/SPIRV-Tools-opt.lib",
         "libs/SPIRV-Tools.lib",
         "libs/SPIRV.lib",
     }
