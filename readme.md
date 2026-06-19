@@ -189,4 +189,7 @@ Binaries for dependencies are included.
 
 See [build.odin](build/build.odin) for all available commands.
 
+## Related Projects
+- [no_gfx OpenXR bindings](https://github.com/zeozeozeo/odin-openxr-sample) (by zeozeozeo)
+
 Feel free to [contact me on discord](https://discord.com/users/leon2058) for any questions.
