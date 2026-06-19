@@ -316,5 +316,7 @@ texture_view_desc_cleanup :: #force_inline proc(texture: Texture, desc: Texture_
     if res.type == .Default {
         res.type = texture.type
     }
+    res.mip_count = max(1, res.mip_count)
+    res.layer_count = max(1, res.layer_count)
     return res
 }
