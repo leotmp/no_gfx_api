@@ -3930,6 +3930,11 @@ check_bvh_must_be_blas :: proc(bvh: BVH, name: string, loc: runtime.Source_Code_
 @(private="file")
 check_texture_descriptor :: proc(desc: Texture_Descriptor, name: string, index: int, loc: runtime.Source_Code_Location) -> bool
 {
+    if desc == {} || texture_descriptor_get_handle(desc) == {} {
+        log.errorf("'%v[%v]' texture descriptor is nil.", name, index, location = loc)
+        return false
+    }
+
     if !pool_check_no_message(&ctx.textures, texture_descriptor_get_handle(desc)) {
         log.errorf("'%v[%v]' texture descriptor is stale, the underlying texture has been freed.", name, index, location = loc)
         return false
