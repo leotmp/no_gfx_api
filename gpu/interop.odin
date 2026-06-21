@@ -12,6 +12,7 @@ vk_get_swapchain_image_count: proc() -> u32 : _vk_get_swapchain_image_count
 vk_get_command_buffer: proc(cmd_buf: Command_Buffer) -> vk.CommandBuffer : _vk_get_command_buffer
 vk_get_image: proc(texture: Texture) -> vk.Image : _vk_get_image
 vk_get_buffer: proc(addr: gpuptr) -> (vk.Buffer, u32) : _vk_get_buffer
+vk_get_semaphore: proc(semaphore: Semaphore) -> vk.Semaphore : _vk_get_semaphore
 
 // To be called before gpu.init(). These extra arguments are thread-local.
 vk_add_opt_device_extension: proc(extension: cstring) : _vk_add_opt_device_extension
