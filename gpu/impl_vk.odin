@@ -360,9 +360,12 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         vk.KHR_RAY_QUERY_EXTENSION_NAME,
     }
 
+    draw_indirect_multi_extension := cstring(vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) 
+
     // Query physical device feature availability
     {
         supports_raytracing := true
+        supports_draw_indirect_multi := false
 
         count: u32
         vk.EnumerateDeviceExtensionProperties(ctx.phys_device, nil, &count, nil)
@@ -386,6 +389,15 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             }
         }
 
+        for &supported_ext in extensions
+        {
+            if cstring(&supported_ext.extensionName[0]) == draw_indirect_multi_extension
+            {
+                supports_draw_indirect_multi = true
+                break
+            }
+        }
+
         ray_query_features := vk.PhysicalDeviceRayQueryFeaturesKHR {
             sType = .PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR
         }
@@ -402,6 +414,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         supports_raytracing = supports_raytracing && accel_features.accelerationStructure && ray_query_features.rayQuery
 
         if supports_raytracing do ctx.features += { .Raytracing }
+        if supports_draw_indirect_multi do ctx.features += { .Draw_Indirect_Multi }
     }
 
     // Get physical device properties
@@ -458,12 +471,12 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
 
         required_extensions := make([dynamic]cstring, allocator = scratch)
         append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+        append(&required_extensions, vk.EXT_SHADER_OBJECT_EXTENSION_NAME)
         for req_ext in EXTRA_DEVICE_EXTENSIONS {
             append(&required_extensions, req_ext)
         }
 
         optional_extensions := make([dynamic]cstring, allocator = scratch)
-        append(&optional_extensions, vk.EXT_SHADER_OBJECT_EXTENSION_NAME)
         append(&optional_extensions, vk.KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
         for opt_ext in EXTRA_OPT_DEVICE_EXTENSIONS {
             append(&optional_extensions, opt_ext)
@@ -480,23 +493,18 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             log_unsupported_extensions(unsupported_extensions[:], loc)
             return false
         }
-
-        supports_draw_index_count := b32(false)
-        if supports_device_extension(vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)
-        {
-            supports_draw_index_count = true
-            append(&required_extensions, vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)
-
-            // Maybe this is a bad place organization-wise to place this?
-            ctx.features += { .Draw_Indirect_Multi }
-        }
-
+        
         // Add optional extensions
         if .Raytracing in ctx.features
         {
             append(&required_extensions, vk.KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
             append(&required_extensions, vk.KHR_RAY_QUERY_EXTENSION_NAME)
             append(&required_extensions, vk.KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
+        }
+
+        if .Draw_Indirect_Multi in ctx.features
+        {
+            append(&required_extensions, vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)
         }
 
         for opt in optional_extensions {
@@ -517,7 +525,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             descriptorBindingPartiallyBound = true,
             timelineSemaphore = true,
             bufferDeviceAddress = true,
-            drawIndirectCount = supports_draw_index_count,
+            drawIndirectCount = b32(.Draw_Indirect_Multi in ctx.features),
             scalarBlockLayout = true,
             shaderInt8 = true,
         }
