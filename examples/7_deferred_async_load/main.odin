@@ -95,16 +95,7 @@ main :: proc() {
     shared.CAM_POS = {-7.581631, 1.1906259, 0.25928685}
 	shared.CAM_ANGLE = {1.570796, 0.3665192}
 
-	ok_i := sdl.Init({.VIDEO})
-	assert(ok_i)
-
-	when ODIN_OS == .Darwin 
-	{
-        if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
-        {
-            panic("Unable to load vulkan library!")
-        }
-    }
+	shared.sdl_init()
 
 	console_logger := log.create_console_logger()
 	defer log.destroy_console_logger(console_logger)
@@ -692,7 +683,7 @@ load_scene_textures_from_gltf :: proc(
 	desc_pool: ^gpu.Descriptor_Pool
 ) {
 	upload_arena := gpu.arena_init()
-	// defer gpu.arena_destroy(&upload_arena)
+	defer gpu.arena_destroy(&upload_arena)
 
 	for info, i in texture_infos {
 		if cancel_loading_textures {
@@ -780,10 +771,10 @@ load_scene_textures_from_gltf :: proc(
 		}
 	}
 
-	if sync.guard(&deletion_mutex)
-	{
-	    append(&arena_deletion_stack, upload_arena)
-	}
+	// if sync.guard(&deletion_mutex)
+	// {
+	//     append(&arena_deletion_stack, upload_arena)
+	// }
 }
 
 upload_texture :: proc(

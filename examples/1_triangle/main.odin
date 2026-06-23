@@ -7,6 +7,8 @@ import "core:math/linalg"
 
 import "../../gpu"
 
+import shared "../shared"
+
 import sdl "vendor:sdl3"
 
 Start_Window_Size_X :: 1000
@@ -16,16 +18,7 @@ Example_Name :: "Triangle"
 
 main :: proc()
 {
-    ok_i := sdl.Init({ .VIDEO })
-    assert(ok_i)
-
-    when ODIN_OS == .Darwin 
-    {
-        if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
-        {
-            panic("Unable to load vulkan library!")
-        }
-    }
+    shared.sdl_init()
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)

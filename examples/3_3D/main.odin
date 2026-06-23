@@ -26,16 +26,7 @@ main :: proc()
 	shared.CAM_ANGLE = {1.570796, 0.3665192}
     fmt.println("Right-click + WASD for first-person controls.")
 
-    ok_i := sdl.Init({ .VIDEO })
-    assert(ok_i)
-
-    when ODIN_OS == .Darwin 
-    {
-        if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
-        {
-            panic("Unable to load vulkan library!")
-        }
-    }
+    shared.sdl_init()
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)

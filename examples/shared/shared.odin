@@ -10,11 +10,26 @@ import "core:mem"
 import "core:slice"
 import "gltf2"
 import "core:image"
+import "core:strings"
 import "core:image/jpeg"
 import "core:image/png"
 import intr "base:intrinsics"
 
 import sdl "vendor:sdl3"
+
+sdl_init :: proc()
+{
+    ok_i := sdl.Init({.VIDEO})
+	assert(ok_i)
+        
+    when ODIN_OS == .Darwin
+    {
+        if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
+        {
+            panic("Unable to load vulkan library on macos!")
+        }
+    }
+}
 
 Texture_Type :: enum {
 	Base_Color,

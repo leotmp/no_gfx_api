@@ -5,6 +5,7 @@ import log "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:fmt"
+import "../shared"
 
 import "../../gpu"
 
@@ -22,16 +23,7 @@ main :: proc()
 {
     fmt.println("CREDITS: Shader \"Clearly a bug\" by Glow on https://www.shadertoy.com/view/33cGDj")
 
-    ok_i := sdl.Init({ .VIDEO })
-    assert(ok_i)
-
-    when ODIN_OS == .Darwin 
-    {
-        if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
-        {
-            panic("Unable to load vulkan library!")
-        }
-    }
+    shared.sdl_init()
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)
