@@ -728,13 +728,10 @@ load_scene_textures_from_gltf :: proc(
 	}
 
 	for info, i in texture_infos {
-		sync.mutex_lock(&mutex)
-        texture := image_to_texture[info.image_index]
-        sync.mutex_unlock(&mutex)
-
-		gpu.semaphore_wait(upload_sem, upload_sem_val)
-
 		sync.guard(&mutex)
+
+        texture := image_to_texture[info.image_index]
+		gpu.semaphore_wait(upload_sem, upload_sem_val)
 
 		switch info.texture_type {
 		case .Base_Color:
