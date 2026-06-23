@@ -29,7 +29,7 @@ Texture_Descriptor :: distinct Big_Handle
 Sampler_Descriptor :: distinct Handle
 
 // Enums
-Feature :: enum { Raytracing = 0 }
+Feature :: enum { Raytracing = 0, Draw_Indirect_Multi }
 Features :: bit_set[Feature; u32]
 Memory :: enum { Default = 0, GPU, Readback }
 Queue :: enum { Main = 0, Compute, Transfer }

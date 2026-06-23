@@ -254,6 +254,8 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         append(&optional_extensions, "VK_KHR_win32_surface")
         append(&optional_extensions, "VK_KHR_wayland_surface")
         append(&optional_extensions, "VK_KHR_xlib_surface")
+        append(&optional_extensions, vk.EXT_METAL_SURFACE_EXTENSION_NAME)
+        append(&optional_extensions, vk.KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)
 
         // Check that required_extensions are supported
         for req in required_extensions {
@@ -300,6 +302,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
                 sType = .APPLICATION_INFO,
                 apiVersion = vk.API_VERSION_1_3,
             },
+            flags = { .ENUMERATE_PORTABILITY_KHR },
             enabledLayerCount = u32(len(required_layers)),
             ppEnabledLayerNames = raw_data(required_layers),
             enabledExtensionCount = u32(len(required_extensions)),
@@ -455,13 +458,13 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
 
         required_extensions := make([dynamic]cstring, allocator = scratch)
         append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
-        append(&required_extensions, vk.EXT_SHADER_OBJECT_EXTENSION_NAME)
-        append(&required_extensions, vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)
         for req_ext in EXTRA_DEVICE_EXTENSIONS {
             append(&required_extensions, req_ext)
         }
 
         optional_extensions := make([dynamic]cstring, allocator = scratch)
+        append(&optional_extensions, vk.EXT_SHADER_OBJECT_EXTENSION_NAME)
+        append(&optional_extensions, vk.KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
         for opt_ext in EXTRA_OPT_DEVICE_EXTENSIONS {
             append(&optional_extensions, opt_ext)
         }
@@ -476,6 +479,16 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         if len(unsupported_extensions) > 0 {
             log_unsupported_extensions(unsupported_extensions[:], loc)
             return false
+        }
+
+        supports_draw_index_count := b32(false)
+        if supports_device_extension(vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)
+        {
+            supports_draw_index_count = true
+            append(&required_extensions, vk.KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)
+
+            // Maybe this is a bad place organization-wise to place this?
+            ctx.features += { .Draw_Indirect_Multi }
         }
 
         // Add optional extensions
@@ -504,7 +517,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             descriptorBindingPartiallyBound = true,
             timelineSemaphore = true,
             bufferDeviceAddress = true,
-            drawIndirectCount = true,
+            drawIndirectCount = supports_draw_index_count,
             scalarBlockLayout = true,
             shaderInt8 = true,
         }
@@ -527,7 +540,9 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         next = &vk.PhysicalDeviceDepthClipEnableFeaturesEXT {
             sType = .PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT,
             pNext = next,
-            depthClipEnable = true,
+            // NOTE(MP): On darwin (macOS, iOS, etc.), this extension doesn't
+            // exist, however, thankfully, depth clip is already the default there.
+            depthClipEnable = ODIN_OS != .Darwin,
         }
         next = &vk.PhysicalDeviceFeatures2 {
             sType = .PHYSICAL_DEVICE_FEATURES_2,
@@ -759,6 +774,8 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
             vk_dll_path = "libvulkan.so"
         } else when ODIN_OS == .Linux {
             vk_dll_path = "libvulkan.so.1"
+        } else when ODIN_OS == .Darwin {
+            vk_dll_path = "libvulkan.1.dylib"
         } else do #panic("OS not supported!")
 
         @(static) vk_dll: dynlib.Library
@@ -2534,8 +2551,10 @@ _cmd_set_depth_state :: proc(cmd_buf: Command_Buffer, state: Depth_State, loc :=
     vk.CmdSetDepthTestEnable(vk_cmd_buf, .Read in state.mode)
     vk.CmdSetDepthWriteEnable(vk_cmd_buf, .Write in state.mode)
     vk.CmdSetDepthBiasEnable(vk_cmd_buf, false)
-    vk.CmdSetDepthClipEnableEXT(vk_cmd_buf, true)
     vk.CmdSetStencilTestEnable(vk_cmd_buf, false)
+    when ODIN_OS != .Darwin {
+        vk.CmdSetDepthClipEnableEXT(vk_cmd_buf, true)
+    }
 }
 
 _cmd_set_raster_state :: proc(cmd_buf: Command_Buffer, state: Raster_State, loc := #caller_location)
@@ -2786,7 +2805,9 @@ _cmd_begin_render_pass :: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Desc, 
     vk.CmdSetDepthTestEnable(vk_cmd_buf, false)
     vk.CmdSetDepthWriteEnable(vk_cmd_buf, false)
     vk.CmdSetDepthBiasEnable(vk_cmd_buf, false)
-    vk.CmdSetDepthClipEnableEXT(vk_cmd_buf, true)
+    when ODIN_OS != .Darwin {
+        vk.CmdSetDepthClipEnableEXT(vk_cmd_buf, true)
+    }
 
     // Viewport
     viewport := vk.Viewport {
@@ -2936,6 +2957,7 @@ _cmd_draw_indexed_indirect_multi_raw :: proc(cmd_buf: Command_Buffer, vertex_dat
         ok &= check_ptr_allow_nil(indices, "indices", loc)
         ok &= check_ptr(indirect_arguments, "indirect_arguments", loc)
         ok &= check_ptr(draw_count, "draw_count", loc)
+        ok &= supports_indirect_multi_draw(loc)
         if !ok do return
     }
 
@@ -3902,4 +3924,16 @@ vk_set_debug_name :: proc(name: string, handle: u64, type: vk.ObjectType)
         objectHandle = handle,
         pObjectName = name_cstr,
     })
+}
+
+@(private="file")
+supports_indirect_multi_draw :: proc(loc: runtime.Source_Code_Location) -> bool
+{
+    if .Draw_Indirect_Multi not_in ctx.features
+    {
+        log.errorf("'cmd_draw_indexed_indirect_multi*' is not supported on this device.", location = loc)
+        return false
+    }
+
+    return true
 }
