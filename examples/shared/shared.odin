@@ -14,8 +14,19 @@ import "core:strings"
 import "core:image/jpeg"
 import "core:image/png"
 import intr "base:intrinsics"
+import "core:os"
 
 import sdl "vendor:sdl3"
+
+MACOS_SDL_INIT_VULKAN_ERR_MSG :: `
+Failed to load the vulkan library on macOS!
+
+NOTE:
+If you are having trouble running this on macOS, you might not have the 'VULKAN_SDK' environment variable populated. Make sure to "source" the "setup-env.sh" script present within the 'VulkanSDK' folder before running the app. 
+
+Like this:
+> source ~/VulkanSDK/1.x.xxx.x/setup-env.sh
+`
 
 sdl_init :: proc()
 {
@@ -26,7 +37,7 @@ sdl_init :: proc()
     {
         if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
         {
-            panic("Unable to load vulkan library on macos!")
+            panic(MACOS_SDL_INIT_VULKAN_ERR_MSG)
         }
     }
 }
