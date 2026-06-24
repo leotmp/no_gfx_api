@@ -683,7 +683,7 @@ load_scene_textures_from_gltf :: proc(
 	desc_pool: ^gpu.Descriptor_Pool
 ) {
 	upload_arena := gpu.arena_init()
-	defer gpu.arena_destroy(&upload_arena)
+	// defer gpu.arena_destroy(&upload_arena)
 
 	for info, i in texture_infos {
 		if cancel_loading_textures {
@@ -771,10 +771,10 @@ load_scene_textures_from_gltf :: proc(
 		}
 	}
 
-	// if sync.guard(&deletion_mutex)
-	// {
-	//     append(&arena_deletion_stack, upload_arena)
-	// }
+	if sync.guard(&deletion_mutex)
+	{
+	    append(&arena_deletion_stack, upload_arena)
+	}
 }
 
 upload_texture :: proc(
