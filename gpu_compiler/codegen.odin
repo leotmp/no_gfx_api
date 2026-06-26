@@ -1248,7 +1248,13 @@ define_attr_var :: proc(decl: ^Ast_Decl, is_input: bool)
         decl.type^ = decl.type.base^
     }
 
-    writefln("%v %v = %v;", type_to_glsl(decl.type), decl.glsl_name, attr_glsl)
+    // NOTE: Convert to type that we want. It is assumed that the type is correct
+    // after typechecking.
+    if decl.attr.?.type != .Indirect_Data && decl.attr.?.type != .Data && decl.attr.?.type != .Position {
+        writefln("%v %v = %v(%v);", type_to_glsl(decl.type), decl.glsl_name, type_to_glsl(decl.type), attr_glsl)
+    } else {
+        writefln("%v %v = %v;", type_to_glsl(decl.type), decl.glsl_name, attr_glsl)
+    }
 }
 
 set_attr_member :: proc(decl: ^Ast_Decl, struct_var_name: string, is_input: bool)
