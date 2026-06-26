@@ -3355,80 +3355,85 @@ vk_submit_cmd_bufs :: proc(cmd_bufs: []Command_Buffer)
 
     tls_ctx := get_tls()
 
-    for cmd_buf in cmd_bufs
+    // NOTE: In Vulkan, submissions have to be ordered w.r.t. the semaphore
+    // values, which means that if cmd_buf A signals semaphore S with value 3,
+    // and cmd_buf B signals semaphore S with value 4, A must be submitted before B.
+    // So we need to lock the whole critical section from the generation of a new
+    // counter all the way up until the command buffers are submitted.
+    if sync.guard(&ctx.queue_lock)
     {
-        cmd_buf_info_ptr := pool_get_ptr(&ctx.command_buffers, cmd_buf)
-        // atomic_add returns the value before incrementing.
-        old := intr.atomic_add(&ctx.cmd_bufs_counters[cmd_buf_info_ptr.queue], 1)
-        next := old + 1
-        cmd_buf_info_ptr.timeline_value = next
-    }
-
-    scratch, _ := acquire_scratch()
-    submit_infos := make([dynamic]vk.SubmitInfo, allocator = scratch)
-    queue: Queue
-    for cmd_buf in cmd_bufs
-    {
-        cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
-
-        queue = cmd_buf_info.queue
-        queue_sem := ctx.cmd_bufs_sems[queue]
-        vk_queue_sem := pool_get(&ctx.semaphores, queue_sem)
-        assert(cmd_buf_info.recording)
-        assert(cmd_buf_info.thread_id == sync.current_thread_id())
-
-        wait_count := len(cmd_buf_info.wait_sems)
-        signal_count := len(cmd_buf_info.signal_sems) + 1
-
-        wait_sems     := make([]vk.Semaphore,          wait_count,   allocator = scratch)
-        wait_values   := make([]u64,                   wait_count,   allocator = scratch)
-        wait_stages   := make([]vk.PipelineStageFlags, wait_count,   allocator = scratch)
-        signal_sems   := make([]vk.Semaphore,          signal_count, allocator = scratch)
-        signal_values := make([]u64,                   signal_count, allocator = scratch)
-
-        for wait_sem, i in cmd_buf_info.wait_sems
+        for cmd_buf in cmd_bufs
         {
-            wait_sems[i] = pool_get(&ctx.semaphores, wait_sem.sem)
-            wait_stages[i] = { .ALL_COMMANDS }
-            wait_values[i] = wait_sem.val
+            cmd_buf_info_ptr := pool_get_ptr(&ctx.command_buffers, cmd_buf)
+            next := ctx.cmd_bufs_counters[cmd_buf_info_ptr.queue] + 1
+            ctx.cmd_bufs_counters[cmd_buf_info_ptr.queue] = next
+            cmd_buf_info_ptr.timeline_value = next
         }
-        for signal_sem, i in cmd_buf_info.signal_sems
+
+        scratch, _ := acquire_scratch()
+        submit_infos := make([dynamic]vk.SubmitInfo, allocator = scratch)
+        queue: Queue
+        for cmd_buf in cmd_bufs
         {
-            signal_sems[i] = pool_get(&ctx.semaphores, signal_sem.sem)
-            signal_values[i] = signal_sem.val
+            cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
+
+            queue = cmd_buf_info.queue
+            queue_sem := ctx.cmd_bufs_sems[queue]
+            vk_queue_sem := pool_get(&ctx.semaphores, queue_sem)
+            assert(cmd_buf_info.recording)
+            assert(cmd_buf_info.thread_id == sync.current_thread_id())
+
+            wait_count := len(cmd_buf_info.wait_sems)
+            signal_count := len(cmd_buf_info.signal_sems) + 1
+
+            wait_sems     := make([]vk.Semaphore,          wait_count,   allocator = scratch)
+            wait_values   := make([]u64,                   wait_count,   allocator = scratch)
+            wait_stages   := make([]vk.PipelineStageFlags, wait_count,   allocator = scratch)
+            signal_sems   := make([]vk.Semaphore,          signal_count, allocator = scratch)
+            signal_values := make([]u64,                   signal_count, allocator = scratch)
+
+            for wait_sem, i in cmd_buf_info.wait_sems
+            {
+                wait_sems[i] = pool_get(&ctx.semaphores, wait_sem.sem)
+                wait_stages[i] = { .ALL_COMMANDS }
+                wait_values[i] = wait_sem.val
+            }
+            for signal_sem, i in cmd_buf_info.signal_sems
+            {
+                signal_sems[i] = pool_get(&ctx.semaphores, signal_sem.sem)
+                signal_values[i] = signal_sem.val
+            }
+
+            signal_sems[signal_count - 1] = vk_queue_sem
+            signal_values[signal_count - 1] = cmd_buf_info.timeline_value
+
+            to_submit := make([]vk.CommandBuffer, 1, allocator = scratch)
+            to_submit[0] = cmd_buf_info.handle
+
+            next := new(vk.TimelineSemaphoreSubmitInfo, allocator = scratch)
+            next^ = {
+                sType = .TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                waitSemaphoreValueCount = u32(len(wait_values)),
+                pWaitSemaphoreValues = raw_data(wait_values),
+                signalSemaphoreValueCount = u32(len(signal_values)),
+                pSignalSemaphoreValues = raw_data(signal_values),
+            }
+            submit_info := vk.SubmitInfo {
+                sType = .SUBMIT_INFO,
+                pNext = next,
+                commandBufferCount = u32(len(to_submit)),
+                pCommandBuffers = raw_data(to_submit),
+                waitSemaphoreCount = u32(len(wait_sems)),
+                pWaitSemaphores = raw_data(wait_sems),
+                pWaitDstStageMask = raw_data(wait_stages),
+                signalSemaphoreCount = u32(len(signal_sems)),
+                pSignalSemaphores = raw_data(signal_sems),
+            }
+            append(&submit_infos, submit_info)
         }
 
-        signal_sems[signal_count - 1] = vk_queue_sem
-        signal_values[signal_count - 1] = cmd_buf_info.timeline_value
-
-        to_submit := make([]vk.CommandBuffer, 1, allocator = scratch)
-        to_submit[0] = cmd_buf_info.handle
-
-        next := new(vk.TimelineSemaphoreSubmitInfo, allocator = scratch)
-        next^ = {
-            sType = .TIMELINE_SEMAPHORE_SUBMIT_INFO,
-            waitSemaphoreValueCount = u32(len(wait_values)),
-            pWaitSemaphoreValues = raw_data(wait_values),
-            signalSemaphoreValueCount = u32(len(signal_values)),
-            pSignalSemaphoreValues = raw_data(signal_values),
-        }
-        submit_info := vk.SubmitInfo {
-            sType = .SUBMIT_INFO,
-            pNext = next,
-            commandBufferCount = u32(len(to_submit)),
-            pCommandBuffers = raw_data(to_submit),
-            waitSemaphoreCount = u32(len(wait_sems)),
-            pWaitSemaphores = raw_data(wait_sems),
-            pWaitDstStageMask = raw_data(wait_stages),
-            signalSemaphoreCount = u32(len(signal_sems)),
-            pSignalSemaphores = raw_data(signal_sems),
-        }
-        append(&submit_infos, submit_info)
-    }
-
-    queue_info := ctx.queues[queue]
-    vk_queue := queue_info.handle
-    if sync.guard(&ctx.queue_lock) {
+        queue_info := ctx.queues[queue]
+        vk_queue := queue_info.handle
         vk_check(vk.QueueSubmit(vk_queue, u32(len(submit_infos)), raw_data(submit_infos), {}))
     }
 
