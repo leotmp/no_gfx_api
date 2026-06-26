@@ -1072,7 +1072,9 @@ codegen_zero_initialization :: proc(type: ^Ast_Type)
         case .Pointer: writef("%v(uint64_t(0))", type_to_glsl(type))
         case .Array:
         {
-            writef("{ ")
+            // The underlying type is a struct, so we need 2 sets
+            // of curly braces.
+            write("{ { ")
             for i in 0..<type.dimensions.x
             {
                 codegen_zero_initialization(type.base)
@@ -1080,7 +1082,7 @@ codegen_zero_initialization :: proc(type: ^Ast_Type)
                     writef(", ")
                 }
             }
-            writef(" }")
+            write("} }")
         }
         case .Slice: writef("%v(uint64_t(0))", type_to_glsl(type))
         case .Proc: panic("Unreachable")
