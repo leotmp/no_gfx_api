@@ -1148,13 +1148,7 @@ type_cast_allowed :: proc(from: ^Ast_Type, to: ^Ast_Type) -> bool
     if type_implicit_convert(from, &BOOL_TYPE) && type_implicit_convert(to, &UINT_TYPE) {
         return true
     }
-    if type_implicit_convert(from, &FLOAT_TYPE) && type_implicit_convert(to, &VEC2_TYPE) {
-        return true
-    }
-    if type_implicit_convert(from, &FLOAT_TYPE) && type_implicit_convert(to, &VEC3_TYPE) {
-        return true
-    }
-    if type_implicit_convert(from, &FLOAT_TYPE) && type_implicit_convert(to, &VEC4_TYPE) {
+    if to.primitive_kind == .Vector && type_implicit_convert(from, to.base) {
         return true
     }
     if from.primitive_kind == .Vector && to.primitive_kind == .Vector {
