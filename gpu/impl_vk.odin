@@ -2319,7 +2319,45 @@ _cmd_copy_to_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr,
     vk.CmdCopyBufferToImage(cmd_buf_info.handle, src_buf, tex_info.handle, .GENERAL, 1, &copy)
 }
 
-// TODO: Missing: cmd_copy_from_texture
+_cmd_copy_from_texture :: proc(cmd_buf: Command_Buffer, dst: gpuptr, src: Texture, region: Texture_Region = {}, loc := #caller_location)
+{
+    if ctx.validation
+    {
+        ok := true
+        ok &= pool_check(&ctx.command_buffers, cmd_buf, "cmd_buf", loc)
+        ok &= pool_check(&ctx.textures, src.handle, "src", loc)
+        ok &= check_ptr(dst, "dst", loc)
+    }
+
+    cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
+    tex_info := pool_get(&ctx.textures, src.handle)
+
+    dst_buf, dst_offset, ok_s := get_buf_offset_from_gpu_ptr(dst)
+    assert(ok_s)
+
+    plane_aspect := to_vk_image_aspect_flags(src.format)
+    is_compressed := is_block_compressed(src.format)
+
+    mip_width := max(1, src.dimensions.x >> region.mip_level)
+    mip_height := max(1, src.dimensions.y >> region.mip_level)
+    mip_depth := max(1, src.dimensions.z >> region.mip_level)
+
+    copy := vk.BufferImageCopy{
+        bufferOffset = vk.DeviceSize(dst_offset),
+        bufferRowLength = 0 if is_compressed else mip_width,
+        bufferImageHeight = 0 if is_compressed else mip_height,
+        imageSubresource = {
+            aspectMask = plane_aspect,
+            mipLevel = region.mip_level,
+            baseArrayLayer = region.base_layer,
+            layerCount = max(1, region.layer_count),
+        },
+        imageOffset = {},
+        imageExtent = { mip_width, mip_height, mip_depth },
+    }
+
+    vk.CmdCopyImageToBuffer(cmd_buf_info.handle, tex_info.handle, .GENERAL, dst_buf, 1, &copy)
+}
 
 _cmd_blit_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, dst_rect: Blit_Rect, src: Texture, src_rect: Blit_Rect, filter: Filter, loc := #caller_location)
 {

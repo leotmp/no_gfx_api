@@ -359,7 +359,7 @@ commands_begin: proc(queue: Queue, loc := #caller_location) -> Command_Buffer : 
 // Commands
 cmd_mem_copy_raw: proc(cmd_buf: Command_Buffer, dst, src: gpuptr, #any_int bytes: i64, loc := #caller_location) : _cmd_mem_copy_raw
 cmd_copy_to_texture: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr, region: Texture_Region = {}, loc := #caller_location) : _cmd_copy_to_texture
-// TODO: Missing cmd_copy_from_texture
+cmd_copy_from_texture: proc(cmd_buf: Command_Buffer, dst: gpuptr, src: Texture, region: Texture_Region = {}, loc := #caller_location) : _cmd_copy_from_texture
 cmd_blit_texture: proc(cmd_buf: Command_Buffer, dst: Texture, dst_rect: Blit_Rect, src: Texture, src_rect: Blit_Rect, filter: Filter, loc := #caller_location) : _cmd_blit_texture
 
 cmd_set_desc_heap: proc(cmd_buf: Command_Buffer, heap: Descriptor_Heap, loc := #caller_location) : _cmd_set_desc_heap
