@@ -337,6 +337,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
                 case .DISCRETE_GPU:   score += 1000
                 case .VIRTUAL_GPU:    score += 100
                 case .INTEGRATED_GPU: score += 10
+                case .CPU:            score += 1
                 case: {}
             }
 
