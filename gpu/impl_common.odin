@@ -7,6 +7,7 @@ import "core:mem"
 import "core:sync"
 import "core:log"
 import "base:runtime"
+import "core:os"
 import intr "base:intrinsics"
 
 // Implementation of a thread-safe resource pool to be used for no_gfx_api handles
@@ -291,6 +292,8 @@ align_up :: proc(x, align: u64) -> (aligned: u64)
 fatal_error :: proc(fmt: string, args: ..any, location := #caller_location)
 {
     log.fatalf(fmt, ..args, location = location)
+    os.flush(os.stdout)
+    os.flush(os.stderr)
     runtime.panic("")
 }
 
