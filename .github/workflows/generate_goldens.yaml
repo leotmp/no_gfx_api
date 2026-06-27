@@ -25,8 +25,8 @@ jobs:
           #install_swiftshader: true
           install_lavapipe: true
       - name: Run Tests
-        env:
-          VK_ICD_FILENAMES: C:\lavapipe\share\vulkan\icd.d\lvp_icd.x86_64.json
+        #env:
+        #  VK_ICD_FILENAMES: C:\lavapipe\share\vulkan\icd.d\lvp_icd.x86_64.json
         run: odin run tests/no_gfx
       #- run: ./render_tests --output golden-images/
       #- uses: actions/upload-artifact@v4
