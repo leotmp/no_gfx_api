@@ -3,7 +3,7 @@ package main
 
 import "core:fmt"
 
-main :: proc
+main :: proc()
 {
     fmt.println("Success")
 }
