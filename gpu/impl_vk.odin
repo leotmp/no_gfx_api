@@ -246,11 +246,11 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
 
         required_extensions := make([dynamic]cstring, allocator = scratch)
         append(&required_extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
-        append(&required_extensions, vk.KHR_SURFACE_EXTENSION_NAME)
 
         unsupported_extensions := make([dynamic]cstring, allocator = scratch)
 
         optional_extensions := make([dynamic]cstring, allocator = scratch)
+        append(&optional_extensions, vk.KHR_SURFACE_EXTENSION_NAME)
         append(&optional_extensions, "VK_KHR_win32_surface")
         append(&optional_extensions, "VK_KHR_wayland_surface")
         append(&optional_extensions, "VK_KHR_xlib_surface")
