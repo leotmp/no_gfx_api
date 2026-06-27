@@ -12,7 +12,7 @@ jobs:
       - uses: laytan/setup-odin@v2
         with:
           release: dev-2026-06
-      - run: odin run ../../tests/no_gfx
+      - run: odin run tests/no_gfx
       #- run: ./render_tests --output golden-images/
       #- uses: actions/upload-artifact@v4
       #  with:
