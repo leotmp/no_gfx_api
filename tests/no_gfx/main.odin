@@ -3,7 +3,11 @@ package main
 
 import "core:fmt"
 
+import "../../gpu"
+
 main :: proc()
 {
-    fmt.println("Success")
+    ok := gpu.init()
+    ensure(ok)
+    defer gpu.cleanup()
 }
