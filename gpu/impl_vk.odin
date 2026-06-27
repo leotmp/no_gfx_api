@@ -64,14 +64,14 @@ Context :: struct
     semaphores: Resource_Pool(Semaphore, vk.Semaphore),
     desc_heaps: Resource_Pool(Descriptor_Heap, Descriptor_Heap_Info),
 
-    cmd_bufs_sem_vals: [Queue]Semaphore_Value,
+    cmd_bufs_sems: [Queue]Semaphore,
+    cmd_bufs_counters: [Queue]u64,
 
     // Swapchain
     swapchain: Swapchain,
     swapchain_image_idx: u32,
     frames_in_flight: u32,
 
-    cmd_buf_lock: sync.Atomic_Mutex,
     queue_lock: sync.Atomic_Mutex,
     tls_lock: sync.Atomic_Mutex,
     tls_contexts: [dynamic]^Thread_Local_Context,
@@ -80,7 +80,7 @@ Context :: struct
 @(private="file")
 Free_Command_Buffer :: struct
 {
-    pool_handle: Command_Buffer,
+    handle: Command_Buffer,
     timeline_value: u64, // Duplicated information from Command_Buffer_Info to avoid locking during search
 }
 
@@ -88,7 +88,6 @@ Free_Command_Buffer :: struct
 Thread_Local_Context :: struct
 {
     pools: [Queue]vk.CommandPool,
-    buffers: [Queue][dynamic]Command_Buffer,
     free_buffers: [Queue]priority_queue.Priority_Queue(Free_Command_Buffer),
     samplers: [dynamic]Sampler_Info,  // Samplers are interned but have permanent lifetime
 }
@@ -165,15 +164,19 @@ Shader_Info :: struct {
     is_compute: bool,
 }
 
+// NOTE: Command buffers are required by the API
+// to be thread local, they can't be passed to other
+// threads. Just make new ones. Because of this
+// we won't need to synchronize as much.
+// TODO: We should add this check in the validation layer.
 @(private="file")
 Command_Buffer_Info :: struct {
     handle: vk.CommandBuffer,
     timeline_value: u64,
     thread_id: int,
     queue: Queue,
-    compute_shader: Maybe(Shader),
+    compute_shader: Shader,
     recording: bool,
-    pool_handle: Command_Buffer,
 
     wait_sems: [dynamic]Semaphore_Value,
     signal_sems: [dynamic]Semaphore_Value,
@@ -736,12 +739,8 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
 
     // Init cmd_bufs_sem_vals
     {
-        for type in Queue
-        {
-            ctx.cmd_bufs_sem_vals[type] = {
-                sem = semaphore_create(0),
-                val = 0,
-            }
+        for type in Queue {
+            ctx.cmd_bufs_sems[type] = semaphore_create(0)
         }
     }
 
@@ -888,21 +887,8 @@ _cleanup :: proc(loc := #caller_location)
         for tls_context in ctx.tls_contexts {
             if tls_context != nil {
                 for type in Queue {
-                    buffers := make([dynamic]vk.CommandBuffer, len(tls_context.buffers[type]), scratch)
-                    for buf in tls_context.buffers[type] {
-                        cmd_buf_info := pool_get(&ctx.command_buffers, buf)
-                        delete(cmd_buf_info.wait_sems)
-                        delete(cmd_buf_info.signal_sems)
-                        append(&buffers, cmd_buf_info.handle)
-                    }
-
-                    if len(buffers) > 0 {
-                        vk.FreeCommandBuffers(ctx.device, tls_context.pools[type], u32(len(buffers)), raw_data(buffers))
-                    }
-
                     vk.DestroyCommandPool(ctx.device, tls_context.pools[type], nil)
                     priority_queue.destroy(&tls_context.free_buffers[type])
-                    delete(tls_context.buffers[type])
                 }
 
                 for sampler in tls_context.samplers
@@ -931,8 +917,8 @@ _cleanup :: proc(loc := #caller_location)
         vk.DestroyPipelineLayout(ctx.device, ctx.common_pipeline_layout_compute, nil)
     }
 
-    for semaphore in ctx.cmd_bufs_sem_vals {
-        semaphore_destroy(semaphore.sem)
+    for semaphore in ctx.cmd_bufs_sems {
+        semaphore_destroy(semaphore)
     }
 
     vma.destroy_allocator(ctx.vma_allocator)
@@ -1439,7 +1425,8 @@ _texture_destroy :: proc(texture: Texture, loc := #caller_location)
 @(private="file")
 get_or_add_image_view :: proc(texture: Texture_Handle, info: vk.ImageViewCreateInfo) -> vk.ImageView
 {
-    tex_info, r_lock := pool_get_mut(&ctx.textures, texture); sync.guard(r_lock)
+    sync.guard(pool_get_lock(&ctx.textures, texture))
+    tex_info := pool_get_ptr(&ctx.textures, texture)
 
     for view in tex_info.views
     {
@@ -2213,20 +2200,6 @@ _queue_submit :: proc(queue: Queue, cmd_bufs: []Command_Buffer, loc := #caller_l
     }
 
     vk_submit_cmd_bufs(cmd_bufs)
-
-    for cmd_buf in cmd_bufs {
-        clear_cmd_buf(cmd_buf)
-    }
-}
-
-@(private="file")
-clear_cmd_buf :: proc(cmd_buf: Command_Buffer)
-{
-    cmd_buf_info_mut, r_lock := pool_get_mut(&ctx.command_buffers, cmd_buf); sync.guard(r_lock)
-    cmd_buf_info_mut.compute_shader = {}
-    cmd_buf_info_mut.recording = false
-    clear(&cmd_buf_info_mut.wait_sems)
-    clear(&cmd_buf_info_mut.signal_sems)
 }
 
 // Commands
@@ -2412,8 +2385,8 @@ _cmd_add_wait_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_va
         if !ok do return
     }
 
-    cmd_buf_info, r_lock := pool_get_mut(&ctx.command_buffers, cmd_buf); sync.guard(r_lock)
-    append(&cmd_buf_info.wait_sems, Semaphore_Value { sem = sem, val = wait_value })
+    cmd_buf_ptr := pool_get_ptr(&ctx.command_buffers, cmd_buf)
+    append(&cmd_buf_ptr.wait_sems, Semaphore_Value { sem = sem, val = wait_value })
 }
 
 _cmd_add_signal_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, signal_value: u64, loc := #caller_location)
@@ -2427,8 +2400,8 @@ _cmd_add_signal_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, signa
         if !ok do return
     }
 
-    cmd_buf_info, r_lock := pool_get_mut(&ctx.command_buffers, cmd_buf); sync.guard(r_lock)
-    append(&cmd_buf_info.signal_sems, Semaphore_Value { sem = sem, val = signal_value })
+    cmd_buf_ptr := pool_get_ptr(&ctx.command_buffers, cmd_buf)
+    append(&cmd_buf_ptr.signal_sems, Semaphore_Value { sem = sem, val = signal_value })
 }
 
 _cmd_barrier :: proc(cmd_buf: Command_Buffer, before: Stage, after: Stage, hazards: Hazard_Flags = {}, loc := #caller_location)
@@ -2628,15 +2601,15 @@ _cmd_set_compute_shader :: proc(cmd_buf: Command_Buffer, compute_shader: Shader,
     shader_info := pool_get(&ctx.shaders, compute_shader)
     vk_shader_info := shader_info.handle
 
-    cmd_buf_info, r_lock := pool_get_mut(&ctx.command_buffers, cmd_buf); sync.guard(r_lock)
-    vk_cmd_buf := cmd_buf_info.handle
+    cmd_buf_ptr := pool_get_ptr(&ctx.command_buffers, cmd_buf)
+    cmd_buf_ptr.compute_shader = compute_shader
+    vk_cmd_buf := cmd_buf_ptr.handle
 
     shader_stages := []vk.ShaderStageFlags { { .COMPUTE } }
     to_bind := []vk.ShaderEXT { vk_shader_info }
     assert(len(shader_stages) == len(to_bind))
     vk.CmdBindShadersEXT(vk_cmd_buf, u32(len(shader_stages)), raw_data(shader_stages), raw_data(to_bind))
 
-    cmd_buf_info.compute_shader = compute_shader
 }
 
 _cmd_dispatch :: proc(cmd_buf: Command_Buffer, compute_data: gpuptr, num_groups_x: u32, num_groups_y: u32 = 1, num_groups_z: u32 = 1, loc := #caller_location)
@@ -3326,29 +3299,34 @@ vk_acquire_cmd_buf :: proc(queue: Queue) -> Command_Buffer
 {
     tls_ctx := get_tls()
 
-    sync.guard(&ctx.cmd_buf_lock)
+    // Check whether there is a free command buffer available with a timeline value
+    // that is less than or equal to the current semaphore value.
+    queue_elem, ok := priority_queue.pop_safe(&tls_ctx.free_buffers[queue])
+    if ok
+    {
+        cmd_buf_info_ptr := pool_get_ptr(&ctx.command_buffers, queue_elem.handle)
 
-    // Check whether there is a free command buffer available with a timeline value that is less than or equal to the current semaphore value
-    if handle, ok := priority_queue.pop_safe(&tls_ctx.free_buffers[queue]); ok {
-        cmd_buf_info, r_lock := pool_get_mut(&ctx.command_buffers, handle.pool_handle); sync.guard(r_lock)
+        assert(!cmd_buf_info_ptr.recording)
+        assert(cmd_buf_info_ptr.queue == queue)
+        assert(cmd_buf_info_ptr.thread_id == sync.current_thread_id())
 
-        assert(!cmd_buf_info.recording)
-
-        vk_sem := pool_get(&ctx.semaphores, ctx.cmd_bufs_sem_vals[queue].sem)
-
-        current_semaphore_value: u64
-        vk_check(vk.GetSemaphoreCounterValue(ctx.device, vk_sem, &current_semaphore_value))
-
-        if current_semaphore_value >= cmd_buf_info.timeline_value {
-            cmd_buf_info.recording = true
-            cmd_buf_info.queue = queue
-            cmd_buf_info.compute_shader = {}
-            cmd_buf_info.thread_id = sync.current_thread_id()
-            return handle.pool_handle
-        } else {
-            priority_queue.push(&tls_ctx.free_buffers[queue], handle)
+        cur_sem_value := semaphore_get_value(ctx.cmd_bufs_sems[queue])
+        if cur_sem_value >= cmd_buf_info_ptr.timeline_value
+        {
+            cmd_buf_info_ptr.recording = true
+            cmd_buf_info_ptr.queue = queue
+            cmd_buf_info_ptr.compute_shader = {}
+            cmd_buf_info_ptr.thread_id = sync.current_thread_id()
+            return queue_elem.handle
+        }
+        else
+        {
+            priority_queue.push(&tls_ctx.free_buffers[queue], queue_elem)
         }
     }
+
+    // We didn't find a command buffer that is not in a recording
+    // state and that also has finished on the GPU side.
 
     cmd_buf_info := Command_Buffer_Info {
         recording = true,
@@ -3364,16 +3342,9 @@ vk_acquire_cmd_buf :: proc(queue: Queue) -> Command_Buffer
         level = .PRIMARY,
         commandBufferCount = 1,
     }
-
     vk_check(vk.AllocateCommandBuffers(ctx.device, &cmd_buf_ai, &cmd_buf_info.handle))
 
     cmd_buf := pool_add(&ctx.command_buffers, cmd_buf_info, {})
-    if cmd_buf_info_mut, r_lock := pool_get_mut(&ctx.command_buffers, cmd_buf); sync.guard(r_lock)
-    {
-        cmd_buf_info_mut.pool_handle = cmd_buf
-        append(&tls_ctx.buffers[queue], cmd_buf_info_mut.pool_handle)
-    }
-
     return cmd_buf
 }
 
@@ -3382,95 +3353,104 @@ vk_submit_cmd_bufs :: proc(cmd_bufs: []Command_Buffer)
 {
     if len(cmd_bufs) <= 0 do return
 
-    for cmd_buf in cmd_bufs
+    tls_ctx := get_tls()
+
+    // NOTE: In Vulkan, submissions have to be ordered w.r.t. the semaphore
+    // values, which means that if cmd_buf A signals semaphore S with value 3,
+    // and cmd_buf B signals semaphore S with value 4, A must be submitted before B.
+    // So we need to lock the whole critical section from the generation of a new
+    // counter all the way up until the command buffers are submitted.
+    if sync.guard(&ctx.queue_lock)
     {
-        cmd_buf_info_mut, _ := pool_get_mut(&ctx.command_buffers, cmd_buf)
-        intr.volatile_store(&cmd_buf_info_mut.timeline_value, sync.atomic_add(&ctx.cmd_bufs_sem_vals[cmd_buf_info_mut.queue].val, 1) + 1)
-    }
-
-    scratch, _ := acquire_scratch()
-    submit_infos := make([dynamic]vk.SubmitInfo, allocator = scratch)
-    queue: Queue
-    for cmd_buf in cmd_bufs
-    {
-        cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
-        cmd_buf_lock := pool_get_lock(&ctx.command_buffers, cmd_buf)
-        sync.guard(cmd_buf_lock)
-
-        queue = cmd_buf_info.queue
-        queue_sem := ctx.cmd_bufs_sem_vals[queue].sem
-        vk_queue_sem := pool_get(&ctx.semaphores, queue_sem)
-        assert(cmd_buf_info.recording)
-        assert(cmd_buf_info.thread_id == sync.current_thread_id())
-
-        wait_count := len(cmd_buf_info.wait_sems)
-        signal_count := len(cmd_buf_info.signal_sems) + 1
-        wait_sems := make([]vk.Semaphore, wait_count, allocator = scratch)
-        wait_values := make([]u64, wait_count, allocator = scratch)
-        wait_stages := make([]vk.PipelineStageFlags, wait_count, allocator = scratch)
-        signal_sems := make([]vk.Semaphore, signal_count, allocator = scratch)
-        signal_values := make([]u64, signal_count, allocator = scratch)
-        for wait_sem, i in cmd_buf_info.wait_sems
+        for cmd_buf in cmd_bufs
         {
-            wait_sems[i] = pool_get(&ctx.semaphores, wait_sem.sem)
-            wait_stages[i] = { .ALL_COMMANDS }
-            wait_values[i] = wait_sem.val
+            cmd_buf_info_ptr := pool_get_ptr(&ctx.command_buffers, cmd_buf)
+            next := ctx.cmd_bufs_counters[cmd_buf_info_ptr.queue] + 1
+            ctx.cmd_bufs_counters[cmd_buf_info_ptr.queue] = next
+            cmd_buf_info_ptr.timeline_value = next
         }
-        for signal_sem, i in cmd_buf_info.signal_sems
+
+        scratch, _ := acquire_scratch()
+        submit_infos := make([dynamic]vk.SubmitInfo, allocator = scratch)
+        queue: Queue
+        for cmd_buf in cmd_bufs
         {
-            signal_sems[i] = pool_get(&ctx.semaphores, signal_sem.sem)
-            signal_values[i] = signal_sem.val
+            cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
+
+            queue = cmd_buf_info.queue
+            queue_sem := ctx.cmd_bufs_sems[queue]
+            vk_queue_sem := pool_get(&ctx.semaphores, queue_sem)
+            assert(cmd_buf_info.recording)
+            assert(cmd_buf_info.thread_id == sync.current_thread_id())
+
+            wait_count := len(cmd_buf_info.wait_sems)
+            signal_count := len(cmd_buf_info.signal_sems) + 1
+
+            wait_sems     := make([]vk.Semaphore,          wait_count,   allocator = scratch)
+            wait_values   := make([]u64,                   wait_count,   allocator = scratch)
+            wait_stages   := make([]vk.PipelineStageFlags, wait_count,   allocator = scratch)
+            signal_sems   := make([]vk.Semaphore,          signal_count, allocator = scratch)
+            signal_values := make([]u64,                   signal_count, allocator = scratch)
+
+            for wait_sem, i in cmd_buf_info.wait_sems
+            {
+                wait_sems[i] = pool_get(&ctx.semaphores, wait_sem.sem)
+                wait_stages[i] = { .ALL_COMMANDS }
+                wait_values[i] = wait_sem.val
+            }
+            for signal_sem, i in cmd_buf_info.signal_sems
+            {
+                signal_sems[i] = pool_get(&ctx.semaphores, signal_sem.sem)
+                signal_values[i] = signal_sem.val
+            }
+
+            signal_sems[signal_count - 1] = vk_queue_sem
+            signal_values[signal_count - 1] = cmd_buf_info.timeline_value
+
+            to_submit := make([]vk.CommandBuffer, 1, allocator = scratch)
+            to_submit[0] = cmd_buf_info.handle
+
+            next := new(vk.TimelineSemaphoreSubmitInfo, allocator = scratch)
+            next^ = {
+                sType = .TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                waitSemaphoreValueCount = u32(len(wait_values)),
+                pWaitSemaphoreValues = raw_data(wait_values),
+                signalSemaphoreValueCount = u32(len(signal_values)),
+                pSignalSemaphoreValues = raw_data(signal_values),
+            }
+            submit_info := vk.SubmitInfo {
+                sType = .SUBMIT_INFO,
+                pNext = next,
+                commandBufferCount = u32(len(to_submit)),
+                pCommandBuffers = raw_data(to_submit),
+                waitSemaphoreCount = u32(len(wait_sems)),
+                pWaitSemaphores = raw_data(wait_sems),
+                pWaitDstStageMask = raw_data(wait_stages),
+                signalSemaphoreCount = u32(len(signal_sems)),
+                pSignalSemaphores = raw_data(signal_sems),
+            }
+            append(&submit_infos, submit_info)
         }
 
-        signal_sems[signal_count - 1] = vk_queue_sem
-        signal_values[signal_count - 1] = cmd_buf_info.timeline_value
-
-        to_submit := make([]vk.CommandBuffer, 1, allocator = scratch)
-        to_submit[0] = cmd_buf_info.handle
-
-        next := new(vk.TimelineSemaphoreSubmitInfo, allocator = scratch)
-        next^ = {
-            sType = .TIMELINE_SEMAPHORE_SUBMIT_INFO,
-            waitSemaphoreValueCount = u32(len(wait_values)),
-            pWaitSemaphoreValues = raw_data(wait_values),
-            signalSemaphoreValueCount = u32(len(signal_values)),
-            pSignalSemaphoreValues = raw_data(signal_values),
-        }
-        submit_info := vk.SubmitInfo {
-            sType = .SUBMIT_INFO,
-            pNext = next,
-            commandBufferCount = u32(len(to_submit)),
-            pCommandBuffers = raw_data(to_submit),
-            waitSemaphoreCount = u32(len(wait_sems)),
-            pWaitSemaphores = raw_data(wait_sems),
-            pWaitDstStageMask = raw_data(wait_stages),
-            signalSemaphoreCount = u32(len(signal_sems)),
-            pSignalSemaphores = raw_data(signal_sems),
-        }
-        append(&submit_infos, submit_info)
-    }
-
-    queue_info := ctx.queues[queue]
-    vk_queue := queue_info.handle
-    if sync.guard(&ctx.queue_lock) {
+        queue_info := ctx.queues[queue]
+        vk_queue := queue_info.handle
         vk_check(vk.QueueSubmit(vk_queue, u32(len(submit_infos)), raw_data(submit_infos), {}))
     }
 
-    for cmd_buf in cmd_bufs {
-        recycle_cmd_buf(cmd_buf)
-    }
-}
+    // Recycle the command buffers
+    for cmd_buf in cmd_bufs
+    {
+        cmd_buf_info_ptr := pool_get_ptr(&ctx.command_buffers, cmd_buf)
+        cmd_buf_info_ptr.compute_shader = {}
+        cmd_buf_info_ptr.recording = false
+        clear(&cmd_buf_info_ptr.wait_sems)
+        clear(&cmd_buf_info_ptr.signal_sems)
 
-@(private="file")
-recycle_cmd_buf :: proc(cmd_buf: Command_Buffer)
-{
-    tls_ctx := get_tls()
-
-    clear_cmd_buf(cmd_buf)
-
-    if sync.guard(pool_get_lock(&ctx.command_buffers, cmd_buf)) {
-        cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
-        priority_queue.push(&tls_ctx.free_buffers[cmd_buf_info.queue], Free_Command_Buffer { pool_handle = cmd_buf_info.pool_handle, timeline_value = cmd_buf_info.timeline_value })
+        to_push := Free_Command_Buffer {
+            handle = cmd_buf,
+            timeline_value = cmd_buf_info_ptr.timeline_value
+        }
+        priority_queue.push(&tls_ctx.free_buffers[cmd_buf_info_ptr.queue], to_push)
     }
 }
 
