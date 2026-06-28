@@ -250,7 +250,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         unsupported_extensions := make([dynamic]cstring, allocator = scratch)
 
         optional_extensions := make([dynamic]cstring, allocator = scratch)
-        append(&optional_extensions, vk.KHR_SURFACE_EXTENSION_NAME)
+        append(&optional_extensions, vk.KHR_SURFACE_EXTENSION_NAME)  // Optional for headless setups.
         append(&optional_extensions, "VK_KHR_win32_surface")
         append(&optional_extensions, "VK_KHR_wayland_surface")
         append(&optional_extensions, "VK_KHR_xlib_surface")
@@ -337,7 +337,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
                 case .DISCRETE_GPU:   score += 1000
                 case .VIRTUAL_GPU:    score += 100
                 case .INTEGRATED_GPU: score += 10
-                case .CPU:            score += 1
+                case .CPU:            score += 1  // Needed for testing environments.
                 case: {}
             }
 
