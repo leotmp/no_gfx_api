@@ -29,7 +29,10 @@ main :: proc()
 
     fmt.println("Right-click + WASD for first-person controls.")
 
-    shared.sdl_init(works_with_moltenvk=false)
+    shared.sdl_init(
+        moltenvk_working_status = .Does_Not_Work, 
+        kosmickrisp_working_status = .Does_Not_Work
+    )
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)

@@ -28,7 +28,14 @@ Like this:
 > source ~/VulkanSDK/1.x.xxx.x/setup-env.sh
 `
 
-sdl_init :: proc(works_with_moltenvk := true)
+Working_Status :: enum
+{
+    Works,
+    Partially_Works,
+    Does_Not_Work,
+}
+
+sdl_init :: proc(moltenvk_working_status := Working_Status.Works, kosmickrisp_working_status := Working_Status.Works)
 {
     ok_i := sdl.Init({.VIDEO})
 	assert(ok_i)
@@ -44,8 +51,21 @@ sdl_init :: proc(works_with_moltenvk := true)
 
         using_moltenvk := !(strings.contains(driver_used, "libkosmickrisp"))
 
-        if using_moltenvk {
-            ensure(works_with_moltenvk, "This example unfortunately does not work on MoltenVK!")
+        if using_moltenvk 
+        {
+            ensure(moltenvk_working_status != .Does_Not_Work, "This example unfortunately does not work on MoltenVK!")
+            if moltenvk_working_status == .Partially_Works 
+            {
+                fmt.printfln("[WARNING] - For this example, MoltenVK only partially works.")
+            }
+        }
+        else
+        {
+            ensure(kosmickrisp_working_status != .Does_Not_Work, "This example unfortunately does not work on KosmicKrisp!")
+            if kosmickrisp_working_status == .Partially_Works 
+            {
+                fmt.printfln("[WARNING] - For this example, KosmicKrisp only partially works.")
+            }
         }
         
         if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))

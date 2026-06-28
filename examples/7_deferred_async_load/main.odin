@@ -79,7 +79,7 @@ main :: proc() {
     shared.CAM_POS = {-7.581631, 1.1906259, 0.25928685}
 	shared.CAM_ANGLE = {1.570796, 0.3665192}
 
-	shared.sdl_init(works_with_moltenvk=false)
+	shared.sdl_init(moltenvk_working_status = .Does_Not_Work)
 
 	console_logger := log.create_console_logger()
 	defer log.destroy_console_logger(console_logger)

@@ -21,7 +21,7 @@ Use_Indirect_Multi :: true
 
 main :: proc()
 {
-    shared.sdl_init()
+    shared.sdl_init(moltenvk_working_status = .Partially_Works)
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)
