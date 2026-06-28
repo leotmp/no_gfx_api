@@ -7,7 +7,6 @@
 
 package main
 
-import "core:time"
 import "../../gpu"
 import intr "base:intrinsics"
 import "base:runtime"
@@ -76,26 +75,11 @@ image_uploaded: map[int]^sync.One_Shot_Event
 upload_sem: gpu.Semaphore
 upload_sem_val: u64
 
-
-// NOTE:
-// To ensure memory used for staging buffers during 'upload_texture' and 'upload_bc3_texture'
-// remains valid until all related GPU work is done, we use a "stack" to hold onto a list
-// of arenas that are prime for deletion.
-// 
-// The arenas in this "stack" get deleted at the next available frame. Delaying deletion
-// until previous GPU work for presenting to the semaphore is done.
-// 
-// By doing this, we give the GPU just enough time to finish the transfer queue work 
-// and it prevents us from crashing due to invalid memory access on stricter drivers 
-// (i.e., MoltenVK on macOS).
-deletion_mutex: sync.Mutex
-arena_deletion_stack: [dynamic]gpu.Arena
-
 main :: proc() {
     shared.CAM_POS = {-7.581631, 1.1906259, 0.25928685}
 	shared.CAM_ANGLE = {1.570796, 0.3665192}
 
-	shared.sdl_init()
+	shared.sdl_init(works_with_moltenvk=false)
 
 	console_logger := log.create_console_logger()
 	defer log.destroy_console_logger(console_logger)
@@ -309,14 +293,6 @@ main :: proc() {
 
 		if next_frame > Frames_In_Flight {
 			gpu.semaphore_wait(frame_sem, next_frame - Frames_In_Flight)
-			if sync.guard(&deletion_mutex)
-			{
-			    for &arena in arena_deletion_stack
-				{
-				    gpu.arena_destroy(&arena)
-				}
-				clear(&arena_deletion_stack)
-			}
 		}
 		if old_window_size_x != window_size_x || old_window_size_y != window_size_y {
 			gpu.queue_wait_idle(.Main)
@@ -683,7 +659,7 @@ load_scene_textures_from_gltf :: proc(
 	desc_pool: ^gpu.Descriptor_Pool
 ) {
 	upload_arena := gpu.arena_init()
-	// defer gpu.arena_destroy(&upload_arena)
+	defer gpu.arena_destroy(&upload_arena)
 
 	for info, i in texture_infos {
 		if cancel_loading_textures {
@@ -769,11 +745,6 @@ load_scene_textures_from_gltf :: proc(
 		case .Normal:
 			scene.meshes[info.mesh_id].normal_map = texture.texture_idx
 		}
-	}
-
-	if sync.guard(&deletion_mutex)
-	{
-	    append(&arena_deletion_stack, upload_arena)
 	}
 }
 

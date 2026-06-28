@@ -28,13 +28,26 @@ Like this:
 > source ~/VulkanSDK/1.x.xxx.x/setup-env.sh
 `
 
-sdl_init :: proc()
+sdl_init :: proc(works_with_moltenvk := true)
 {
     ok_i := sdl.Init({.VIDEO})
 	assert(ok_i)
         
     when ODIN_OS == .Darwin
     {
+        // NOTE:
+        // We make the assumption that if `VK_DRIVER_FILES` does *not* contain `libkosmickrisp`,
+        // it is running MoltenVK. This is because, for now, MoltenVK is the default on macOS. 
+        // Until that changes, we will continue to make this assumption in the example setup
+        // code.
+        driver_used := os.get_env_alloc("VK_DRIVER_FILES", context.temp_allocator)
+
+        using_moltenvk := !(strings.contains(driver_used, "libkosmickrisp"))
+
+        if using_moltenvk {
+            ensure(works_with_moltenvk, "This example unfortunately does not work on MoltenVK!")
+        }
+        
         if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
         {
             panic(MACOS_SDL_INIT_VULKAN_ERR_MSG)
