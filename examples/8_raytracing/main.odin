@@ -30,7 +30,7 @@ main :: proc()
     fmt.println("Right-click + WASD for first-person controls.")
 
     shared.sdl_init(
-        moltenvk_working_status = .Does_Not_Work, 
+        moltenvk_working_status = .Does_Not_Work,
         kosmickrisp_working_status = .Does_Not_Work
     )
 
@@ -74,9 +74,9 @@ main :: proc()
         gpu.shader_destroy(pathtrace_shader)
     }
 
-    upload_arena := gpu.arena_init()
+    upload_arena := gpu.arena_create()
     defer gpu.arena_destroy(&upload_arena)
-    bvh_scratch_arena := gpu.arena_init(mem_type = .GPU)
+    bvh_scratch_arena := gpu.arena_create(mem_type = .GPU)
     defer gpu.arena_destroy(&bvh_scratch_arena)
 
     gltf_scene, _, gltf_data := shared.load_scene_gltf(Sponza_Scene, 0)
@@ -108,7 +108,7 @@ main :: proc()
 
     Vertex :: struct { pos: [3]f32, uv: [2]f32 }
 
-    arena := gpu.arena_init()
+    arena := gpu.arena_create()
     defer gpu.arena_destroy(&arena)
 
     // Create fullscreen quad
@@ -163,7 +163,7 @@ main :: proc()
     max_accums := u32(1000)
 
     frame_arenas: [Frames_In_Flight]gpu.Arena
-    for &frame_arena in frame_arenas do frame_arena = gpu.arena_init()
+    for &frame_arena in frame_arenas do frame_arena = gpu.arena_create()
     defer for &frame_arena in frame_arenas do gpu.arena_destroy(&frame_arena)
     next_frame := u64(1)
     frame_sem := gpu.semaphore_create(0)

@@ -91,7 +91,7 @@ main :: proc()
 
     Vertex :: struct { pos: [3]f32, uv: [2]f32 }
 
-    arena := gpu.arena_init()
+    arena := gpu.arena_create()
     defer gpu.arena_destroy(&arena)
 
     // Create fullscreen quad
@@ -130,7 +130,7 @@ main :: proc()
     total_time: f32 = 0.0
 
     frame_arenas: [Frames_In_Flight]gpu.Arena
-    for &frame_arena in frame_arenas do frame_arena = gpu.arena_init()
+    for &frame_arena in frame_arenas do frame_arena = gpu.arena_create()
     defer for &frame_arena in frame_arenas do gpu.arena_destroy(&frame_arena)
     next_frame := u64(1)
     frame_sem := gpu.semaphore_create(0)

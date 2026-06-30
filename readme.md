@@ -28,7 +28,7 @@ defer {
 }
 
 // --- Create arenas and allocate memory
-arena := gpu.arena_init()
+arena := gpu.arena_create()
 defer gpu.arena_destroy(&arena)
 
 verts := gpu.arena_alloc(&arena, Vertex, 3)
@@ -53,7 +53,7 @@ gpu.queue_submit(.Main, { upload_cmd_buf })
 
 // --- Frame resources
 frame_arenas: [Frames_In_Flight]gpu.Arena
-for &frame_arena in frame_arenas do frame_arena = gpu.arena_init()
+for &frame_arena in frame_arenas do frame_arena = gpu.arena_create()
 defer {
     for &frame_arena in frame_arenas do gpu.arena_destroy(&frame_arena)
 }

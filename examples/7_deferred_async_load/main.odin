@@ -126,7 +126,7 @@ main :: proc() {
 		gpu.shader_destroy(frag_shader_final)
 	}
 
-	upload_arena := gpu.arena_init()
+	upload_arena := gpu.arena_create()
 	defer gpu.arena_destroy(&upload_arena)
 
 	upload_sem = gpu.semaphore_create()
@@ -264,7 +264,7 @@ main :: proc() {
 	now_ts := sdl.GetPerformanceCounter()
 
 	frame_arenas: [Frames_In_Flight]gpu.Arena
-	for &frame_arena in frame_arenas do frame_arena = gpu.arena_init()
+	for &frame_arena in frame_arenas do frame_arena = gpu.arena_create()
 	defer for &frame_arena in frame_arenas do gpu.arena_destroy(&frame_arena)
 	next_frame := u64(1)
 	frame_sem := gpu.semaphore_create(0)
@@ -658,7 +658,7 @@ load_scene_textures_from_gltf :: proc(
 	scene: ^shared.Scene,
 	desc_pool: ^gpu.Descriptor_Pool
 ) {
-	upload_arena := gpu.arena_init()
+	upload_arena := gpu.arena_create()
 	defer gpu.arena_destroy(&upload_arena)
 
 	for info, i in texture_infos {

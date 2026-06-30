@@ -562,7 +562,7 @@ Arena_Block :: struct
     size: i64,
 }
 
-arena_init :: proc(#any_int block_size: i64 = 4*1024*1024, mem_type := Memory.Default) -> Arena
+arena_create :: proc(#any_int block_size: i64 = 4*1024*1024, mem_type := Memory.Default) -> Arena
 {
     assert(block_size > 0, "block_size must be positive")
 
@@ -579,7 +579,7 @@ arena_init :: proc(#any_int block_size: i64 = 4*1024*1024, mem_type := Memory.De
 
 arena_alloc_raw :: proc(arena: ^Arena, #any_int el_size: i64, #any_int el_count: i64, #any_int align: i32 = 16) -> ptr
 {
-    assert(arena.block_size > 0, "Arena is not initialized! Did you call arena_init()?")
+    assert(arena.block_size > 0, "Arena is not initialized! Did you call arena_create()?")
 
     bytes := el_size * el_count
     assert(bytes >= 0 && align > 0)
