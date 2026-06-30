@@ -108,7 +108,7 @@ There are many examples you can find in the `examples` directory.
 
 Like most things in life, this is not without its tradeoffs:
 
-1. It assumes relatively recent hardware. It requires Vulkan 1.3 with the following extensions: VK_EXT_shader_object, VK_EXT_descriptor_buffer, VK_KHR_draw_indirect_count. It can use more extensions for optional features such as raytracing.
+1. It assumes relatively recent hardware. It requires Vulkan 1.3 with the VK_EXT_shader_object extension. It can use more extensions for optional features such as raytracing.
 2. Shader arguments are all passed via a single pointer. This is very flexible and easy to work with, but it can also prevent some prefetching/optimizations that drivers usually implement with standard bindings and vertex buffers. This will probably make shaders in general slightly slower. How much impact this will have, I can't say for sure right now. On the other hand, working with a nicer and better API can make optimization easier and quicker.
 3. It currently only targets Vulkan, so it's not fully cross-platform. Mac support is best-effort, through MoltenVK/KosmicKrisp only. Developing on Mac is probably doable, but if shipping to Mac is desired I'd consider the option of writing a separate Metal backend for your application.
 
