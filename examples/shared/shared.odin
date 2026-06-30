@@ -22,7 +22,7 @@ MACOS_SDL_INIT_VULKAN_ERR_MSG :: `
 Failed to load the vulkan library on macOS!
 
 NOTE:
-If you are having trouble running this on macOS, you might not have the 'VULKAN_SDK' environment variable populated. Make sure to "source" the "setup-env.sh" script present within the 'VulkanSDK' folder before running the app. 
+If you are having trouble running this on macOS, you might not have the 'VULKAN_SDK' environment variable populated. Make sure to "source" the "setup-env.sh" script present within the 'VulkanSDK' folder before running the app.
 
 Like this:
 > source ~/VulkanSDK/1.x.xxx.x/setup-env.sh
@@ -39,22 +39,22 @@ sdl_init :: proc(moltenvk_working_status := Working_Status.Works, kosmickrisp_wo
 {
     ok_i := sdl.Init({.VIDEO})
 	assert(ok_i)
-        
+
     when ODIN_OS == .Darwin
     {
         // NOTE:
         // We make the assumption that if `VK_DRIVER_FILES` does *not* contain `libkosmickrisp`,
-        // it is running MoltenVK. This is because, for now, MoltenVK is the default on macOS. 
+        // it is running MoltenVK. This is because, for now, MoltenVK is the default on macOS.
         // Until that changes, we will continue to make this assumption in the example setup
         // code.
         driver_used := os.get_env_alloc("VK_DRIVER_FILES", context.temp_allocator)
 
         using_moltenvk := !(strings.contains(driver_used, "libkosmickrisp"))
 
-        if using_moltenvk 
+        if using_moltenvk
         {
             ensure(moltenvk_working_status != .Does_Not_Work, "This example unfortunately does not work on MoltenVK!")
-            if moltenvk_working_status == .Partially_Works 
+            if moltenvk_working_status == .Partially_Works
             {
                 fmt.printfln("[WARNING] - For this example, MoltenVK only partially works.")
             }
@@ -62,13 +62,13 @@ sdl_init :: proc(moltenvk_working_status := Working_Status.Works, kosmickrisp_wo
         else
         {
             ensure(kosmickrisp_working_status != .Does_Not_Work, "This example unfortunately does not work on KosmicKrisp!")
-            if kosmickrisp_working_status == .Partially_Works 
+            if kosmickrisp_working_status == .Partially_Works
             {
                 fmt.printfln("[WARNING] - For this example, KosmicKrisp only partially works.")
             }
         }
-        
-        if (!sdl.Vulkan_LoadLibrary("libvulkan.1.dylib"))
+
+        if !sdl.Vulkan_LoadLibrary("libvulkan.1.dylib")
         {
             panic(MACOS_SDL_INIT_VULKAN_ERR_MSG)
         }
