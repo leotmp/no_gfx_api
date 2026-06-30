@@ -11,6 +11,8 @@ import "core:math"
 
 import "../../gpu"
 
+import shared "../shared"
+
 import sdl "vendor:sdl3"
 
 Start_Window_Size_X :: 1000
@@ -23,9 +25,8 @@ Bowser_Texture :: #load("textures/bowser.png")
 
 main :: proc()
 {
-    ok_i := sdl.Init({ .VIDEO })
-    assert(ok_i)
-
+    shared.sdl_init()
+    
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)
     context.logger = console_logger

@@ -29,8 +29,10 @@ main :: proc()
 
     fmt.println("Right-click + WASD for first-person controls.")
 
-    ok_i := sdl.Init({ .VIDEO })
-    assert(ok_i)
+    shared.sdl_init(
+        moltenvk_working_status = .Does_Not_Work, 
+        kosmickrisp_working_status = .Does_Not_Work
+    )
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)

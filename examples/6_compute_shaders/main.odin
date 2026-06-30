@@ -5,6 +5,7 @@ import log "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:fmt"
+import "../shared"
 
 import "../../gpu"
 
@@ -22,8 +23,7 @@ main :: proc()
 {
     fmt.println("CREDITS: Shader \"Clearly a bug\" by Glow on https://www.shadertoy.com/view/33cGDj")
 
-    ok_i := sdl.Init({ .VIDEO })
-    assert(ok_i)
+    shared.sdl_init()
 
     console_logger := log.create_console_logger()
     defer log.destroy_console_logger(console_logger)
@@ -40,8 +40,10 @@ main :: proc()
     window := sdl.CreateWindow(Example_Name, Start_Window_Size_X, Start_Window_Size_Y, window_flags)
     ensure(window != nil)
 
-    window_size_x := i32(Start_Window_Size_X)
-    window_size_y := i32(Start_Window_Size_Y)
+    display_scale: f32 = sdl.GetWindowDisplayScale(window)
+
+    window_size_x := i32(Start_Window_Size_X * display_scale)
+    window_size_y := i32(Start_Window_Size_Y * display_scale)
 
     ok := gpu.init()
     ensure(ok)
@@ -140,7 +142,7 @@ main :: proc()
 
         old_window_size_x := window_size_x
         old_window_size_y := window_size_y
-        sdl.GetWindowSize(window, &window_size_x, &window_size_y)
+        sdl.GetWindowSizeInPixels(window, &window_size_x, &window_size_y)
         if .MINIMIZED in sdl.GetWindowFlags(window) || window_size_x <= 0 || window_size_y <= 0
         {
             sdl.Delay(16)

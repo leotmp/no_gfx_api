@@ -79,8 +79,7 @@ main :: proc() {
     shared.CAM_POS = {-7.581631, 1.1906259, 0.25928685}
 	shared.CAM_ANGLE = {1.570796, 0.3665192}
 
-	ok_i := sdl.Init({.VIDEO})
-	assert(ok_i)
+	shared.sdl_init(moltenvk_working_status = .Does_Not_Work)
 
 	console_logger := log.create_console_logger()
 	defer log.destroy_console_logger(console_logger)
@@ -102,8 +101,10 @@ main :: proc() {
 	)
 	ensure(window != nil)
 
-	window_size_x := i32(Start_Window_Size_X)
-	window_size_y := i32(Start_Window_Size_Y)
+	display_scale: f32 = sdl.GetWindowDisplayScale(window)
+
+	window_size_x := i32(Start_Window_Size_X * display_scale)
+	window_size_y := i32(Start_Window_Size_Y * display_scale)
 
 	ok := gpu.init()
 	ensure(ok)
@@ -284,7 +285,7 @@ main :: proc() {
 
 		old_window_size_x := window_size_x
 		old_window_size_y := window_size_y
-		sdl.GetWindowSize(window, &window_size_x, &window_size_y)
+		sdl.GetWindowSizeInPixels(window, &window_size_x, &window_size_y)
 		if .MINIMIZED in sdl.GetWindowFlags(window) || window_size_x <= 0 || window_size_y <= 0 {
 			sdl.Delay(16)
 			continue
@@ -655,7 +656,7 @@ load_scene_textures_from_gltf :: proc(
 	texture_infos: []shared.Gltf_Texture_Info,
 	data: ^gltf2.Data,
 	scene: ^shared.Scene,
-	desc_pool: ^gpu.Descriptor_Pool,
+	desc_pool: ^gpu.Descriptor_Pool
 ) {
 	upload_arena := gpu.arena_init()
 	defer gpu.arena_destroy(&upload_arena)
