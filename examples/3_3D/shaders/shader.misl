@@ -1,0 +1,39 @@
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat4 :: matrix[4, 4]f32
+
+Data :: struct {
+	positions:             [^]vec4,
+	normals:               [^]vec4,
+	model_to_world:        mat4,
+	model_to_world_normal: mat4,
+	world_to_view:         mat4,
+	view_to_proj:          mat4,
+}
+
+VS_Out :: struct {
+	pos:          vec4 | SV_Position,
+	world_normal: vec4,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+	data: ^Data | SV_Data,
+) -> (out: VS_Out) {
+	clip_pos := vec4(data.positions[vid].xyz, 1)
+	clip_pos = data.model_to_world * clip_pos
+	clip_pos = data.world_to_view * clip_pos
+	clip_pos = data.view_to_proj * clip_pos
+	clip_pos.y = 0 - clip_pos.y
+
+	out.pos = clip_pos
+	out.world_normal = data.model_to_world_normal * data.normals[vid]
+	return out
+}
+
+fs :: proc "fragment"(input: VS_Out) -> (out: vec4 | SV_Target) {
+	n := normalize(input.world_normal.xyz)
+	out = vec4(n * 0.5 + 0.5, 1)
+	return out
+}

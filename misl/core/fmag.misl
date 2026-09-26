@@ -1,0 +1,721 @@
+/*
+	FMAG bytecode interpreter (Dale Weiler / JangaFX encoding).
+
+	Each packet is [4]u32: words [b, c, guard, dst | a<<16].
+	A qNaN payload (exponent all-ones, nonzero mantissa) is a register index.
+	REGS is 16 — do not raise it; shrink the proc "fmag" kernel instead.
+*/
+
+// Interpreter register file size. Do not raise; shrink the proc "fmag" kernel instead.
+REGS :: 16
+REG_MASK :: 15
+
+// fmag variants of misl builtins
+// warning: not all misl builtins are supported by fmag kernels
+when MISL_MODE == .FMAG {
+	@builtin frexp :: proc { frexp_f32, frexp_f32x2 }
+	@builtin round_even :: proc { round_even_f32, round_even_f32x2, round_even_f32x3, round_even_f32x4 }
+	@builtin round :: proc { round_f32, round_f32x2, round_f32x3, round_f32x4 }
+	@builtin floor :: proc { floor_f32, floor_f32x2, floor_f32x3, floor_f32x4 }
+	@builtin ceil :: proc { ceil_f32, ceil_f32x2, ceil_f32x3, ceil_f32x4 }
+	@builtin trunc :: proc { trunc_f32, trunc_f32x2, trunc_f32x3, trunc_f32x4 }
+	@builtin fract :: proc { fract_f32, fract_f32x2, fract_f32x3, fract_f32x4 }
+	@builtin sign :: proc { sign_f32, sign_f32x2, sign_f32x3, sign_f32x4 }
+	@builtin radians :: proc { radians_f32, radians_f32x2, radians_f32x3, radians_f32x4 }
+	@builtin degrees :: proc { degrees_f32, degrees_f32x2, degrees_f32x3, degrees_f32x4 }
+	@builtin step :: proc { step_f32, step_f32x2, step_f32x3, step_f32x4 }
+	@builtin smoothstep :: proc { smoothstep_f32, smoothstep_f32x2, smoothstep_f32x3, smoothstep_f32x4 }
+	@builtin sin :: proc { sin_f32, sin_f32x2, sin_f32x3, sin_f32x4 }
+	@builtin cos :: proc { cos_f32, cos_f32x2, cos_f32x3, cos_f32x4 }
+	@builtin tan :: proc { tan_f32, tan_f32x2, tan_f32x3, tan_f32x4 }
+	@builtin isqrt :: proc { isqrt_f32, isqrt_f32x2, isqrt_f32x3, isqrt_f32x4 }
+	@builtin sqrt :: proc { sqrt_f32, sqrt_f32x2, sqrt_f32x3, sqrt_f32x4 }
+	@builtin asin :: proc { asin_f32, asin_f32x2, asin_f32x3, asin_f32x4 }
+	@builtin acos :: proc { acos_f32, acos_f32x2, acos_f32x3, acos_f32x4 }
+	@builtin atan :: proc { atan_f32, atan_f32x2, atan_f32x3, atan_f32x4 }
+	@builtin atan2 :: proc { atan2_f32, atan2_f32x2, atan2_f32x3, atan2_f32x4 }
+	@builtin exp2 :: proc { exp2_f32, exp2_f32x2, exp2_f32x3, exp2_f32x4 }
+	@builtin log2 :: proc { log2_f32, log2_f32x2, log2_f32x3, log2_f32x4 }
+	@builtin exp :: proc { exp_f32, exp_f32x2, exp_f32x3, exp_f32x4 }
+	@builtin log :: proc { log_f32, log_f32x2, log_f32x3, log_f32x4 }
+	@builtin pow :: proc { pow_f32, pow_f32x2, pow_f32x3, pow_f32x4 }
+	@builtin mag :: proc { mag_f32x2, mag_f32x3, mag_f32x4 }
+}
+	
+
+// qNaN payload (exponent all-ones, nonzero mantissa) is a register index; otherwise an IEEE-754 immediate.
+load_op :: proc(r: [REGS]f32, word: u32) -> f32 {
+	f := f32_from_u32_bits(word)
+	is_reg := (word & 0x7F800000) == 0x7F800000 && (word & 0x007FFFFF) != 0
+	idx := word & u32(REG_MASK)
+	return is_reg ? r[idx] : f
+}
+
+// One packet: r[d] = e > 0 ? fma(r[a], b, c) : r[d]. Words are [b, c, guard, dst|a<<16].
+step_packet :: proc(#ref r: [REGS]f32, inst: [4]u32) {
+	d := inst[3] & u32(REG_MASK)
+	a := (inst[3] >> 16) & u32(REG_MASK)
+	b := load_op(r, inst[0])
+	c := load_op(r, inst[1])
+	e := load_op(r, inst[2])
+	prev := r[d]
+	r[d] = e > 0 ? fma(r[a], b, c) : prev
+}
+
+// can return arbitrary amount of f32 values (within register limit). Due to this feature, the results cannot be type inferred
+// a, b := fmag.exec(...) is not allowed, but a, b = fmag.exec(....), with a/b defined prior, is fine
+// proc(code: [][4]u32, args: ..f32) -> ..f32
+exec :: #intrinsic("fmag.exec")
+
+// Run `code` in order, mutating `r`. Host: `compile_fmag_entry`; `header.regs` must be ≤ REGS.
+run :: proc(code: [][4]u32, #ref r: [REGS]f32) {
+	n := i32(len(code))
+	for i := 0; i < n; i += 1 {
+		step_packet(&r, code[i])
+	}
+}
+
+// FMAG math from research/fmag/tools/std/std.fsl. Helpers are file-scope; @builtin groups harvest when MISL_MODE is .FMAG.
+
+__exp2i :: proc(n: f32) -> f32 {
+	p := 1.0
+	e := n
+	if e >= 64.0 {
+		p = p * 0h5F800000
+		e = e - 64.0
+	}
+	if e >= 32.0 {
+		p = p * 4294967296.0
+		e = e - 32.0
+	}
+	if e >= 16.0 {
+		p = p * 65536.0
+		e = e - 16.0
+	}
+	if e >= 8.0 {
+		p = p * 256.0
+		e = e - 8.0
+	}
+	if e >= 4.0 {
+		p = p * 16.0
+		e = e - 4.0
+	}
+	if e >= 2.0 {
+		p = p * 4.0
+		e = e - 2.0
+	}
+	if e >= 1.0 {
+		p = p * 2.0
+		e = e - 1.0
+	}
+	if e <= -64.0 {
+		p = p * 0h1F800000
+		e = e + 64.0
+	}
+	if e <= -32.0 {
+		p = p * 0h2F800000
+		e = e + 32.0
+	}
+	if e <= -16.0 {
+		p = p * 0h37800000
+		e = e + 16.0
+	}
+	if e <= -8.0 {
+		p = p * 0.00390625
+		e = e + 8.0
+	}
+	if e <= -4.0 {
+		p = p * 0.0625
+		e = e + 4.0
+	}
+	if e <= -2.0 {
+		p = p * 0.25
+		e = e + 2.0
+	}
+	if e <= -1.0 {
+		p = p * 0.5
+		e = e + 1.0
+	}
+	return p
+}
+
+__frexp_me :: proc(x: f32) -> (mant: f32, exp: f32) {
+	m := x
+	e := 0.0
+	if m >= 0h5F800000 {
+		m = m * 0h1F800000
+		e = e + 64.0
+	}
+	if m >= 4294967296.0 {
+		m = m * 0h2F800000
+		e = e + 32.0
+	}
+	if m >= 65536.0 {
+		m = m * 0h37800000
+		e = e + 16.0
+	}
+	if m >= 256.0 {
+		m = m * 0.00390625
+		e = e + 8.0
+	}
+	if m >= 16.0 {
+		m = m * 0.0625
+		e = e + 4.0
+	}
+	if m >= 4.0 {
+		m = m * 0.25
+		e = e + 2.0
+	}
+	if m >= 2.0 {
+		m = m * 0.5
+		e = e + 1.0
+	}
+	if m < 0h1F800000 {
+		m = m * 0h5F800000
+		e = e - 64.0
+	}
+	if m < 0h2F800000 {
+		m = m * 4294967296.0
+		e = e - 32.0
+	}
+	if m < 0h37800000 {
+		m = m * 65536.0
+		e = e - 16.0
+	}
+	if m < 0.00390625 {
+		m = m * 256.0
+		e = e - 8.0
+	}
+	if m < 0.0625 {
+		m = m * 16.0
+		e = e - 4.0
+	}
+	if m < 0.25 {
+		m = m * 4.0
+		e = e - 2.0
+	}
+	if m < 0.5 {
+		m = m * 2.0
+		e = e - 1.0
+	}
+	if m < 1.0 {
+		m = m * 2.0
+		e = e - 1.0
+	}
+	return m, e
+}
+
+frexp_f32 :: proc(x: f32) -> (exp: f32, significand: f32) {
+	m, e := __frexp_me(x)
+	return e + 1.0, m * 0.5
+}
+frexp_f32x2 :: proc(x: [2]f32) -> (exp: [2]f32, significand: [2]f32) {
+	e0, s0 := frexp_f32(x.x)
+	e1, s1 := frexp_f32(x.y)
+	return [2]f32{e0, e1}, [2]f32{s0, s1}
+}
+
+round_even_f32 :: proc(x: f32) -> f32 {
+	magic := 12582912.0
+	return (x + magic) - magic
+}
+
+round_even_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{round_even_f32(x.x), round_even_f32(x.y)}
+}
+round_even_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{round_even_f32(x.x), round_even_f32(x.y), round_even_f32(x.z)}
+}
+round_even_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{round_even_f32(x.x), round_even_f32(x.y), round_even_f32(x.z), round_even_f32(x.w)}
+}
+
+round_f32 :: proc(x: f32) -> f32 {
+	return round_even_f32(x)
+}
+
+round_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{round_f32(x.x), round_f32(x.y)}
+}
+round_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{round_f32(x.x), round_f32(x.y), round_f32(x.z)}
+}
+round_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{round_f32(x.x), round_f32(x.y), round_f32(x.z), round_f32(x.w)}
+}
+
+floor_f32 :: proc(x: f32) -> f32 {
+	r := round_even_f32(x)
+	return r > x ? r - 1.0 : r
+}
+
+floor_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{floor_f32(x.x), floor_f32(x.y)}
+}
+floor_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{floor_f32(x.x), floor_f32(x.y), floor_f32(x.z)}
+}
+floor_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{floor_f32(x.x), floor_f32(x.y), floor_f32(x.z), floor_f32(x.w)}
+}
+
+ceil_f32 :: proc(x: f32) -> f32 {
+	r := round_even_f32(x)
+	return r < x ? r + 1.0 : r
+}
+
+ceil_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{ceil_f32(x.x), ceil_f32(x.y)}
+}
+ceil_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{ceil_f32(x.x), ceil_f32(x.y), ceil_f32(x.z)}
+}
+ceil_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{ceil_f32(x.x), ceil_f32(x.y), ceil_f32(x.z), ceil_f32(x.w)}
+}
+
+trunc_f32 :: proc(x: f32) -> f32 {
+	return x < 0 ? ceil_f32(x) : floor_f32(x)
+}
+
+trunc_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{trunc_f32(x.x), trunc_f32(x.y)}
+}
+trunc_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{trunc_f32(x.x), trunc_f32(x.y), trunc_f32(x.z)}
+}
+trunc_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{trunc_f32(x.x), trunc_f32(x.y), trunc_f32(x.z), trunc_f32(x.w)}
+}
+
+fract_f32 :: proc(x: f32) -> f32 {
+	return x - floor_f32(x)
+}
+
+fract_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{fract_f32(x.x), fract_f32(x.y)}
+}
+fract_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{fract_f32(x.x), fract_f32(x.y), fract_f32(x.z)}
+}
+fract_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{fract_f32(x.x), fract_f32(x.y), fract_f32(x.z), fract_f32(x.w)}
+}
+
+sign_f32 :: proc(x: f32) -> f32 {
+	return x < 0 ? -1.0 : (x > 0 ? 1.0 : 0.0)
+}
+
+sign_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{sign_f32(x.x), sign_f32(x.y)}
+}
+sign_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{sign_f32(x.x), sign_f32(x.y), sign_f32(x.z)}
+}
+sign_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{sign_f32(x.x), sign_f32(x.y), sign_f32(x.z), sign_f32(x.w)}
+}
+
+radians_f32 :: proc(x: f32) -> f32 {
+	return 0.01745329251 * x
+}
+
+radians_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{radians_f32(x.x), radians_f32(x.y)}
+}
+radians_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{radians_f32(x.x), radians_f32(x.y), radians_f32(x.z)}
+}
+radians_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{radians_f32(x.x), radians_f32(x.y), radians_f32(x.z), radians_f32(x.w)}
+}
+
+degrees_f32 :: proc(x: f32) -> f32 {
+	return 57.2957795131 * x
+}
+
+degrees_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{degrees_f32(x.x), degrees_f32(x.y)}
+}
+degrees_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{degrees_f32(x.x), degrees_f32(x.y), degrees_f32(x.z)}
+}
+degrees_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{degrees_f32(x.x), degrees_f32(x.y), degrees_f32(x.z), degrees_f32(x.w)}
+}
+
+step_f32 :: proc(edge: f32, x: f32) -> f32 {
+	return x < edge ? 0.0 : 1.0
+}
+step_f32x2 :: proc(edge: [2]f32, x: [2]f32) -> [2]f32 {
+	return [2]f32{step_f32(edge.x, x.x), step_f32(edge.y, x.y)}
+}
+step_f32x3 :: proc(edge: [3]f32, x: [3]f32) -> [3]f32 {
+	return [3]f32{step_f32(edge.x, x.x), step_f32(edge.y, x.y), step_f32(edge.z, x.z)}
+}
+step_f32x4 :: proc(edge: [4]f32, x: [4]f32) -> [4]f32 {
+	return [4]f32{step_f32(edge.x, x.x), step_f32(edge.y, x.y), step_f32(edge.z, x.z), step_f32(edge.w, x.w)}
+}
+
+__saturate :: proc(x: f32) -> f32 {
+	return min(max(x, 0.0), 1.0)
+}
+
+smoothstep_f32 :: proc(edge0: f32, edge1: f32, x: f32) -> f32 {
+	inv := 1.0 / (edge1 - edge0)
+	t := __saturate((x - edge0) * inv)
+	return t * t * (3.0 - 2.0 * t)
+}
+smoothstep_f32x2 :: proc(edge0: [2]f32, edge1: [2]f32, x: [2]f32) -> [2]f32 {
+	return [2]f32{smoothstep_f32(edge0.x, edge1.x, x.x), smoothstep_f32(edge0.y, edge1.y, x.y)}
+}
+smoothstep_f32x3 :: proc(edge0: [3]f32, edge1: [3]f32, x: [3]f32) -> [3]f32 {
+	return [3]f32{smoothstep_f32(edge0.x, edge1.x, x.x), smoothstep_f32(edge0.y, edge1.y, x.y), smoothstep_f32(edge0.z, edge1.z, x.z)}
+}
+smoothstep_f32x4 :: proc(edge0: [4]f32, edge1: [4]f32, x: [4]f32) -> [4]f32 {
+	return [4]f32{smoothstep_f32(edge0.x, edge1.x, x.x), smoothstep_f32(edge0.y, edge1.y, x.y), smoothstep_f32(edge0.z, edge1.z, x.z), smoothstep_f32(edge0.w, edge1.w, x.w)}
+}
+
+__sin_kernel :: proc(r: f32) -> f32 {
+	z := r * r
+	p := fma(-0h394CA1F9, z, 0h3C08839E)
+	p = fma(p, z, -0h3E2AAAA3)
+	return fma(p * z, r, r)
+}
+__cos_kernel :: proc(r: f32) -> f32 {
+	z := r * r
+	p := fma(0h37CCF5CE, z, -0h3AB6061A)
+	p = fma(p, z, 0h3D2AAAA5)
+	base := fma(-0.5, z, 1.0)
+	return fma(z * z, p, base)
+}
+
+sin_f32 :: proc(x: f32) -> f32 {
+	k := round_f32(x * 0h3F22F983)
+	r := fma(-k, 0h3FC90000, x)
+	r = fma(-k, 0h39FDA000, r)
+	r = fma(-k, 0h33A22168, r)
+	s := __sin_kernel(r)
+	c := __cos_kernel(r)
+	q := k - 4.0 * floor_f32(k * 0.25)
+	return q < 0.5 ? s : (q < 1.5 ? c : (q < 2.5 ? -s : -c))
+}
+
+sin_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{sin_f32(x.x), sin_f32(x.y)}
+}
+sin_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{sin_f32(x.x), sin_f32(x.y), sin_f32(x.z)}
+}
+sin_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{sin_f32(x.x), sin_f32(x.y), sin_f32(x.z), sin_f32(x.w)}
+}
+
+cos_f32 :: proc(x: f32) -> f32 {
+	k := round_f32(x * 0h3F22F983)
+	r := fma(-k, 0h3FC90000, x)
+	r = fma(-k, 0h39FDA000, r)
+	r = fma(-k, 0h33A22168, r)
+	s := __sin_kernel(r)
+	c := __cos_kernel(r)
+	q := k - 4.0 * floor_f32(k * 0.25)
+	return q < 0.5 ? c : (q < 1.5 ? -s : (q < 2.5 ? -c : s))
+}
+
+cos_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{cos_f32(x.x), cos_f32(x.y)}
+}
+cos_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{cos_f32(x.x), cos_f32(x.y), cos_f32(x.z)}
+}
+cos_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{cos_f32(x.x), cos_f32(x.y), cos_f32(x.z), cos_f32(x.w)}
+}
+
+tan_f32 :: proc(x: f32) -> f32 {
+	return sin_f32(x) / cos_f32(x)
+}
+
+tan_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{tan_f32(x.x), tan_f32(x.y)}
+}
+tan_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{tan_f32(x.x), tan_f32(x.y), tan_f32(x.z)}
+}
+tan_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{tan_f32(x.x), tan_f32(x.y), tan_f32(x.z), tan_f32(x.w)}
+}
+
+isqrt_f32 :: proc(x: f32) -> f32 {
+	m, e := __frexp_me(x)
+	if e - 2.0 * floor_f32(e * 0.5) > 0.5 {
+		m = m * 2.0
+		e = e - 1.0
+	}
+	y := (7.0 - m) * 0h3E2AAAAB
+	y = y * (1.5 - 0.5 * m * y * y)
+	y = y * (1.5 - 0.5 * m * y * y)
+	y = y * (1.5 - 0.5 * m * y * y)
+	y = y * (1.5 - 0.5 * m * y * y)
+	return __exp2i(-e * 0.5) * y
+}
+
+isqrt_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{isqrt_f32(x.x), isqrt_f32(x.y)}
+}
+isqrt_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{isqrt_f32(x.x), isqrt_f32(x.y), isqrt_f32(x.z)}
+}
+isqrt_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{isqrt_f32(x.x), isqrt_f32(x.y), isqrt_f32(x.z), isqrt_f32(x.w)}
+}
+
+sqrt_f32 :: proc(x: f32) -> f32 {
+	y := isqrt_f32(x)
+	g := x * y
+	h := 0.5 * y
+	e0 := fma(-g, h, 0.5)
+	g = fma(g, e0, g)
+	h = fma(h, e0, h)
+	e1 := fma(-g, h, 0.5)
+	g = fma(g, e1, g)
+	h = fma(h, e1, h)
+	d := fma(-g, g, x)
+	g = fma(d, h, g)
+	return x > 0.0 ? g : x
+}
+
+sqrt_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{sqrt_f32(x.x), sqrt_f32(x.y)}
+}
+sqrt_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{sqrt_f32(x.x), sqrt_f32(x.y), sqrt_f32(x.z)}
+}
+sqrt_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{sqrt_f32(x.x), sqrt_f32(x.y), sqrt_f32(x.z), sqrt_f32(x.w)}
+}
+
+asin_f32 :: proc(x: f32) -> f32 {
+	a := abs(x)
+	sgn := x < 0.0 ? -1.0 : 1.0
+	big := a > 0.5
+	zb := 0.5 * (1.0 - a)
+	xv := big ? sqrt_f32(zb) : a
+	z := big ? zb : a * a
+	p := fma(0h3D2CB352, z, 0h3CC617E3)
+	p = fma(p, z, 0h3D3A3EC7)
+	p = fma(p, z, 0h3D9980F6)
+	p = fma(p, z, 0h3E2AAAE4)
+	base := fma(p * z, xv, xv)
+	folded := fma(-2.0, base, 0h3FC90FDB)
+	return sgn * (big ? folded : base)
+}
+
+asin_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{asin_f32(x.x), asin_f32(x.y)}
+}
+asin_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{asin_f32(x.x), asin_f32(x.y), asin_f32(x.z)}
+}
+asin_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{asin_f32(x.x), asin_f32(x.y), asin_f32(x.z), asin_f32(x.w)}
+}
+
+acos_f32 :: proc(x: f32) -> f32 {
+	hi := 2.0 * asin_f32(sqrt_f32(0.5 * (1.0 - x)))
+	lo := 0h40490FDB - 2.0 * asin_f32(sqrt_f32(0.5 * (1.0 + x)))
+	mid := 0h3FC90FDB - asin_f32(x)
+	return x > 0.5 ? hi : (x < -0.5 ? lo : mid)
+}
+
+acos_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{acos_f32(x.x), acos_f32(x.y)}
+}
+acos_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{acos_f32(x.x), acos_f32(x.y), acos_f32(x.z)}
+}
+acos_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{acos_f32(x.x), acos_f32(x.y), acos_f32(x.z), acos_f32(x.w)}
+}
+
+atan_f32 :: proc(x: f32) -> f32 {
+	a := abs(x)
+	sgn := x < 0.0 ? -1.0 : 1.0
+	hi := a > 0h401A827A
+	mid := a > 0h3ED413CD
+	t := hi ? -1.0 / a : (mid ? (a - 1.0) / (a + 1.0) : a)
+	y := hi ? 0h3FC90FDB : (mid ? 0h3F490FDB : 0.0)
+	z := t * t
+	p := fma(0h3DA4F0D1, z, -0h3E0E1B85)
+	p = fma(p, z, 0h3E4C925F)
+	p = fma(p, z, -0h3EAAAA2A)
+	r := y + fma(p * z, t, t)
+	return sgn * r
+}
+
+atan_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{atan_f32(x.x), atan_f32(x.y)}
+}
+atan_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{atan_f32(x.x), atan_f32(x.y), atan_f32(x.z)}
+}
+atan_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{atan_f32(x.x), atan_f32(x.y), atan_f32(x.z), atan_f32(x.w)}
+}
+
+atan2_f32 :: proc(y: f32, x: f32) -> f32 {
+	base := atan_f32(y / x)
+	onx := y > 0.0 ? 0h3FC90FDB : (y < 0.0 ? -0h3FC90FDB : 0.0)
+	neg := y < 0.0 ? base - 0h40490FDB : base + 0h40490FDB
+	return x > 0.0 ? base : (x < 0.0 ? neg : onx)
+}
+
+atan2_f32x2 :: proc(y: [2]f32, x: [2]f32) -> [2]f32 {
+	return [2]f32{atan2_f32(y.x, x.x), atan2_f32(y.y, x.y)}
+}
+atan2_f32x3 :: proc(y: [3]f32, x: [3]f32) -> [3]f32 {
+	return [3]f32{atan2_f32(y.x, x.x), atan2_f32(y.y, x.y), atan2_f32(y.z, x.z)}
+}
+atan2_f32x4 :: proc(y: [4]f32, x: [4]f32) -> [4]f32 {
+	return [4]f32{atan2_f32(y.x, x.x), atan2_f32(y.y, x.y), atan2_f32(y.z, x.z), atan2_f32(y.w, x.w)}
+}
+
+exp2_f32 :: proc(x: f32) -> f32 {
+	n := round_f32(x)
+	f := x - n
+	p := fma(0h3920FDDE, f, 0h3AAF9F29)
+	p = fma(p, f, 0h3C1D96A6)
+	p = fma(p, f, 0h3D635774)
+	p = fma(p, f, 0h3E75FDEE)
+	p = fma(p, f, 0h3F317218)
+	m := fma(f, p, 1.0)
+	return m * __exp2i(n)
+}
+
+exp2_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{exp2_f32(x.x), exp2_f32(x.y)}
+}
+exp2_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{exp2_f32(x.x), exp2_f32(x.y), exp2_f32(x.z)}
+}
+exp2_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{exp2_f32(x.x), exp2_f32(x.y), exp2_f32(x.z), exp2_f32(x.w)}
+}
+
+__log2_ext :: proc(x: f32) -> (hi: f32, lo: f32) {
+	m, e := __frexp_me(x)
+	if m > 0h3FB504F3 {
+		m = m * 0.5
+		e = e + 1.0
+	}
+	d := m + 1.0
+	n := m - 1.0
+	rd := 1.0 / d
+	s_hi := n * rd
+	s_lo := fma(-s_hi, d, n) * rd
+	q := s_hi * s_hi
+	tp := fma(0h3DE38E39, q, 0h3E124925)
+	tp = fma(tp, q, 0h3E4CCCCD)
+	tp = fma(tp, q, 0h3EAAAAAB)
+	tail := s_hi * q * tp
+	a := 2.0 * s_hi
+	b := fma(2.0, s_lo, 2.0 * tail)
+	lm_hi := a + b
+	lm_lo := (a - lm_hi) + b
+	g_hi := lm_hi * 0h3FB8AA3B
+	g_err := fma(lm_hi, 0h3FB8AA3B, -g_hi)
+	g_lo := g_err + fma(lm_lo, 0h3FB8AA3B, lm_hi * 0h32A57060)
+	h := e + g_hi
+	l := (e - h) + g_hi + g_lo
+	return h, l
+}
+
+log2_f32 :: proc(x: f32) -> f32 {
+	h, l := __log2_ext(x)
+	return h + l
+}
+
+log2_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{log2_f32(x.x), log2_f32(x.y)}
+}
+log2_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{log2_f32(x.x), log2_f32(x.y), log2_f32(x.z)}
+}
+log2_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{log2_f32(x.x), log2_f32(x.y), log2_f32(x.z), log2_f32(x.w)}
+}
+
+exp_f32 :: proc(x: f32) -> f32 {
+	n := round_f32(x * 0h3FB8AA3B)
+	r := fma(-n, 0h3F318000, x)
+	r = fma(-n, -0h395E8083, r)
+	z := r * r
+	p := fma(0h39506967, r, 0h3AB743CE)
+	p = fma(p, r, 0h3C088908)
+	p = fma(p, r, 0h3D2AA9C1)
+	p = fma(p, r, 0h3E2AAAAA)
+	p = fma(p, r, 0.5)
+	er := fma(p, z, 1.0 + r)
+	return er * __exp2i(n)
+}
+
+exp_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{exp_f32(x.x), exp_f32(x.y)}
+}
+exp_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{exp_f32(x.x), exp_f32(x.y), exp_f32(x.z)}
+}
+exp_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{exp_f32(x.x), exp_f32(x.y), exp_f32(x.z), exp_f32(x.w)}
+}
+
+log_f32 :: proc(x: f32) -> f32 {
+	return log2_f32(x) * 0h3F317218
+}
+
+log_f32x2 :: proc(x: [2]f32) -> [2]f32 {
+	return [2]f32{log_f32(x.x), log_f32(x.y)}
+}
+log_f32x3 :: proc(x: [3]f32) -> [3]f32 {
+	return [3]f32{log_f32(x.x), log_f32(x.y), log_f32(x.z)}
+}
+log_f32x4 :: proc(x: [4]f32) -> [4]f32 {
+	return [4]f32{log_f32(x.x), log_f32(x.y), log_f32(x.z), log_f32(x.w)}
+}
+
+pow_f32 :: proc(x: f32, y: f32) -> f32 {
+	lhi, llo := __log2_ext(x)
+	phi := y * lhi
+	plo := fma(y, lhi, -phi) + y * llo
+	n := round_f32(phi)
+	f := phi - n
+	p := fma(0h3920FDDE, f, 0h3AAF9F29)
+	p = fma(p, f, 0h3C1D96A6)
+	p = fma(p, f, 0h3D635774)
+	p = fma(p, f, 0h3E75FDEE)
+	p = fma(p, f, 0h3F317218)
+	mh := fma(f, p, 1.0)
+	m := fma(mh * 0h3F317218, plo, mh)
+	return m * __exp2i(n)
+}
+
+pow_f32x2 :: proc(x: [2]f32, y: [2]f32) -> [2]f32 {
+	return [2]f32{pow_f32(x.x, y.x), pow_f32(x.y, y.y)}
+}
+pow_f32x3 :: proc(x: [3]f32, y: [3]f32) -> [3]f32 {
+	return [3]f32{pow_f32(x.x, y.x), pow_f32(x.y, y.y), pow_f32(x.z, y.z)}
+}
+pow_f32x4 :: proc(x: [4]f32, y: [4]f32) -> [4]f32 {
+	return [4]f32{pow_f32(x.x, y.x), pow_f32(x.y, y.y), pow_f32(x.z, y.z), pow_f32(x.w, y.w)}
+}
+
+mag_f32x2 :: proc(x: [2]f32) -> f32 {
+	return sqrt_f32(dot(x, x))
+}
+mag_f32x3 :: proc(x: [3]f32) -> f32 {
+	return sqrt_f32(dot(x, x))
+}
+mag_f32x4 :: proc(x: [4]f32) -> f32 {
+	return sqrt_f32(dot(x, x))
+}
+

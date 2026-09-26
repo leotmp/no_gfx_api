@@ -1,0 +1,155 @@
+// =============================================================================
+// test/test_untyped.misl — Untyped literal / expression resolution suite
+//
+// Compiles end-to-end (GLSL + SPIR-V). Exercises untyped → concrete typing in
+// decl, binary, builtin, constructor, assign, comparison, ternary, and matrix
+// contexts. Inspect _out_untyped/test_untyped.misl.glsl for literal casts.
+//
+// Rules under test:
+//   a := 1      → i32
+//   a := 1.0    → f32
+//   a: f32 = 1  → f32 (context hint on RHS)
+// =============================================================================
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat4 :: matrix[4, 4]f32
+
+Untyped_VS_In :: struct #align(16) {
+	pos: [4]f32,
+	scale: f32,
+}
+
+Untyped_VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	col: [4]f32,
+}
+
+// Reject cases (documented only — see fail/ if added later):
+//   mat_bool: matrix[4,4]bool  — reject at check_matrix_type
+//   enum f32 { A, B }          — reject at check_enum_type
+
+Flags :: enum u32 {
+	None,
+	Lit,
+}
+
+test_untyped_vs :: proc "vertex"(
+	data: ^Untyped_VS_In | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: Untyped_VS_Out) {
+	// -------------------------------------------------------------------------
+	// 1. Decl without explicit type — default untyped literals
+	// -------------------------------------------------------------------------
+	int_lit := 1          // expect: i32
+	float_lit := 1.0      // expect: f32
+	bool_lit := true      // expect: b32
+	int_sum := 1 + 2      // expect: i32
+	float_sum := 1.0 + 2  // expect: f32
+	mixed_sum := 1 + 2.0  // expect: f32
+
+	// -------------------------------------------------------------------------
+	// 2. Decl with explicit type — RHS must resolve via context hint
+	// -------------------------------------------------------------------------
+	hinted_f32: f32 = 1           // expect: f32
+	hinted_f32_expr: f32 = 1 + 2  // expect: f32
+	hinted_i32: i32 = 42          // expect: i32
+	hinted_sum: f32 = 1 + 2.0
+
+	// -------------------------------------------------------------------------
+	// 3. Untyped literals in arithmetic with typed locals
+	// -------------------------------------------------------------------------
+	typed_scale := data.scale
+	scale_plus_one := typed_scale + 1       // expect: f32
+	one_plus_scale := 1 + typed_scale
+	scale_times_half := typed_scale * 0.5   // expect: f32
+	offset := typed_scale - 1               // expect: f32
+
+	// -------------------------------------------------------------------------
+	// 4. Homogeneous builtins — untyped args must match gen of first arg
+	// -------------------------------------------------------------------------
+	scalar_lerp := lerp(0.0, 1.0, 0.5)
+	scalar_clamp := clamp(typed_scale, 0, 1)
+	scalar_step := step(0.5, typed_scale)
+	scalar_smooth := smoothstep(0, 1, typed_scale)
+	scalar_min := min(typed_scale, 1)
+	scalar_max := max(1, typed_scale)
+	scalar_pow := pow(typed_scale, 2)
+	scalar_mod := mod(typed_scale, 2)
+
+	vec_lerp := lerp(vec3(0, 0, 0), vec3(1, 1, 1), 0.5)
+	vec_clamp := clamp(data.pos.xyz, 0, 1)
+
+	// -------------------------------------------------------------------------
+	// 5. Vector / matrix constructors — untyped elems resolve to elem type
+	// -------------------------------------------------------------------------
+	from_vec3_ctor := vec3(1, 2, 3)
+	from_vec4_ctor := vec4(0, 0, 0, 1)
+	from_vec2_ctor := vec2(1, 2)
+	untyped_swizzle_base := vec4(1, 1, 1, 1)
+
+	// -------------------------------------------------------------------------
+	// 6. Assign with typed LHS — RHS untyped subexpr gets hint from target
+	// -------------------------------------------------------------------------
+	out.col = vec4(1, 1, 1, 1)
+	out.col.r = 0
+	out.col.g = 0.5
+
+	hinted_assign: f32 = typed_scale + 1
+
+	// -------------------------------------------------------------------------
+	// 7. Comparisons — untyped operands; result used as f32 weight
+	// -------------------------------------------------------------------------
+	is_positive := typed_scale > 0
+	weight := is_positive ? 1.0 : 0.0
+
+	// -------------------------------------------------------------------------
+	// 8. Folded expression feeding SV_Position (codegen smoke path)
+	// -------------------------------------------------------------------------
+	t := clamp(scalar_lerp + float_sum * 0.1, 0, 1)
+	p := data.pos
+	p.xyz = p.xyz * scale_times_half + vec_lerp * t
+	p.w = 1
+
+	out.pos = p
+	out.col.a = hinted_f32
+	out.col.rgb = from_vec3_ctor * weight + untyped_swizzle_base.rgb * (1 - weight)
+
+	// Touch remaining locals so they survive dead-code elimination.
+	out.col.r += f32(int_lit + int_sum)
+	out.col.g += float_lit + mixed_sum
+	out.col.b += scale_times_half + offset
+	out.col.a += scalar_step + scalar_smooth + scalar_min + scalar_max
+	out.col.rgb += vec3(scalar_pow, scalar_mod, scalar_clamp)
+	out.col.rgb += from_vec4_ctor.rgb + from_vec2_ctor.x
+	out.col.a += hinted_f32_expr + f32(hinted_i32) + hinted_assign
+	out.col.a += one_plus_scale + scale_plus_one + hinted_sum
+	out.col.rgb += vec_clamp
+	if bool_lit {
+		out.pos.x += f32(vertex_id)
+	}
+
+	// -------------------------------------------------------------------------
+	// 9. Matrix — untyped scalar broadcast / diagonal init
+	// (i32 matrices typecheck as mat elem, but this GLSL profile has no imat*)
+	// -------------------------------------------------------------------------
+	mat_f32: mat4
+	mat_mul_vec := mat_f32 * data.pos
+	vec_mul_mat := data.pos * mat_f32
+	mat_scalar := mat_f32 * 2                 // untyped int → f32 elem, not mat splat
+	mat_assign: mat4 = 1 + 0                  // untyped expr → matrix constructor
+
+	out.pos += mat_mul_vec
+	out.pos += vec_mul_mat
+	out.pos = mat_scalar * out.pos
+	out.pos = mat_assign * out.pos
+
+	// -------------------------------------------------------------------------
+	// 10. Enum backing — integer scalar (u32); use implicit selector
+	// -------------------------------------------------------------------------
+	flag: Flags = .Lit
+	_ = flag
+
+	return out
+}

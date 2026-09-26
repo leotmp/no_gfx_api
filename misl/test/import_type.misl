@@ -1,0 +1,43 @@
+import "core:geom.misl"
+
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	boxes: [^]geom.AABB,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+take_box :: proc(b: geom.AABB) {
+	_ = b.mn
+}
+
+take_ptr :: proc(p: ^geom.AABB) -> vec3 {
+	return p.mn
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vertex_id
+	box: geom.AABB
+	box = geom.aabb_make(vec3(-1, -1, -1), vec3(1, 1, 1))
+	take_box(box)
+	_ = data.boxes[0].mn
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

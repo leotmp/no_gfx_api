@@ -1,0 +1,64 @@
+// Shader "Clearly a bug" by Glow on https://www.shadertoy.com/view/33cGDj
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+ivec2 :: [2]i32
+
+Data :: struct {
+	output_texture_id: rw32_2d,
+	time:              f32,
+}
+
+mat2_from_vec4 :: proc(v: vec4) -> vec4 {
+	return v
+}
+
+mat2_mul :: proc(m: vec4, v: vec2) -> vec2 {
+	return vec2(m.x * v.x + m.z * v.y, m.y * v.x + m.w * v.y)
+}
+
+raymarch :: proc(data: ^Data, gid: vec3) -> vec4 {
+	C := gid.xy
+	d: f32
+	z := fract(dot(C, sin(C))) - 0.5
+	o := vec4(0, 0, 0, 0)
+	p: vec4
+	sz := dim(data.output_texture_id)
+	r := vec2(f32(sz.x), f32(sz.y))
+	O: vec4
+
+	for i := 1; i < 77; i += 1 {
+		p = vec4(z * normalize(vec3(C - 0.5 * r, r.y)), 0.1 * data.time)
+		p = vec4(p.x, p.y, p.z + data.time, p.w)
+		O = p
+
+		rot1 := mat2_from_vec4(cos(2 + O.z + vec4(0, 11, 33, 0)))
+		p_xy := mat2_mul(rot1, vec2(p.x, p.y))
+		p = vec4(p_xy.x, p_xy.y, p.z, p.w)
+
+		rot2 := mat2_from_vec4(cos(O + vec4(0, 11, 33, 0)))
+		p_xy = mat2_mul(rot2, vec2(p.x, p.y))
+		p = vec4(p_xy.x, p_xy.y, p.z, p.w)
+
+		numerator := 1 + sin(0.5 * O.z + mag(p - O) + vec4(0, 4, 3, 6))
+		denominator := 0.5 + 2 * dot(O.xy, O.xy)
+		O = numerator / denominator
+
+		p = abs(fract(p) - 0.5)
+		d = abs(min(mag(p.xy) - 0.125, min(p.x, p.y) + 0.001)) + 0.001
+		o += O.w / d * O
+		z += 0.6 * d
+	}
+	return tanh(o / 20000)
+}
+
+@(size = {8, 8})
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	sz := dim(data.output_texture_id)
+	if gid.x >= u32(sz.x) || gid.y >= u32(sz.y) do return
+	color := raymarch(data, vec3(f32(gid.x), f32(gid.y), f32(gid.z)))
+	store(data.output_texture_id, ivec2(i32(gid.x), i32(gid.y)), color)
+}

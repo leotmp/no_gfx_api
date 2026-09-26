@@ -1,0 +1,63 @@
+// Constant parapoly over compile-time strings: distinct Exact_Values
+// specialize to distinct procedures; identical strings share one.
+
+print_len :: proc($str: string) -> i32 {
+	return i32(len(str))
+}
+
+print_mix :: proc($str: string, n: i32) -> i32 {
+	return i32(len(str)) + n
+}
+
+wrap :: proc($s: string) -> i32 {
+	return print_len(s)
+}
+
+MSG :: "hello"
+HELLO_LEN :: len("hello")
+
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	_ = HELLO_LEN
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	a := print_len("hello")
+	b := print_len("world")
+	c := print_len("hello")
+	d := print_len(MSG)
+	e := wrap("hello")
+	f := print_mix("hi", 3)
+	idx: i32 = 1
+	ch := "hello"[idx]
+	folded := "hello"[0]
+	empty_n := print_len("")
+	_ = empty_n
+	_ = folded
+	out = data.color
+	out.x = f32(a + b + c + d + e + f) + f32(ch)
+	return out
+}

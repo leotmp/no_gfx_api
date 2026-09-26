@@ -1,0 +1,232 @@
+// Exhaustive GLSL lowering of typed numeric constants (suffixes, not constructors).
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+U32_CONST :: 123456
+I32_NAMED :: 123454321
+F32_NAMED :: 1.25
+F64_NAMED :: 6.25
+HEX_U :: 0xabc
+ARR :: [5]u32{9, 8, 7, 6, 5}
+BIG :: 4294967295
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+id_u32 :: proc(x: u32) -> u32 {
+	return x
+}
+
+id_f32 :: proc(x: f32) -> f32 {
+	return x
+}
+
+id_f64 :: proc(x: f64) -> f64 {
+	return x
+}
+
+id_i32 :: proc(x: i32) -> i32 {
+	return x
+}
+
+ret_u32 :: proc() -> u32 {
+	return 5
+}
+
+ret_f32 :: proc() -> f32 {
+	return 5
+}
+
+ret_f64 :: proc() -> f64 {
+	return 5
+}
+
+ret_i32 :: proc() -> i32 {
+	return -17
+}
+
+ret_f64_frac :: proc() -> f64 {
+	return 2.25
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+
+	// inferred defaults (`:=` → i32 / f32)
+	i_def := 123454321
+	f_def := 2.5
+	i_from_named := I32_NAMED
+
+	// explicit types / named / hex
+	i_neg: i32 = -17
+	u: u32 = 123456
+	u_from_named: u32 = U32_CONST
+	u_hex: u32 = HEX_U
+	u_max: u32 = 4294967295
+	u_max_named: u32 = BIG
+	u8v: u8 = 200
+	u16v: u16 = 40000
+	i8v: i8 = -8
+	i16v: i16 = -300
+	i64v: i64 = 9001
+	u64v: u64 = 9002
+	f_from_int: f32 = 777
+	f_from_float: f32 = 1.25
+	f_from_named: f32 = F32_NAMED
+	f_sci: f32 = 1.5e2
+	f_big: f32 = 4294967295 + 100
+	d_from_int: f64 = 888
+	d_from_float: f64 = 6.25
+	d_from_named: f64 = F64_NAMED
+	d_from_int_small: f64 = 1
+	d_big: f64 = 4294967295
+	d_neg: f64 = -4.5
+	flag: b32 = true
+	flag_f: b32 = false
+	ch: rune = 'A'
+
+	// type-call / keyword cast (explicit; float→int truncates)
+	tc_i := i32(42)
+	tc_u := u32(99)
+	tc_f := f32(4)
+	tc_d := f64(2)
+	tc_trunc := i32(1.5)
+	kw_trunc := cast(i32)1.5
+	kw_f := cast(f32)3
+	kw_d := cast(f64)8
+	kw_u := cast(u32)2748
+
+	// folded constant expressions
+	u_sum: u32 = 1 + 2
+	i_paren: i32 = (3 + 4) * 5
+	i_unary: i32 = -(-13)
+	u_when: u32 = 11 when true else 22
+	d_when: f64 = 7 when true else 8
+	tern: i32 = 31 if true else 32
+	tern_f: f32 = 13.5 if true else 14.5
+	tern_d: f64 = 9.5 if true else 10.5
+
+	// helper args / returns / nested
+	from_arg := id_u32(4)
+	from_farg := id_f32(3)
+	from_darg := id_f64(1)
+	from_iarg := id_i32(-17)
+	from_nested := id_u32(id_u32(4))
+	from_f_nested := id_f32(id_f32(3))
+	from_d_nested := id_f64(id_f64(1))
+	from_ret_u := ret_u32()
+	from_ret_f := ret_f32()
+	from_ret_d := ret_f64()
+	from_ret_i := ret_i32()
+	from_ret_d2 := ret_f64_frac()
+
+	// runtime + literal (literal still typed)
+	u_rt := vertex_id + 1
+	i_rt := i32(vertex_id) + 6
+	cmp := vertex_id > 0
+	cmp_u := vertex_id != 0
+	f_rt := f32(vertex_id) * 1.25
+
+	// vector / array / assign after decl
+	v2 := vec2(11, 12)
+	v4 := vec4(1.25, 2.5, 3, 4)
+	arr0 := ARR[0]
+	u_set: u32 = 0
+	u_set = 2468
+	f_set: f32 = 0
+	f_set = 55
+	d_set: f64 = 0
+	d_set = 66
+
+	_ = i_def
+	_ = f_def
+	_ = i_from_named
+	_ = i_neg
+	_ = u
+	_ = u_from_named
+	_ = u_hex
+	_ = u_max
+	_ = u_max_named
+	_ = u8v
+	_ = u16v
+	_ = i8v
+	_ = i16v
+	_ = i64v
+	_ = u64v
+	_ = f_from_int
+	_ = f_from_float
+	_ = f_from_named
+	_ = f_sci
+	_ = f_big
+	_ = d_from_int
+	_ = d_from_float
+	_ = d_from_named
+	_ = d_from_int_small
+	_ = d_big
+	_ = d_neg
+	_ = flag
+	_ = flag_f
+	_ = ch
+	_ = tc_i
+	_ = tc_u
+	_ = tc_f
+	_ = tc_d
+	_ = tc_trunc
+	_ = kw_trunc
+	_ = kw_f
+	_ = kw_d
+	_ = kw_u
+	_ = u_sum
+	_ = i_paren
+	_ = i_unary
+	_ = u_when
+	_ = d_when
+	_ = tern
+	_ = tern_f
+	_ = tern_d
+	_ = from_arg
+	_ = from_farg
+	_ = from_darg
+	_ = from_iarg
+	_ = from_nested
+	_ = from_f_nested
+	_ = from_d_nested
+	_ = from_ret_u
+	_ = from_ret_f
+	_ = from_ret_d
+	_ = from_ret_i
+	_ = from_ret_d2
+	_ = u_rt
+	_ = i_rt
+	_ = cmp
+	_ = cmp_u
+	_ = f_rt
+	_ = v2
+	_ = v4
+	_ = arr0
+	_ = u_set
+	_ = f_set
+	_ = d_set
+
+	out.pos = vec4(f_from_float, f32(i_neg), f32(u8v), 1)
+	out.uv = v2
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

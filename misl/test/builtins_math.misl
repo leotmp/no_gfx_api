@@ -1,0 +1,109 @@
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat2 :: matrix[2, 2]f32
+mat3 :: matrix[3, 3]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	x: f32 = 1.5
+	v := vec3(1, 2, 3)
+	n := vec3(0, 1, 0)
+	i := vec3(0, 0, 1)
+
+	// untyped → f32 / splat into genType
+	_ = sin(1)
+	_ = cos(x)
+	_ = pow(x, 2)
+	_ = pow(v, 2.2)
+	_ = sqrt(4)
+	_ = isqrt(x)
+	_ = abs(-x)
+	_ = floor(x)
+	_ = ceil(x)
+	_ = round(x)
+	_ = round_even(x)
+	_ = fract(x)
+	_ = sign(x)
+	_ = mod(x, 2)
+	_ = atan2(1, 2)
+	_ = log(x)
+	_ = exp(x)
+
+	// scalar broadcast (GLSL overloads)
+	_ = lerp(v, n, 0.5)
+	_ = lerp(v, n, x)
+	_ = step(0.5, v)
+	_ = smoothstep(0, 1, v)
+	_ = clamp(v, 0, 1)
+	_ = fma(v, n, i)
+
+	// variadic min/max → nested GLSL binary calls (even + odd arities)
+	_ = min(x, 0.5)                 // 2
+	_ = min(x, 1, 2)                // 3 odd
+	_ = min(x, 1, 2, 3)             // 4 even
+	_ = min(x, 1, 2, 3, 4)          // 5 odd
+	_ = max(v, 0.5)                 // 2 + scalar broadcast
+	_ = max(v, n, i)                // 3 odd vectors
+	_ = max(1, 2, 3, 4)             // 4 even untyped
+	_ = max(x, 1, 2, 3, 4, 5)       // 6 even
+	_ = min(v, n, i, vec3(0, 0, 0), vec3(9, 9, 9)) // 5 odd
+
+	// geom
+	_ = mag(v)
+	_ = dist(v, n)
+	_ = dot(v, n)
+	_ = cross(v, n)
+	_ = normalize(v)
+	_ = reflect(i, n)
+	_ = facefoward(i, n, n)
+	_ = refract(i, n, 0.5)
+
+	// multi-return builtins → GLSL out-params
+	whole, frac := modf(x)
+	exp_i, significand := frexp(x)
+	_ = whole
+	_ = frac
+	_ = exp_i
+	_ = significand
+	_ = ldexp(x, 2)
+
+	// predicates
+	_ = is_nan(x)
+	_ = is_inf(x)
+	_ = f32_from_u32_bits(u32_from_f32_bits(x))
+	_ = is_nan(f32_from_u32_bits(u32(0x7FC00000)))
+
+	// matrix
+	m := mat2(1, 0, 0, 1)
+	_ = transpose(m)
+	_ = determinant(m)
+	_ = inverse(m)
+	_ = matrix_comp_mult(m, m)
+	a := vec2(1, 2)
+	b := vec3(3, 4, 5)
+	_ = outer_product(b, a) // mat3x2-shaped: rows=3, cols=2
+
+	out = data.color
+	return out
+}

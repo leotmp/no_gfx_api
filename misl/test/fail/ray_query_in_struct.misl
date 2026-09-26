@@ -1,0 +1,13 @@
+// Expect: Ray_Query cannot be stored in a struct
+Bad :: struct {
+	q: Ray_Query,
+}
+
+vs :: proc "vertex"(
+	vertex_id: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	_ = vertex_id
+	_ = Bad{}
+	out = [4]f32{}
+	return out
+}

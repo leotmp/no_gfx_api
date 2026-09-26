@@ -1,0 +1,6 @@
+// Expect: proc "fmag" parameters must be f32 or [2/3/4]f32
+Arr :: #array [2]f32
+
+shade :: proc "fmag"(x: Arr) -> f32 {
+	return x[0]
+}

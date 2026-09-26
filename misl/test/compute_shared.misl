@@ -1,0 +1,40 @@
+// @shared + barrier + SV_Group_Index / SV_Group_Size / SV_Group_Thread
+Data :: struct #align(16) {
+	values: [^]f32,
+	out: [^]f32,
+	count: u32,
+}
+
+@(size = 64)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+	lid: u32 | SV_Group_Index,
+	local: [3]u32 | SV_Group_Thread,
+	gsize: [3]u32 | SV_Group_Size,
+	group: [3]u32 | SV_Group,
+	ngroups: [3]u32 | SV_Num_Groups,
+) {
+	@shared tile: [64]f32
+
+	i := gid.x
+	_ = local
+	_ = gsize
+	_ = group
+	_ = ngroups
+
+	if lid < 64 {
+		if i < data.count {
+			tile[lid] = data.values[i]
+		} else {
+			tile[lid] = 0
+		}
+	}
+	barrier()
+	memory_barrier_shared()
+
+	if i < data.count {
+		// simple: write own shared slot back out
+		data.out[i] = tile[lid]
+	}
+}

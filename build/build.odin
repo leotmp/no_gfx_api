@@ -32,12 +32,16 @@ COMMANDS := []Command {
     { "tests_compare_local_goldens", cmd_tests_compare_local_goldens },
     { "tests_compare_global_goldens", cmd_tests_compare_global_goldens },              // Only to be used in GitHub Actions
     { "tests_gen_local_goldens_gh_actions", cmd_tests_gen_local_goldens_gh_actions },  // Only to be used in GitHub Actions
+
+	{ "mislc", cmd_compiler_mislc },
+	{ "all_misl", cmd_default_misl},
 }
 
 Example :: struct
 {
     shaders_nosl: [dynamic]string,
     shaders_slang: [dynamic]string,
+	shaders_misl: [dynamic]string,
     input_path: string,
     output_path: string,
 }
@@ -50,6 +54,14 @@ cmd_default :: proc() -> bool
     res := true
     res &= cmd_compiler()
     res &= cmd_build_examples_parallel()
+    return res
+}
+
+cmd_default_misl :: proc() -> bool {
+	cmd_check_gpu() or_return
+    res := true
+    res &= cmd_compiler_mislc()
+    res &= cmd_build_examples_parallel(true, false, false, true)
     return res
 }
 
@@ -76,6 +88,18 @@ cmd_build_example_shaders_nosl :: proc(example: Example) -> bool
         dir, _ := os.split_path(shader)
         out_flag := fmt.tprintf("-out:%v/%v.spv",  dir, os.stem(shader))
         res &= run_task(with_exe_ext("./build/gpu_compiler"), shader, out_flag)
+    }
+    return res
+}
+
+cmd_build_example_shaders_misl :: proc(example: Example) -> bool
+{
+    res := true
+    for shader in example.shaders_misl
+    {
+        dir, _ := os.split_path(shader)
+        out_flag := fmt.tprintf("-out:%v", dir)
+        res &= run_task(with_exe_ext("./build/mislc"), shader, out_flag, "-target:spirv", "-target:asm")
     }
     return res
 }
@@ -147,6 +171,12 @@ cmd_check_tests :: proc() -> bool
     return res
 }
 
+cmd_compiler_mislc :: proc() -> bool {
+    res := true
+    res &= run_task("odin", "build", "misl/tools/mislc", "-debug", with_exe_ext("-out=build/mislc"))
+    return res
+}
+
 cmd_compiler :: proc() -> bool
 {
     res := true
@@ -176,7 +206,7 @@ cmd_run_compiler_tests :: proc() -> bool
     res := true
 
     dir := "tests"
-    shaders_nosl, shaders_slang := get_shaders_in_dir(dir)
+    shaders_nosl, shaders_slang, _ := get_shaders_in_dir(dir)
     for shader in shaders_nosl
     {
         dir, _ := os.split_path(shader)
@@ -282,13 +312,14 @@ add_examples :: proc(dir: string, output_prefix := "")
             if !contains_odin_files(info.fullpath) do continue
 
             // Look for shaders
-            shaders_nosl, shaders_slang := get_shaders_in_dir(info.fullpath)
+            shaders_nosl, shaders_slang, shaders_misl := get_shaders_in_dir(info.fullpath)
 
             example := Example {
                 input_path = strings.clone(fmt.tprintf("%v/%v", dir, strings.clone(info.name))),
                 output_path = strings.concatenate({ output_prefix, strings.clone(info.name) }),
                 shaders_nosl = shaders_nosl,
                 shaders_slang = shaders_slang,
+				shaders_misl = shaders_misl,
             }
             append(&EXAMPLES, example)
         }
@@ -325,7 +356,7 @@ contains_odin_files :: proc(path: string) -> bool
     return false
 }
 
-get_shaders_in_dir :: proc(path: string) -> (shaders_nosl: [dynamic]string, shaders_slang: [dynamic]string)
+get_shaders_in_dir :: proc(path: string) -> (shaders_nosl: [dynamic]string, shaders_slang: [dynamic]string, shaders_misl: [dynamic]string)
 {
     cur_example_dir, cur_example_err_o := os.open(path)
     defer os.close(cur_example_dir)
@@ -353,14 +384,18 @@ get_shaders_in_dir :: proc(path: string) -> (shaders_nosl: [dynamic]string, shad
                 {
                     append(&shaders_slang, strings.clone(shader_info.fullpath))
                 }
+				else if ext == ".misl" 
+				{
+					append(&shaders_misl, strings.clone(shader_info.fullpath))
+				}
             }
         }
     }
 
-    return shaders_nosl, shaders_slang
+    return shaders_nosl, shaders_slang, shaders_misl
 }
 
-cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := true, build_shaders_slang := false) -> bool
+cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := true, build_shaders_slang := false, build_shaders_misl := false) -> bool
 {
     PARALLEL :: true
 
@@ -370,8 +405,9 @@ cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := tr
         build_odin: bool,
         build_shaders_nosl: bool,
         build_shaders_slang: bool,
+		build_shaders_misl: bool,
     }
-    info := Info { build_odin, build_shaders_nosl, build_shaders_slang }
+    info := Info { build_odin, build_shaders_nosl, build_shaders_slang, build_shaders_misl }
 
     Task :: struct {
         example: Example,
@@ -405,9 +441,13 @@ cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := tr
         if res && info.build_shaders_slang {
             res &= cmd_build_example_shaders_slang(task.example)
         }
+		if res && info.build_shaders_misl {
+			res &= cmd_build_example_shaders_misl(task.example)
+		}
         if res && info.build_odin {
             res &= cmd_build_example(task.example)
         }
+		
         if !res {
             intr.atomic_store(task.success, false)
         }

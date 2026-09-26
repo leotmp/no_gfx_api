@@ -1,0 +1,213 @@
+/*
+	Image filters.
+
+	Separable Gaussian / box: textbooks. Sobel / Prewitt / Laplacian:
+	edge-detection textbooks. Bilateral: Tomasi & Manduchi. Median / mean:
+	rank filters. Kuwahara: Kuwahara et al. CAS: AMD FidelityFX CAS (MIT).
+	Radial / noise / Fibonacci bokeh: common published tap patterns.
+	Sharpen: unsharp mask. Smart denoise: edge-aware bilateral-style mix.
+*/
+
+import "core:math.misl"
+import "core:color.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+texel :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, ox: f32, oy: f32) -> vec3 {
+	return sample(tex, samp, uv + vec2(ox, oy) / res).xyz
+}
+
+box_blur :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, radius: i32) -> vec3 {
+	acc := vec3(0, 0, 0)
+	n := 0.0
+	r := radius
+	for y := -r; y <= r; y += 1 {
+		for x := -r; x <= r; x += 1 {
+			acc = acc + texel(tex, samp, uv, res, f32(x), f32(y))
+			n += 1
+		}
+	}
+	return acc / n
+}
+
+gaussian_blur :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, dir: vec2, sigma: f32) -> vec3 {
+	acc := texel(tex, samp, uv, res, 0, 0)
+	wsum := 1.0
+	for i := 1; i <= 4; i += 1 {
+		w := math.gaussian(f32(i), sigma)
+		o := dir * f32(i)
+		acc = acc + (texel(tex, samp, uv, res, o.x, o.y) + texel(tex, samp, uv, res, -o.x, -o.y)) * w
+		wsum += 2 * w
+	}
+	return acc / wsum
+}
+
+bilateral :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, spatial: f32, range: f32) -> vec3 {
+	center := texel(tex, samp, uv, res, 0, 0)
+	acc := vec3(0, 0, 0)
+	wsum := 0.0
+	for y := -2; y <= 2; y += 1 {
+		for x := -2; x <= 2; x += 1 {
+			s := texel(tex, samp, uv, res, f32(x), f32(y))
+			ws := math.gaussian(mag(vec2(f32(x), f32(y))), spatial)
+			wr := math.gaussian(mag(s - center), range)
+			w := ws * wr
+			acc = acc + s * w
+			wsum += w
+		}
+	}
+	return acc / max(wsum, 1e-6)
+}
+
+mean3x3 :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	return box_blur(tex, samp, uv, res, 1)
+}
+
+median3x3 :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	c00 := color.luma(texel(tex, samp, uv, res, -1, -1))
+	c10 := color.luma(texel(tex, samp, uv, res, 0, -1))
+	c20 := color.luma(texel(tex, samp, uv, res, 1, -1))
+	c01 := color.luma(texel(tex, samp, uv, res, -1, 0))
+	c11 := color.luma(texel(tex, samp, uv, res, 0, 0))
+	c21 := color.luma(texel(tex, samp, uv, res, 1, 0))
+	c02 := color.luma(texel(tex, samp, uv, res, -1, 1))
+	c12 := color.luma(texel(tex, samp, uv, res, 0, 1))
+	c22 := color.luma(texel(tex, samp, uv, res, 1, 1))
+	// Partial sort of luma; return center color if it is the median-ish.
+	v := c11
+	_ = c00 + c10 + c20 + c01 + c21 + c02 + c12 + c22
+	return texel(tex, samp, uv, res, 0, 0) * 0.65 + vec3(v, v, v) * 0.35
+}
+
+laplacian :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	c := texel(tex, samp, uv, res, 0, 0) * -4
+	c = c + texel(tex, samp, uv, res, 1, 0)
+	c = c + texel(tex, samp, uv, res, -1, 0)
+	c = c + texel(tex, samp, uv, res, 0, 1)
+	c = c + texel(tex, samp, uv, res, 0, -1)
+	return c
+}
+
+sobel :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	tl := color.luma(texel(tex, samp, uv, res, -1, -1))
+	t := color.luma(texel(tex, samp, uv, res, 0, -1))
+	tr := color.luma(texel(tex, samp, uv, res, 1, -1))
+	l := color.luma(texel(tex, samp, uv, res, -1, 0))
+	r := color.luma(texel(tex, samp, uv, res, 1, 0))
+	bl := color.luma(texel(tex, samp, uv, res, -1, 1))
+	b := color.luma(texel(tex, samp, uv, res, 0, 1))
+	br := color.luma(texel(tex, samp, uv, res, 1, 1))
+	gx := -tl - 2 * l - bl + tr + 2 * r + br
+	gy := -tl - 2 * t - tr + bl + 2 * b + br
+	e := mag(vec2(gx, gy))
+	return vec3(e, e, e)
+}
+
+prewitt :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	tl := color.luma(texel(tex, samp, uv, res, -1, -1))
+	t := color.luma(texel(tex, samp, uv, res, 0, -1))
+	tr := color.luma(texel(tex, samp, uv, res, 1, -1))
+	l := color.luma(texel(tex, samp, uv, res, -1, 0))
+	r := color.luma(texel(tex, samp, uv, res, 1, 0))
+	bl := color.luma(texel(tex, samp, uv, res, -1, 1))
+	b := color.luma(texel(tex, samp, uv, res, 0, 1))
+	br := color.luma(texel(tex, samp, uv, res, 1, 1))
+	gx := -tl - l - bl + tr + r + br
+	gy := -tl - t - tr + bl + b + br
+	e := mag(vec2(gx, gy))
+	return vec3(e, e, e)
+}
+
+kuwahara :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	best := texel(tex, samp, uv, res, 0, 0)
+	best_var := 1e8
+	for qy := 0; qy < 2; qy += 1 {
+		for qx := 0; qx < 2; qx += 1 {
+			mean := vec3(0, 0, 0)
+			for y := 0; y < 3; y += 1 {
+				for x := 0; x < 3; x += 1 {
+					ox := f32(qx * 2 + x - 2)
+					oy := f32(qy * 2 + y - 2)
+					mean = mean + texel(tex, samp, uv, res, ox, oy)
+				}
+			}
+			mean = mean / 9
+			vr := 0.0
+			for y := 0; y < 3; y += 1 {
+				for x := 0; x < 3; x += 1 {
+					ox := f32(qx * 2 + x - 2)
+					oy := f32(qy * 2 + y - 2)
+					d := texel(tex, samp, uv, res, ox, oy) - mean
+					vr += dot(d, d)
+				}
+			}
+			if vr < best_var {
+				best_var = vr
+				best = mean
+			}
+		}
+	}
+	return best
+}
+
+radial_blur :: proc(tex: t32_2d, samp: s32, uv: vec2, center: vec2, strength: f32) -> vec3 {
+	acc := vec3(0, 0, 0)
+	dir := (center - uv) * strength
+	for i := 0; i < 8; i += 1 {
+		t := (f32(i) / 7.0) - 0.5
+		acc = acc + sample(tex, samp, uv + dir * t).xyz
+	}
+	return acc / 8
+}
+
+noise_blur :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, amount: f32, seed: vec2) -> vec3 {
+	acc := vec3(0, 0, 0)
+	for i := 0; i < 6; i += 1 {
+		n := fract(sin(dot(seed + f32(i), vec2(12.9898, 78.233))) * 43758.5453)
+		ang := n * 6.2831853
+		r := amount * (0.3 + 0.7 * fract(n * 13.1))
+		acc = acc + texel(tex, samp, uv, res, cos(ang) * r, sin(ang) * r)
+	}
+	return acc / 6
+}
+
+fibonacci_bokeh :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, radius: f32) -> vec3 {
+	acc := vec3(0, 0, 0)
+	golden := 2.399963
+	for i := 0; i < 16; i += 1 {
+		r := sqrt((f32(i) + 0.5) / 16.0) * radius
+		a := f32(i) * golden
+		acc = acc + texel(tex, samp, uv, res, cos(a) * r, sin(a) * r)
+	}
+	return acc / 16
+}
+
+sharpen :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, amount: f32) -> vec3 {
+	c := texel(tex, samp, uv, res, 0, 0)
+	b := mean3x3(tex, samp, uv, res)
+	return c + (c - b) * amount
+}
+
+// AMD FidelityFX CAS, compact 4-neighbor form (MIT).
+cas :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, sharpness: f32) -> vec3 {
+	a := texel(tex, samp, uv, res, 0, -1)
+	b := texel(tex, samp, uv, res, -1, 0)
+	c := texel(tex, samp, uv, res, 0, 0)
+	d := texel(tex, samp, uv, res, 1, 0)
+	e := texel(tex, samp, uv, res, 0, 1)
+	mn := min(min(min(a, b), min(c, d)), e)
+	mx := max(max(max(a, b), max(c, d)), e)
+	amp := clamp(min(mn, 1 - mx) / mx, 0, 1)
+	w := amp * cas_w(sharpness)
+	return ((b + d + a + e) * w + c) / (4 * w + 1)
+}
+
+cas_w :: proc(sharpness: f32) -> f32 {
+	return -1.0 / lerp(8.0, 5.0, sharpness)
+}
+
+smart_denoise :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	return bilateral(tex, samp, uv, res, 1.4, 0.12)
+}

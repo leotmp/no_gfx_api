@@ -1,0 +1,23 @@
+// Expect: fmag.exec argument must be f32 or [2/3/4]f32
+import "core:fmag"
+
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	code: [][4]u32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	n: i32 = 1
+	x: f32 = fmag.exec(data.code, n)
+	_ = x
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

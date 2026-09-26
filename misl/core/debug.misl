@@ -1,0 +1,9 @@
+// core:debug — not ambient. Import explicitly (`import "core:debug"`).
+// Compiler looks up these keys; do not mark @builtin (that would leak printf globally).
+
+printf :: #intrinsic("debug.printf") // proc(format: string, args: ..any)
+printfln :: #intrinsic("debug.printfln") // proc(format: string, args: ..any)
+// proc(cond: b32)
+// proc(cond: b32, message: string)
+assert :: #intrinsic("debug.assert")
+panic :: #intrinsic("debug.panic") // proc(message: string)

@@ -1,0 +1,120 @@
+import "core:noise.misl"
+import "core:s2h.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	resolution: [2]f32,
+	time:       f32,
+	mode:       i32,
+	s2h_mouse:  [4]f32,
+	freq:       f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(vertex_id: u32 | SV_Vertex) -> (out: VS_Out) {
+	positions := [3]vec2 {
+		vec2(-1, -1),
+		vec2(3, -1),
+		vec2(-1, 3),
+	}
+	p := positions[vertex_id]
+	out.pos = vec4(p, 0, 1)
+	return out
+}
+
+sample_noise :: proc(p: vec2, z: f32, mode: i32) -> f32 {
+	if mode == 0 {
+		return noise.snoise2(p) * 0.5 + 0.5
+	}
+	if mode == 1 {
+		return noise.snoise3(vec3(p, z)) * 0.5 + 0.5
+	}
+	if mode == 2 {
+		return noise.cnoise2(p) * 0.5 + 0.5
+	}
+	if mode == 3 {
+		return noise.pnoise2(p, vec2(8, 8)) * 0.5 + 0.5
+	}
+	if mode == 4 {
+		return noise.cnoise3(vec3(p, z)) * 0.5 + 0.5
+	}
+	if mode == 5 {
+		return noise.value_noise2(p)
+	}
+	if mode == 6 {
+		g := noise.psrdnoise2(p, vec2(0, 0), z)
+		return g.x * 0.5 + 0.5
+	}
+	if mode == 7 {
+		return noise.fbm_simplex2(p, 5) * 0.5 + 0.5
+	}
+	if mode == 8 {
+		c := noise.curl2(p, 0.05)
+		return mag(c) * 0.5
+	}
+	return noise.wavelet2(p) * 0.5 + 0.5
+}
+
+overlay :: proc(px: vec2, mouse: vec4, mode: i32, freq: f32) -> vec4 {
+	ui := s2h.init(px)
+	ui.mouse_input = mouse
+	s2h.set_scale(&ui, 2)
+	s2h.draw_rectangle(&ui, vec2(8, 8), vec2(400, 104), vec4(0, 0, 0, 0.65))
+	s2h.set_cursor(&ui, vec2(16, 16))
+	s2h.print_txt(&ui, "noise")
+	s2h.print_lf(&ui)
+	s2h.print_txt(&ui, "mode ")
+	mf := f32(mode)
+	s2h.slider_float(&ui, 12, &mf, 0, 9)
+	s2h.print_space(&ui, 1)
+	s2h.print_int(&ui, mode)
+	s2h.print_lf(&ui)
+	s2h.print_txt(&ui, "freq ")
+	f := freq
+	s2h.slider_float(&ui, 12, &f, 0.5, 32)
+	return ui.dst_color
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	uv := fsin.pos.xy / data.resolution
+	p := (uv - 0.5) * data.freq
+	n := 0.0
+	if data.mode == 9 {
+		g := noise.gerstner(p, vec2(1, 0.3), 0.5, 2.5, data.time)
+		n = g.y * 0.5 + 0.5
+	} else {
+		n = sample_noise(p, data.time * 0.2, data.mode)
+	}
+	_ = noise.gradient_noise2(p)
+	_ = noise.fbm_classic2(p, 3)
+	_ = noise.fbm_value2(p, 3)
+	_ = noise.curl_analytic2(p)
+	_ = noise.pnoise3(vec3(p, 0.1), vec3(8, 8, 8))
+	_ = noise.srandom2(p)
+	hud := overlay(fsin.pos.xy, data.s2h_mouse, data.mode, data.freq)
+	c := vec3(n, n, n)
+	out.rgb = lerp(c, hud.rgb, hud.a)
+	out.a = 1
+	return out
+}
+
+main_pipeline :: pipeline {
+	topology = .Triangle_List,
+	vertex = vs,
+	fragment = fs,
+	targets = {
+		{
+			format = .rgba_u8_srgb,
+			write_mask = .All,
+		},
+	},
+}

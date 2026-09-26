@@ -1,0 +1,12 @@
+Data :: struct #align(16) {
+	count: u32,
+}
+
+@(size = 1)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	vid: u32 | SV_Vertex,
+) {
+	_ = data.count
+	_ = vid
+}

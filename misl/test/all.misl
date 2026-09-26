@@ -1,0 +1,593 @@
+// all.misl — kitchen-sink feature coverage for MISL (must stay green under `mst`).
+// Prefer variants of the same idea: typed vs untyped, named vs positional, type-call vs comp-lit.
+
+import "core:builtin"
+import "core:debug"
+import "import_deps/common.misl"
+import "lib:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+ivec2 :: [2]i32
+mat2 :: matrix[2, 2]f32
+mat4 :: matrix[4, 4]f32
+
+/* nested /* comment */ ok */
+
+Flags :: enum u32 {
+	A,
+	B,
+	C,
+}
+
+Flag_Set :: bit_set[Flags; u32]
+
+Mode :: enum u32 {
+	Low,
+	High,
+}
+
+Item :: struct #align(16) {
+	v: f32,
+	id: u32,
+}
+
+Point :: struct #align(16) {
+	pos: [2]f32,
+	radius: f32,
+	pad: f32,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	items: []Item,
+	items_mp: [^]Item,
+	points: [^]Point,
+	count: i32,
+	n: i32,
+	mode: Mode,
+	mask: Flag_Set,
+	tex: t32_2d,
+	samp: s32,
+	rw: rw32_2d,
+	flag: b32,
+	scale: f32,
+	values: [^]f32,
+	out_buf: [^]f32,
+}
+
+Indirect :: struct #align(16) {
+	seed: u32,
+	pad: u32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	#flat id: u32,
+	#noperspective uv: [2]f32,
+	col: [4]f32,
+}
+
+Arr2 :: #array [2]f32
+
+OFFSET :: 0.5
+HEX_OK :: 0xFF
+BIN_OK :: 0b1010
+BIG :: 1_000_000
+
+// ---- helpers ----
+
+double :: proc(x: f32) -> (y: f32) {
+	return x + x
+}
+
+split :: proc(x: f32) -> (a: f32, b: f32) {
+	return x, x + 1
+}
+
+split3 :: proc(x: f32) -> (a: f32, b: f32, c: f32) {
+	return x, x + 1, x + 2
+}
+
+named_defaults :: proc(x: f32) -> (a: f32, b: f32) {
+	if x > 0 {
+		a = x
+	}
+
+	switch {
+	case x == 1, x == 3:
+	case x == 2:
+	}
+	return
+}
+
+forward_split :: proc(x: f32) -> (a: f32, b: f32) {
+	return split(x)
+}
+
+bump :: proc(#ref v: f32) {
+	v += 1
+}
+
+bump_split :: proc(#ref v: f32) -> (lo: f32, hi: f32) {
+	v += 1
+	return v, v + 1
+}
+
+rotate :: proc(rads: f32) -> (rotation_matrix: mat4) {
+	s := sin(rads)
+	c := cos(rads)
+	return {
+		c,  s, 0, 0,
+		-s, c, 0, 0,
+		0,  0, 1, 0,
+		0,  0, 0, 1,
+	}
+}
+
+// ---- vertex ----
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	args: ^Indirect | SV_Indirect_Data,
+	vertex_id: u32 | SV_Vertex,
+	instance_id: u32 | SV_Instance,
+) -> (out: VS_Out) {
+	_ = instance_id
+	_ = args.seed
+
+	// decl forms + untyped literals
+	z: i32
+	u: i32 = ---
+	typed: f32 = 1.0
+	inferred := 42
+	const_i :: 7
+	const_f: f32 : 1.5
+	_ = z
+	_ = u
+	_ = typed
+	_ = inferred
+	_ = const_i
+	_ = const_f
+
+	// number forms
+	_ = BIG
+	_ = BIN_OK
+	_ = HEX_OK
+	_ = 0xabcDEF
+	_ = 1.0e-10
+	_ = true
+	_ = false
+
+	// blank / multi-bind
+	_, only_b := split(2.0)
+	_ = only_b
+	a, b := split(1.0)
+	_ = a + b
+	x, y, z3 := split3(0.5)
+	_ = x + y + z3
+
+	da, db := named_defaults(-1.0)
+	_ = da + db
+	da, db = named_defaults(2.0)
+	_ = da + db
+
+	p: f32
+	q: f32
+	p, q = split(3.0)
+
+	s := data.scale
+	lo, hi := bump_split(&s)
+	_ = lo + hi + s
+	bump(&s)
+	_ = s
+
+	fa, fb := forward_split(6.0)
+	_ = fa + fb
+	_ = double(data.scale)
+	_ = common.double(data.color.x)
+	_ = math.scale(data.color.x, 2)
+
+	// when (no new scope)
+	when true {
+		wx: i32 = 1
+	} else {
+		wx: i32 = 2
+	}
+	_ = wx
+	when false {
+		wy: i32 = 0
+	} else when true {
+		wy: i32 = 7
+	}
+	_ = wy
+
+	// ternary trio
+	_ = 1 > 0 ? 3 : 4
+	_ = 10 if vertex_id == 0 else 20
+	_ = 1 when true else 2
+
+	// if / if-init / C-for / break / continue
+	if n := data.n; n > 0 {
+		_ = n
+	}
+	if data.count > 0 {
+		_ = data.items[0].v
+	} else if data.count < 0 {
+		_ = 0
+	} else {
+		_ = 1
+	}
+	for i: i32 = 0; i < data.n; i += 1 {
+		if i == 2 {
+			continue
+		}
+		if i == 5 {
+			break
+		}
+	}
+
+	// range for (immutable)
+	sum: f32 = 0
+	for i in 0..<data.n {
+		_ = i
+		sum += 1
+	}
+	for i in 0..=3 {
+		_ = i
+	}
+	for it in data.items {
+		sum += it.v
+	}
+	for it, idx in data.items {
+		_ = idx
+		sum += it.v
+	}
+	for _ in 0..<1 {
+	}
+	_ = sum
+
+	// for & on local array (len>4 so it is Type_Array, not a vector)
+	local_arr: [5]f32
+	local_arr = {1, 2, 3, 4, 5}
+	for &e in local_arr {
+		e *= 2
+		bump(&e)
+	}
+	for &e, i in local_arr {
+		_ = i
+		e += 1
+	}
+
+	// switch / #partial / fallthrough
+	sw: i32 = 0
+	switch data.n {
+	case 0:
+		sw = 1
+	case 1, 2:
+		sw = 2
+		fallthrough
+	case 3:
+		sw = 3
+	case:
+		sw = 4
+	}
+	#partial switch data.mode {
+	case .Low:
+		sw = 10
+	case .High:
+		sw = 20
+	}
+	_ = sw
+
+	// conditionless switch → GLSL if/else-if (first true wins)
+	bw: i32 = 0
+	switch {
+	case data.n > 0:
+		bw = 1
+	case data.n < 0:
+		bw = -1
+	case:
+		bw = 0
+	}
+	_ = bw
+
+	// && / || / !  and  &&= / ||=
+	lb: b32 = true
+	_ = lb && data.flag
+	_ = lb || false
+	_ = !lb
+	_ = data.flag && true
+	lb &&= data.flag
+	lb ||= false
+	_ = lb
+
+	// slices / multipointer
+	n := data.count
+	a_sl := data.items_mp[:n]
+	b_sl := data.items_mp[1:n]
+	_ = len(a_sl) + len(b_sl)
+	p_mp := data.items_mp[1:]
+	_ = p_mp[0].v
+	full := data.items[:]
+	head := data.items[:n]
+	tail := data.items[1:]
+	mid := data.items[1:n]
+	_ = len(full) + len(head) + len(tail) + len(mid)
+
+	// compound literals: positional, named, empty, assign vs type-call
+	pt: Point
+	pt = {}
+	pt = {pos = {1, 2}}
+	pt = {pos = {3, 4}, radius = 5}
+	pt2 := Point{pos = {0, 1}, radius = 2, pad = 0}
+	pt3 := Point{{0, 1}, 2, 0}
+	_ = pt.radius + pt2.radius + pt3.pad
+
+	v := vec2{6, 7}
+	v = {}
+	v = {8, 9}
+	v2 := vec2(1, 2)
+	w := vec4(v, 0, 1)
+	w2 := vec4(1, 2, 3, 4)
+	_ = v2
+	_ = w
+	_ = w2
+
+	// swizzle read/write + broadcast
+	c := vec4(1, 2, 3, 4)
+	c.xy = vec2(0, 0)
+	c.rgb *= 2
+	_ = c.xxx
+	_ = c
+
+	// matrix lit / type-call / mul
+	m: mat4
+	m = {}
+	m = {
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+	m2 := mat2{1, 0, 0, 1}
+	_ = m2
+	_ = rotate(0.5)
+	_ = m * vec4(0, 0, 0, 1)
+
+	// bit_set
+	ab :: Flag_Set{.A, .B}
+	cset :: Flag_Set{.C}
+	_ = ab | cset
+	_ = ab & Flag_Set{.A}
+	_ = ab &~ Flag_Set{.B}
+	_ = ab ~ cset
+	_ = .A in ab
+	_ = .C not_in ab
+	_ = ab <= (ab | cset)
+	_ = card(ab)
+	_ = data.mask | Flag_Set{.A}
+
+	// cast / auto_cast / resource ids
+	_ = cast(i32)1.5
+	ac: i32 = auto_cast typed
+	_ = ac
+	tex: t32_2d = 0
+	samp: s32 = 1
+	_ = tex + 1
+	_ = samp
+	_ = dim(data.tex)
+
+	// bitwise / compound assign (`~=` is xor-assign; `^` is pointer syntax)
+	flags: u32 = 0
+	flags &~= 1
+	flags |= 2
+	flags ~= 4
+	flags <<= 1
+	flags >>= 1
+	_ = flags
+	_ = ~flags
+	_ = flags &~ 1
+	// NOTE(audit): `%%` (euclidean rem) is listed in LANGUAGE.md but not lexed/parsed yet.
+	// _ = 10 %% 3
+	_ = 10 % 3
+
+	// nested :: decl + call
+	Inner :: struct {
+		a: f32,
+	}
+	make_pos :: proc(s: f32) -> [4]f32 {
+		h := Inner{a = s}
+		return vec4(h.a + OFFSET, h.a, 0, 1)
+	}
+	_ = make_pos(1.0)
+
+	arr: Arr2
+	arr[0] = 1
+	arr[1] = 2
+	_ = arr[0] + arr[1]
+
+	// qualify after shadowing builtin name
+	sin :: proc(x: f32) -> f32 {
+		return builtin.sin(x) * 2
+	}
+	_ = sin(0.5)
+
+	// debug printf
+	debug.printfln("x=%v n=%v", 1.5, 3)
+	debug.printf("pct=%%\n")
+
+	out.col = vec4(0, 0, 0, 1)
+	out.col.r, out.col.g = split(4.0)
+	out.uv = vec2(0, 0)
+	out.uv.x, out.uv.y = split(5.0)
+	out.pos = vec4(p, q, double(data.scale), 1)
+	out.id = vertex_id
+	return // naked named stage return
+}
+
+// ---- fragment ----
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+	args: ^Indirect | SV_Indirect_Data,
+) -> (out: [4]f32 | SV_Target) {
+	if fsin.uv.x < 0 {
+		discard
+	}
+
+	_ = fsin.id
+	_ = args.seed
+	out = data.color if data.flag else vec4(0, 0, 0, 1)
+
+	// sample / load
+	out = sample(data.tex, data.samp, fsin.uv)
+	out = sample(data.tex, 0, fsin.uv)
+	coord := ivec2(0, 0)
+	_ = load(data.tex, coord, 0)
+	_ = load(data.rw, coord)
+	narrow: t16_2d = 0
+	_ = load(narrow, coord, 0)
+
+	// math builtins (untyped + typed)
+	x: f32 = 1.5
+	v := vec3(1, 2, 3)
+	n := vec3(0, 1, 0)
+	i := vec3(0, 0, 1)
+	_ = sin(1)
+	_ = cos(x)
+	_ = pow(v, 2.2)
+	_ = sqrt(4)
+	_ = isqrt(x)
+	_ = abs(-x)
+	_ = floor(x)
+	_ = ceil(x)
+	_ = round(x)
+	_ = round_even(x)
+	_ = fract(x)
+	_ = sign(x)
+	_ = mod(x, 2)
+	_ = atan2(1, 2)
+	_ = log(x)
+	_ = exp(x)
+	_ = lerp(v, n, 0.5)
+	_ = step(0.5, v)
+	_ = smoothstep(0, 1, v)
+	_ = clamp(v, 0, 1)
+	_ = fma(v, n, i)
+	_ = min(x, 0.5, 1, 2)
+	_ = max(v, n, i)
+	_ = mag(v)
+	_ = dist(v, n)
+	_ = dot(v, n)
+	_ = cross(v, n)
+	_ = normalize(v)
+	_ = reflect(i, n)
+	_ = facefoward(i, n, n)
+	_ = refract(i, n, 0.5)
+	whole, frac := modf(x)
+	exp_i, significand := frexp(x)
+	_ = whole + frac
+	_ = exp_i
+	_ = significand
+	_ = ldexp(x, 2)
+	_ = is_nan(x)
+	_ = is_inf(x)
+	_ = f32_from_u32_bits(u32_from_f32_bits(x))
+	m := mat2(1, 0, 0, 1)
+	_ = transpose(m)
+	_ = determinant(m)
+	_ = inverse(m)
+	_ = matrix_comp_mult(m, m)
+	_ = outer_product(vec3(3, 4, 5), vec2(1, 2))
+
+	for i := 0; i < data.count; i += 1 {
+		light := data.points[i]
+		light = {}
+		light = {pos = {1, 2}}
+		out.rg += light.pos
+		out.a = light.radius
+	}
+	return out
+}
+
+// ---- compute (device stores + for & on slices) ----
+
+@(size = 64)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+	lid: u32 | SV_Group_Index,
+	local: [3]u32 | SV_Group_Thread,
+	gsize: [3]u32 | SV_Group_Size,
+	group: [3]u32 | SV_Group,
+	ngroups: [3]u32 | SV_Num_Groups,
+) {
+	@shared tile: [64]f32
+
+	i := gid.x
+	_ = local
+	_ = gsize
+	_ = group
+	_ = ngroups
+
+	if lid < 64 {
+		if i < u32(data.count) {
+			tile[lid] = data.values[i]
+		} else {
+			tile[lid] = 0
+		}
+	}
+	barrier()
+	memory_barrier_shared()
+	memory_barrier()
+	memory_barrier_buffer()
+	memory_barrier_image()
+	group_memory_barrier()
+
+	if i < u32(data.count) {
+		data.out_buf[i] = tile[lid]
+	}
+
+	// mutable range over slice (compute only)
+	for &it in data.items {
+		it.v += 1
+	}
+	for &it, idx in data.items {
+		_ = idx
+		it.id += 1
+	}
+}
+
+// ---- pipeline (experimental; already covered by pipeline_basic) ----
+
+all_pipe :: pipeline {
+	topology = .Triangle_Strip,
+	cull = {.Back},
+	sample_count = ._1,
+	depth_format = .None,
+	stencil_format = .None,
+	flags = {},
+	view_count = 0,
+	vertex = vs,
+	fragment = fs,
+	targets = {
+		{
+			format = .rgba_u8_srgb,
+			write_mask = .All,
+			blend = {
+				color = {.Src_Alpha, .One_Minus_Src_Alpha, .Add},
+				alpha = {.One, .One_Minus_Src_Alpha, .Add},
+			},
+		},
+	},
+}
+
+// NOTE(audit): `#config(NAME, default)` is mentioned in LANGUAGE.md as partial;
+// only a stub `Configurable` type exists — no parse/check for `#config` yet.
+// FOO :: #config(FOO, false)
+
+// NOTE(audit): stack address-of is illegal (BDA-only pointers) — see fail/stack_address_of.misl.
+// p := &z

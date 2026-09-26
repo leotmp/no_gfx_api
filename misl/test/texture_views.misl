@@ -1,0 +1,70 @@
+vec4 :: [4]f32
+vec2 :: [2]f32
+vec3 :: [3]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	tex: t32_2d,
+	tex1d: t32_1d,
+	tex3d: t32_3d,
+	cube: t32_cube,
+	tex1d_arr: t32_1d_array,
+	tex2d_arr: t32_2d_array,
+	cube_arr: t32_cube_array,
+	samp: s32,
+	samp_cmp: s32_cmp,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	uv := vec2(0.5, 0.5)
+	c := sample(data.tex, data.samp, uv)
+	c = sample(data.tex, data.samp, uv, 0)
+	_ = sample(data.tex1d, data.samp, 0.5)
+	_ = sample(data.tex3d, data.samp, vec3(0.5, 0.5, 0.5))
+	_ = sample(data.cube, data.samp, vec3(0, 0, 1))
+	_ = sample(data.tex1d_arr, data.samp, vec2(0.5, 0))
+	_ = sample(data.tex2d_arr, data.samp, vec3(0.5, 0.5, 0))
+	_ = sample(data.cube_arr, data.samp, vec4(0, 0, 1, 0))
+	_ = sample(data.tex, data.samp_cmp, uv, 0.5)
+	_ = sample(data.cube, data.samp_cmp, vec3(0, 0, 1), 0.5)
+	_ = sample(data.tex, data.samp_cmp, uv, 0.5, 0)
+	_ = load(data.tex, [2]i32{0, 0})
+	_ = load(data.tex1d, 0)
+	_ = load(data.tex3d, [3]i32{0, 0, 0})
+	_ = dim(data.tex)
+	_ = dim(data.tex1d)
+	_ = dim(data.tex3d)
+	_ = dim(data.cube)
+	_ = dim(data.cube_arr)
+	tex8: t8_cube = 0
+	tex16: t16_1d = 0
+	samp8: s8_cmp = 0
+	rw16_2d: rw16_3d = 0
+	_ = sample(tex8, data.samp, vec3(0, 0, 1))
+	_ = sample(tex16, data.samp, 0.5)
+	_ = sample(data.tex, samp8, uv, 0.5)
+	_ = dim(rw16_2d)
+	w := fwidth(c.x)
+	_ = dFdx(uv)
+	_ = dFdy(uv)
+	out = vec4(c.xyz * w, 1)
+	return out
+}

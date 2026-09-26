@@ -1,0 +1,28 @@
+vec4 :: [4]f32
+
+VS_Out :: struct {
+	pos: vec4 | SV_Position,
+}
+
+GBuffer :: struct {
+	albedo: vec4 | SV_Target,
+	normal: vec4 | SV_Target,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vid
+	m: matrix[3, 4]f32
+	v3 := m * vec4(0, 0, 0, 0)
+	_ = v3
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(fsin: VS_Out) -> (out: GBuffer) {
+	_ = fsin
+	out.albedo = vec4(1, 0, 0, 1)
+	out.normal = vec4(0, 1, 0, 1)
+	return out
+}

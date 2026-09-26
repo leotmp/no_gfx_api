@@ -1,0 +1,35 @@
+// Expect: ambiguous conversion
+vec4 :: [4]f32
+
+Base :: struct {
+	n: f32,
+}
+
+Two :: struct {
+	#subtype a: Base,
+	#subtype b: Base,
+}
+
+Data :: struct #align(16) {
+	v: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+take_base :: proc(x: Base) {
+	_ = x.n
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	t: Two
+	take_base(t)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

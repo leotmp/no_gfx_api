@@ -1,0 +1,44 @@
+
+Copyright © 2026 Dragos Popescu
+
+For all original work in this project authored by Dragos Popescu:
+
+No copyright is claimed. No intellectual property rights are asserted.
+This work is released into the public domain. You may copy, modify,
+distribute, sell, or use this work for any purpose, without permission,
+attribution, or restriction.
+
+This declaration applies only to the portions of this project authored
+by Dragos Popescu. Other components remain under their respective licenses.
+
+The project contains modified components that were originally developed by Ginger Bill, for the odin programming language, released under BSD 3-Clause License. These were modified by me to accomodate the new language and are:
+1. the lexer
+2. the parser
+3. the typechecker
+
+The modifications include:
+1. Translation from C++ to Odin where necesary
+2. Addition of extra syntax 
+3. Removal of unneeded syntax
+
+The code structure remains largely the same. 
+
+The original BSD 3‑Clause License for included components follows.
+------------------------------------------------
+Copyright (c) 2016-2025 Ginger Bill. All rights reserved.
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.

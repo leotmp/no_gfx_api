@@ -1,0 +1,33 @@
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	s := sin(0.5)
+	q := sqrt(4.0)
+	out.pos = [4]f32{s, q, 0, 1}
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	_ = data
+	out = [4]f32{sin(1.0), sqrt(9.0), 0, 1}
+	return out
+}
+
+shade :: proc "fmag"(x: f32) -> f32 {
+	return sin(x) + sqrt(x)
+}

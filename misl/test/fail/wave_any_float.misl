@@ -1,0 +1,10 @@
+// Expect: expects b32, got 'f32'
+import "core:wave"
+
+@(size = 64)
+cs :: proc "compute"(
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+	_ = wave.any(1.0)
+}

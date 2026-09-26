@@ -1,0 +1,10 @@
+// Expect: import declarations must be at file scope
+#partial which MISL_MODE {
+case .SPIRV:
+	import "core:debug"
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (pos: [4]f32 | SV_Position) {
+	_ = vid
+	return [4]f32{0, 0, 0, 1}
+}

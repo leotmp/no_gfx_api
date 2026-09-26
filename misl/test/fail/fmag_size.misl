@@ -1,0 +1,5 @@
+// Expect: '@(size=…)' is only allowed on compute entry procedures
+@(size = 64)
+shade :: proc "fmag"(x: f32) -> f32 {
+	return x
+}

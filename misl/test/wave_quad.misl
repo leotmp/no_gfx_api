@@ -1,0 +1,50 @@
+import "core:wave"
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	acc:   f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	v:   f32,
+}
+
+@(size = 64)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+	x := data.color.x
+	qx := wave.quad_x(x)
+	qy := wave.quad_y(x)
+	qd := wave.quad_diag(x)
+	qr := wave.quad_read(x, 1)
+	data.acc = qx + qy + qd + qr
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	out.pos = [4]f32{0, 0, 0, 1}
+	out.v = 1
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	x := fsin.v
+	qx := wave.quad_x(x)
+	qy := wave.quad_y(x)
+	qd := wave.quad_diag(x)
+	qr := wave.quad_read(x, 0)
+	out = data.color
+	out.x = qx + qy + qd + qr
+	return out
+}

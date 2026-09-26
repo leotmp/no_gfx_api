@@ -1,0 +1,5 @@
+// Expect: unknown identifier 'memory_barrier_buffer'
+shade :: proc "fmag"(x: f32) -> f32 {
+	memory_barrier_buffer()
+	return x
+}

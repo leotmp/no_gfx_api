@@ -1,0 +1,5 @@
+// Expect: proc "fmag" results must be f32 or [2/3/4]f32
+shade :: proc "fmag"(x: f32) -> matrix[2, 2]f32 {
+	_ = x
+	return {}
+}

@@ -1,0 +1,38 @@
+import "core:fmag.misl"
+
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	code:  [][4]u32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	r: [fmag.REGS]f32
+	r[0] = 1
+	fmag.run(data.code, &r)
+	q := f32_from_u32_bits(u32(0x7FC00000))
+	_ = is_nan(q)
+	_ = f32_from_u32_bits(u32_from_f32_bits(data.color.x))
+	out = data.color
+	return out
+}

@@ -1,0 +1,8 @@
+// Expect: f32 or [2/3/4]f32
+widen :: proc(x: i32) -> f32 {
+	return f32(x)
+}
+
+k :: proc "fmag"(a: f32) -> f32 {
+	return widen(1)
+}

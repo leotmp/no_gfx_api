@@ -1,0 +1,211 @@
+/*
+	https://easings.net
+*/
+
+PI :: 3.14159265358979323846
+
+linear :: proc(t: f32) -> f32 {
+	return t
+}
+
+quad_in :: proc(t: f32) -> f32 {
+	return t * t
+}
+
+quad_out :: proc(t: f32) -> f32 {
+	return t * (2 - t)
+}
+
+quad_in_out :: proc(t: f32) -> f32 {
+	return 2 * t * t if t < 0.5 else -1 + (4 - 2 * t) * t
+}
+
+cubic_in :: proc(t: f32) -> f32 {
+	return t * t * t
+}
+
+cubic_out :: proc(t: f32) -> f32 {
+	u := t - 1
+	return u * u * u + 1
+}
+
+cubic_in_out :: proc(t: f32) -> f32 {
+	return 4 * t * t * t if t < 0.5 else (t - 1) * (2 * t - 2) * (2 * t - 2) + 1
+}
+
+quart_in :: proc(t: f32) -> f32 {
+	return t * t * t * t
+}
+
+quart_out :: proc(t: f32) -> f32 {
+	u := t - 1
+	return 1 - u * u * u * u
+}
+
+quart_in_out :: proc(t: f32) -> f32 {
+	if t < 0.5 {
+		return 8 * t * t * t * t
+	}
+	u := t - 1
+	return 1 - 8 * u * u * u * u
+}
+
+quint_in :: proc(t: f32) -> f32 {
+	return t * t * t * t * t
+}
+
+quint_out :: proc(t: f32) -> f32 {
+	u := t - 1
+	return 1 + u * u * u * u * u
+}
+
+quint_in_out :: proc(t: f32) -> f32 {
+	if t < 0.5 {
+		return 16 * t * t * t * t * t
+	}
+	u := t - 1
+	return 1 + 16 * u * u * u * u * u
+}
+
+sine_in :: proc(t: f32) -> f32 {
+	return 1 - cos((t * PI) / 2)
+}
+
+sine_out :: proc(t: f32) -> f32 {
+	return sin((t * PI) / 2)
+}
+
+sine_in_out :: proc(t: f32) -> f32 {
+	return -(cos(PI * t) - 1) / 2
+}
+
+expo_in :: proc(t: f32) -> f32 {
+	if t <= 0 {
+		return 0
+	}
+	return pow(2, 10 * t - 10)
+}
+
+expo_out :: proc(t: f32) -> f32 {
+	if t >= 1 {
+		return 1
+	}
+	return 1 - pow(2, -10 * t)
+}
+
+expo_in_out :: proc(t: f32) -> f32 {
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	if t < 0.5 {
+		return pow(2, 20 * t - 10) / 2
+	}
+	return (2 - pow(2, -20 * t + 10)) / 2
+}
+
+circ_in :: proc(t: f32) -> f32 {
+	return 1 - sqrt(1 - t * t)
+}
+
+circ_out :: proc(t: f32) -> f32 {
+	u := t - 1
+	return sqrt(1 - u * u)
+}
+
+circ_in_out :: proc(t: f32) -> f32 {
+	if t < 0.5 {
+		return (1 - sqrt(1 - 4 * t * t)) / 2
+	}
+	u := -2 * t + 2
+	return (sqrt(1 - u * u) + 1) / 2
+}
+
+BACK_C1 :: 1.70158
+BACK_C3 :: 2.70158
+BACK_C2 :: 2.5949095
+ELASTIC_C4 :: 2.0943951023931953
+ELASTIC_C5 :: 1.3962634015954636
+
+back_in :: proc(t: f32) -> f32 {
+	return BACK_C3 * t * t * t - BACK_C1 * t * t
+}
+
+back_out :: proc(t: f32) -> f32 {
+	u := t - 1
+	return 1 + BACK_C3 * u * u * u + BACK_C1 * u * u
+}
+
+back_in_out :: proc(t: f32) -> f32 {
+	if t < 0.5 {
+		u := 2 * t
+		return (u * u * ((BACK_C2 + 1) * u - BACK_C2)) / 2
+	}
+	u := 2 * t - 2
+	return (u * u * ((BACK_C2 + 1) * u + BACK_C2) + 2) / 2
+}
+
+elastic_in :: proc(t: f32) -> f32 {
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	return -pow(2, 10 * t - 10) * sin((t * 10 - 10.75) * ELASTIC_C4)
+}
+
+elastic_out :: proc(t: f32) -> f32 {
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	return pow(2, -10 * t) * sin((t * 10 - 0.75) * ELASTIC_C4) + 1
+}
+
+elastic_in_out :: proc(t: f32) -> f32 {
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	if t < 0.5 {
+		return -(pow(2, 20 * t - 10) * sin((20 * t - 11.125) * ELASTIC_C5)) / 2
+	}
+	return (pow(2, -20 * t + 10) * sin((20 * t - 11.125) * ELASTIC_C5)) / 2 + 1
+}
+
+bounce_out :: proc(t: f32) -> f32 {
+	n1 :: 7.5625
+	d1 :: 2.75
+	if t < 1 / d1 {
+		return n1 * t * t
+	}
+	if t < 2 / d1 {
+		u := t - 1.5 / d1
+		return n1 * u * u + 0.75
+	}
+	if t < 2.5 / d1 {
+		u := t - 2.25 / d1
+		return n1 * u * u + 0.9375
+	}
+	u := t - 2.625 / d1
+	return n1 * u * u + 0.984375
+}
+
+bounce_in :: proc(t: f32) -> f32 {
+	return 1 - bounce_out(1 - t)
+}
+
+bounce_in_out :: proc(t: f32) -> f32 {
+	return (1 - bounce_out(1 - 2 * t)) / 2 if t < 0.5 else (1 + bounce_out(2 * t - 1)) / 2
+}
+
+sprite_frame :: proc(time: f32, fps: f32, frame_count: f32) -> f32 {
+	return floor(mod(time * fps, frame_count))
+}

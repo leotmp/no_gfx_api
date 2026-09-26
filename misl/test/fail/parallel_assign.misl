@@ -1,0 +1,14 @@
+// Parallel multi-assign must be rejected
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	a: i32 = 0
+	b: i32 = 0
+	c: i32 = 1
+	d: i32 = 2
+	a, b = c, d
+	_ = a + b
+	_ = vid
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

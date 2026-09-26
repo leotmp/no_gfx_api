@@ -1,0 +1,119 @@
+import "core:sdf.misl"
+import "core:s2h.misl"
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	resolution: [2]f32,
+	time:       f32,
+	mode:       i32,
+	s2h_mouse:  [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(vertex_id: u32 | SV_Vertex) -> (out: VS_Out) {
+	positions := [3]vec2 {
+		vec2(-1, -1),
+		vec2(3, -1),
+		vec2(-1, 3),
+	}
+	p := positions[vertex_id]
+	out.pos = vec4(p, 0, 1)
+	return out
+}
+
+shape :: proc(p: vec2, mode: i32, t: f32) -> f32 {
+	if mode == 0 {
+		return sdf.sd_circle(p, 0.35)
+	}
+	if mode == 1 {
+		return sdf.sd_box2(p, vec2(0.3, 0.2))
+	}
+	if mode == 2 {
+		return sdf.sd_rounded_box2(p, vec2(0.28, 0.18), 0.06)
+	}
+	if mode == 3 {
+		return sdf.sd_capsule2(p, vec2(-0.3, 0), vec2(0.3, 0.1), 0.08)
+	}
+	if mode == 4 {
+		return sdf.sd_hexagon(p, 0.32)
+	}
+	if mode == 5 {
+		return sdf.sd_equilateral_triangle(p, 0.35)
+	}
+	if mode == 6 {
+		return sdf.sd_star5(p, 0.38, 0.45)
+	}
+	if mode == 7 {
+		return sdf.sd_heart(p * 1.4 + vec2(0, 0.2))
+	}
+	if mode == 8 {
+		a := sdf.sd_circle(p - vec2(0.15, 0), 0.28)
+		b := sdf.sd_box2(p + vec2(0.12, 0), vec2(0.22, 0.22))
+		return sdf.op_smooth_union(a, b, 0.08)
+	}
+	if mode == 9 {
+		a := sdf.sd_circle(p, 0.35)
+		b := sdf.sd_box2(p, vec2(0.45, 0.12))
+		return sdf.op_subtraction(b, a)
+	}
+	if mode == 10 {
+		return sdf.julia2(p * 1.6, vec2(-0.8, 0.156 + 0.05 * sin(t)), 24)
+	}
+	return sdf.koch2(p * 1.2, 4)
+}
+
+overlay :: proc(px: vec2, mouse: vec4, mode: i32) -> vec4 {
+	ui := s2h.init(px)
+	ui.mouse_input = mouse
+	s2h.set_scale(&ui, 2)
+	s2h.draw_rectangle(&ui, vec2(8, 8), vec2(400, 72), vec4(0, 0, 0, 0.65))
+	s2h.set_cursor(&ui, vec2(16, 16))
+	s2h.print_txt(&ui, "sdf 2d")
+	s2h.print_lf(&ui)
+	s2h.print_txt(&ui, "mode ")
+	mf := f32(mode)
+	s2h.slider_float(&ui, 12, &mf, 0, 11)
+	s2h.print_space(&ui, 1)
+	s2h.print_int(&ui, mode)
+	return ui.dst_color
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	uv := fsin.pos.xy / data.resolution
+	p := (uv * 2 - 1) * vec2(data.resolution.x / data.resolution.y, 1)
+	d := shape(p, data.mode, data.time)
+	_ = sdf.op_union(d, sdf.sd_circle(p, 0.9))
+	_ = sdf.op_intersection(d, sdf.sd_box2(p, vec2(1, 1)))
+	_ = sdf.op_round(d, 0.01)
+	_ = sdf.op_onion(d, 0.03)
+	_ = sdf.op_repeat2(p, vec2(1.2, 1.2))
+	fill := 1 - math.aastep(0, d, 0.004)
+	edge := 1 - math.aastep(0, abs(d), 0.006)
+	c := vec3(0.08, 0.09, 0.12) + vec3(0.2, 0.55, 0.9) * fill + vec3(1, 0.9, 0.4) * edge
+	hud := overlay(fsin.pos.xy, data.s2h_mouse, data.mode)
+	out.rgb = lerp(c, hud.rgb, hud.a)
+	out.a = 1
+	return out
+}
+
+main_pipeline :: pipeline {
+	topology = .Triangle_List,
+	vertex = vs,
+	fragment = fs,
+	targets = {
+		{
+			format = .rgba_u8_srgb,
+			write_mask = .All,
+		},
+	},
+}

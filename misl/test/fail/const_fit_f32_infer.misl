@@ -1,0 +1,9 @@
+// Expect: constant value does not fit in 'f32'
+vec4 :: [4]f32
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: [4]f32 | SV_Position) {
+	_ = vid
+	x := 1.0e40
+	_ = x
+	out = vec4(0, 0, 0, 1)
+	return out
+}

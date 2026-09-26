@@ -1,0 +1,12 @@
+// `do` body must be on the same line as the signature
+helper :: proc() -> i32 do
+	return 1
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	_ = helper()
+	_ = vid
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

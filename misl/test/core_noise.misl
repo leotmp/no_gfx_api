@@ -1,0 +1,47 @@
+import "core:noise.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	p := vec2(1.5, 2.25)
+	_ = noise.snoise2(p)
+	_ = noise.snoise3(vec3(p, 0.4))
+	_ = noise.cnoise2(p)
+	_ = noise.pnoise2(p, vec2(8, 8))
+	_ = noise.cnoise3(vec3(p, 0.2))
+	_ = noise.value_noise2(p)
+	_ = noise.psrdnoise2(p, vec2(0, 0), 0.3)
+	_ = noise.fbm_simplex2(p, 4)
+	_ = noise.curl2(p, 0.02)
+	_ = noise.voronoi2(p)
+	_ = noise.worley2(p)
+	_ = noise.voronoise2(p, 0.8, 0.6)
+	_ = noise.wavelet2(p)
+	_ = noise.gerstner(p, vec2(1, 0), 0.4, 4, 0.5)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

@@ -1,0 +1,5 @@
+// Expect: unknown identifier 'sample'
+shade :: proc "fmag"(x: f32) -> f32 {
+	_ = sample()
+	return x
+}

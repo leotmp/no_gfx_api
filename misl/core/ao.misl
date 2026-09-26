@@ -1,0 +1,25 @@
+/*
+	Ambient occlusion helpers.
+
+	GTAO multi-bounce color: Jimenez et al. / Filament. Specular AO:
+	horizon specular occlusion as in Filament (Lagarde / Karis variants).
+*/
+
+import "core:math.misl"
+
+vec3 :: [3]f32
+
+gtao_multibounce :: proc(visibility: f32, albedo: vec3) -> vec3 {
+	al := max(albedo, 0)
+	x := visibility
+	return max(x + (al + al * x) * (1 - x) * (1 - x) * x, 0)
+}
+
+specular_ao :: proc(visibility: f32, roughness: f32, n_dot_v: f32) -> f32 {
+	return math.saturate(pow(visibility, exp2((-16 * roughness + 8) * n_dot_v)))
+}
+
+horizon_specular_ao :: proc(visibility: f32, roughness: f32) -> f32 {
+	smoothness := 1 - roughness
+	return math.saturate(visibility + visibility * visibility * smoothness)
+}

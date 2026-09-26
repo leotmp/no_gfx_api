@@ -1,0 +1,10 @@
+BAD :: #config(BAD, "nope")
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	_ = vid
+	_ = BAD
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

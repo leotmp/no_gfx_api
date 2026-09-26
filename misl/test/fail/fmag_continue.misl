@@ -1,0 +1,5 @@
+// Expect: 'continue' is only allowed inside a loop
+shade :: proc "fmag"(x: f32) -> f32 {
+	continue
+	return x
+}

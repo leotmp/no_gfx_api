@@ -1,0 +1,40 @@
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Vertex :: struct {
+	pos: vec3,
+	uv:  vec2,
+}
+
+Vert_Data :: struct {
+	verts: [^]Vertex,
+}
+
+VS_Out :: struct {
+	pos: vec4 | SV_Position,
+	uv:  vec2,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+	data: ^Vert_Data | SV_Data,
+) -> (out: VS_Out) {
+	v := data.verts[vid]
+	out.pos = vec4(v.pos, 1)
+	out.uv = v.uv
+	return out
+}
+
+Frag_Data :: struct {
+	tex:  t32_2d,
+	samp: s32,
+}
+
+fs :: proc "fragment"(
+	input: VS_Out,
+	data: ^Frag_Data | SV_Data,
+) -> (out: vec4 | SV_Target) {
+	out = sample(data.tex, data.samp, input.uv)
+	return out
+}

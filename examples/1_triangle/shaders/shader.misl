@@ -1,0 +1,36 @@
+
+import "core:debug.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Vertex :: struct {
+	pos:   vec3,
+	color: vec3,
+}
+
+Data :: struct {
+	verts: [^]Vertex,
+}
+
+VS_Out :: struct {
+	pos:   vec4 | SV_Position,
+	color: vec4,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+	data: ^Data | SV_Data,
+) -> (out: VS_Out) {
+	v := data.verts[vid]
+	out.pos = vec4(v.pos, 1)
+	out.color = vec4(v.color, 1)
+	return out
+}
+
+fs :: proc "fragment"(input: VS_Out) -> (out: vec4 | SV_Target) {
+	debug.assert(false, "test")
+	out = input.color
+	return out
+}

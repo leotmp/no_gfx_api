@@ -1,0 +1,44 @@
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat4 :: matrix[4, 4]f32
+
+Vert_Data :: struct {
+	positions:     [^]vec3,
+	world_to_view: mat4,
+	view_to_proj:  mat4,
+}
+
+VS_Out :: struct {
+	pos: vec4 | SV_Position,
+	dir: vec3,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+	data: ^Vert_Data | SV_Data,
+) -> (out: VS_Out) {
+	p := data.positions[vid]
+	clip_pos := vec4((data.world_to_view * vec4(p, 0)).xyz, 1)
+	clip_pos = data.view_to_proj * clip_pos
+	clip_pos.y = -clip_pos.y
+
+	out.pos = clip_pos
+	out.dir = normalize(p)
+	return out
+}
+
+Frag_Data :: struct {
+	sky_texture: t32_cube,
+	sky_sampler: s32,
+}
+
+fs :: proc "fragment"(
+	input: VS_Out,
+	data: ^Frag_Data | SV_Data,
+) -> (out: vec4 | SV_Target) {
+	frag_dir := normalize(input.dir)
+	sky_color := sample(data.sky_texture, data.sky_sampler, frag_dir).xyz
+	out = vec4(sky_color, 1)
+	return out
+}

@@ -1,0 +1,5 @@
+// Expect: unknown identifier 'fwidth'
+shade :: proc "fmag"(x: f32) -> f32 {
+	_ = fwidth(x)
+	return x
+}

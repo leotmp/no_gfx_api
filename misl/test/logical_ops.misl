@@ -1,0 +1,46 @@
+// && / || / ! on b32 (and untyped bool literals). GLSL uses bool predicates then stores uint.
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	flag: b32,
+	other: b32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	a: b32 = true
+	b: b32 = false
+	_ = a && b
+	_ = a || b
+	_ = a && true
+	_ = false || b
+	_ = true && false
+	_ = !a
+	_ = !data.flag
+	_ = data.flag && data.other
+	_ = data.flag || !data.other
+	if a && data.flag {
+		_ = 1
+	}
+	if !b || true {
+		_ = 0
+	}
+	folded :: true && false
+	_ = folded
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = vec4(0, 0, 0, 1) if data.flag && data.other else vec4(1, 0, 0, 1)
+	return out
+}

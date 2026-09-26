@@ -1,0 +1,49 @@
+import "core:sdf.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	p2 := vec2(0.2, -0.1)
+	p3 := vec3(0.2, 0.1, -0.3)
+	_ = sdf.sd_circle(p2, 0.4)
+	_ = sdf.sd_box2(p2, vec2(0.3, 0.2))
+	_ = sdf.sd_hexagon(p2, 0.3)
+	_ = sdf.sd_star5(p2, 0.4, 0.5)
+	_ = sdf.sd_heart(p2)
+	_ = sdf.sd_sphere(p3, 0.5)
+	_ = sdf.sd_box3(p3, vec3(0.2, 0.3, 0.4))
+	_ = sdf.sd_torus(p3, vec2(0.4, 0.1))
+	_ = sdf.sd_capsule3(p3, vec3(0, 0, 0), vec3(0, 1, 0), 0.1)
+	_ = sdf.sd_cone(p3, vec2(0.5, 0.8))
+	_ = sdf.op_smooth_union(0.2, 0.3, 0.1)
+	_ = sdf.op_onion(0.2, 0.05)
+	_ = sdf.mandelbulb(p3, 8, 4)
+	_ = sdf.julia2(p2, vec2(-0.8, 0.156), 8)
+	_ = sdf.koch2(p2, 3)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

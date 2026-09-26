@@ -125,6 +125,7 @@ layout(set = 3, binding = 0) uniform accelerationStructureEXT bvhs[];  // Option
 // For vertex and fragment shaders:
 layout(push_constant) uniform Push
 {
+    Context* context;
     void* vert_data;
     void* frag_data;
     void* indirect_data;
@@ -133,7 +134,40 @@ layout(push_constant) uniform Push
 // For compute shaders:
 layout(push_constant) uniform Push
 {
+    Context* context;
     void* compute_data
+};
+layout(constant_id = 13370) const int workgroup_size_x;
+layout(constant_id = 13371) const int workgroup_size_y;
+layout(constant_id = 13372) const int workgroup_size_z;
+
+// Optional, for assert messages:
+enum Assert_Kind : uint
+{
+    None,
+    User,
+    Panic,
+    Slice_Index
+};
+struct Assert_Record
+{
+    uint fired;
+    uint overflow;
+    uint kind;
+    uint line;
+    uint column;
+    uint path_len;
+    uint msg_len;
+    uint index;
+    uint length;
+    u8 path[256];
+    u8 message[256];
+};
+layout(constant_id = 13373) const bool gpu_validation = false;
+
+struct Context
+{
+    Assert_Record assert_info;
 };
 ```
 
