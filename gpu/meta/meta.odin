@@ -6,6 +6,7 @@ import "core:os"
 import "core:odin/ast"
 import "core:odin/parser"
 import str "core:strings"
+import "core:reflect"
 
 main :: proc()
 {
@@ -75,7 +76,15 @@ write_meta_procs :: proc(sb: ^str.Builder, file: ast.File)
         ident := name.derived_expr.(^ast.Ident) or_continue
         fmt.sbprintf(sb, "_%s_meta :: (", ident.name)
         write_proc_fields(sb, proc_type.params.list)
-        fmt.sbprintln(sb, ") {}")
+        fmt.sbprint(sb, ")")
+        if proc_type.results != nil && len(proc_type.results.list) > 0
+        {
+            fmt.sbprintf(sb, "->(")
+            write_proc_fields(sb, proc_type.results.list)
+            fmt.sbprintf(sb, ")")
+        }
+        fmt.sbprintln(sb, "")
+        fmt.sbprintln(sb, "{}")
     }
 }
 
@@ -94,7 +103,13 @@ write_layer_struct :: proc(sb: ^str.Builder, file: ast.File)
         ident := name.derived_expr.(^ast.Ident) or_continue
         fmt.sbprintf(sb, "    %s: ^proc(", ident.name)
         write_proc_fields(sb, proc_type.params.list)
-        fmt.sbprintf(sb, ")->")
+        fmt.sbprintf(sb, ")")
+        if proc_type.results != nil && len(proc_type.results.list) > 0
+        {
+            fmt.sbprintf(sb, "->(")
+            write_proc_fields(sb, proc_type.results.list)
+            fmt.sbprintf(sb, ")")
+        }
         fmt.sbprintln(sb, "")
     }
     fmt.sbprintln(sb, "}")
@@ -102,8 +117,13 @@ write_layer_struct :: proc(sb: ^str.Builder, file: ast.File)
 
 write_proc_fields :: proc(sb: ^str.Builder, fields: []^ast.Field)
 {
+    first_param := true
     for param in fields
     {
+        if !first_param {
+            fmt.sbprintf(sb, ", ")
+        }
+
         first_name := true
         for param_expr in param.names
         {
@@ -115,6 +135,61 @@ write_proc_fields :: proc(sb: ^str.Builder, fields: []^ast.Field)
             first_name = false
         }
 
-        fmt.sbprintf(sb, ": some_type, ")
+        if param.type == nil && param.default_value == nil do continue
+
+        if len(param.names) > 0
+        {
+            if param.type == nil {
+                fmt.sbprintf(sb, " :")
+            } else {
+                fmt.sbprintf(sb, ": ")
+            }
+        }
+
+        if param.type != nil
+        {
+            write_type(sb, param.type)
+            if param.default_value != nil {
+                fmt.sbprintf(sb, " ")
+            }
+        }
+
+        if param.default_value != nil {
+            fmt.sbprintf(sb, "= default_value")
+        }
+
+        first_param = false
+    }
+}
+
+write_type :: proc(sb: ^str.Builder, type: ^ast.Expr)
+{
+    #partial switch type in type.derived_expr
+    {
+        case ^ast.Pointer_Type:
+        {
+            fmt.sbprint(sb, "^")
+            write_type(sb, type.elem)
+        }
+        case ^ast.Array_Type:
+        {
+            fmt.sbprint(sb, "[]")
+            write_type(sb, type.elem)
+        }
+        case ^ast.Ident:
+        {
+            fmt.sbprint(sb, type.name)
+        }
+        case ^ast.Selector_Expr:
+        {
+            write_type(sb, type.expr)
+            fmt.sbprint(sb, ".")
+            fmt.sbprint(sb, type.field.name)
+        }
+        case:
+        {
+            // fmt.printfln("%t", reflect.union_variant_typeid(type))
+            fmt.sbprint(sb, "<unknown type>")
+        }
     }
 }
