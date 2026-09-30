@@ -155,7 +155,8 @@ write_proc_fields :: proc(sb: ^str.Builder, fields: []^ast.Field)
         }
 
         if param.default_value != nil {
-            fmt.sbprintf(sb, "= default_value")
+            fmt.sbprintf(sb, "= ")
+            write_default_value(sb, param.default_value)
         }
 
         first_param = false
@@ -190,6 +191,26 @@ write_type :: proc(sb: ^str.Builder, type: ^ast.Expr)
         {
             // fmt.printfln("%t", reflect.union_variant_typeid(type))
             fmt.sbprint(sb, "<unknown type>")
+        }
+    }
+}
+
+write_default_value :: proc(sb: ^str.Builder, type: ^ast.Expr)
+{
+    #partial switch value in type.derived_expr
+    {
+        case ^ast.Basic_Lit:
+        {
+            fmt.sbprint(sb, value.tok)
+        }
+        case ^ast.Basic_Directive:
+        {
+            fmt.sbprintf(sb, "#%s", value.name)
+        }
+        case:
+        {
+            fmt.printfln("%t", reflect.union_variant_typeid(value))
+            fmt.sbprint(sb, "<unknown value>")
         }
     }
 }
