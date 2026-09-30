@@ -13,6 +13,8 @@ import "core:sync"
 import intr "base:intrinsics"
 import fp "core:path/filepath"
 
+import "../gpu/meta"
+
 Command :: struct
 {
     name: string,
@@ -46,6 +48,7 @@ EXAMPLES: [dynamic]Example
 
 cmd_default :: proc() -> bool
 {
+    meta.generate_code("gpu/gpu.odin", "gpu/gpu_generated.odin")
     cmd_check_gpu() or_return
     res := true
     res &= cmd_compiler()
