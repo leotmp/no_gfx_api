@@ -227,6 +227,8 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     vk_logger = context.logger
     ctx.validation = validation
 
+    add_debug_layer()
+
     // Create instance
     {
         required_layers := make([dynamic]cstring, allocator = scratch)
@@ -1533,7 +1535,7 @@ get_or_add_sampler :: proc(info: vk.SamplerCreateInfo) -> vk.Sampler
     return sampler
 }
 
-_texture_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
+_texture_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
 {
     if ctx.validation
     {
@@ -1565,7 +1567,7 @@ _texture_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc 
     return { transmute(u64) texture.handle, cast(u64) view }
 }
 
-_texture_rw_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
+_texture_rw_view_descriptor :: proc(texture: Texture, view_desc: Texture_View_Desc, loc := #caller_location) -> Texture_Descriptor
 {
     if ctx.validation
     {

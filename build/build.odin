@@ -46,9 +46,13 @@ Example :: struct
 
 EXAMPLES: [dynamic]Example
 
+run_metaprogram :: proc() -> bool
+{
+    return meta.generate_code("gpu/gpu.odin", "gpu/impl_generated.odin")
+}
+
 cmd_default :: proc() -> bool
 {
-    meta.generate_code("gpu/gpu.odin", "gpu/gpu_generated.odin")
     cmd_check_gpu() or_return
     res := true
     res &= cmd_compiler()
@@ -138,6 +142,7 @@ cmd_vercheck :: proc() -> bool
 
 cmd_check_gpu :: proc() -> bool
 {
+    run_metaprogram()
     res := true
     res &= run_task("odin", "check", "gpu", "-no-entry-point", "-vet")
     return res
