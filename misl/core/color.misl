@@ -1,0 +1,693 @@
+/*
+	Color spaces, tonemap, ops, dither, blends, and palettes.
+
+	sRGB: IEC 61966-2-1. CIE XYZ / xyY / Lab / LCH: CIE 15. Oklab: Björn
+	Ottosson (MIT). HSV/HSL: standard cylindrical models. YCbCr/YUV/YIQ:
+	Rec.601 / NTSC textbooks. CMYK: simple subtractive. LMS: Hunt–Pointer–
+	Estevez. RYB: Gossett & Chen style white-extraction mix. Heat: black–
+	red–yellow–white ramp.
+
+	Tonemap: Narkowicz ACES fit; Reinhard; Reinhard–Jodie; Hable Uncharted2
+	(Filmic Tonemapping for Real-time Rendering); Unreal; AgX contrast
+	approx (Troy Sobotka / common MIT shader form); linear.
+
+	Dither: Bayer (public domain); Jimenez IGN (SIGGRAPH 2014 Advances);
+	Vlachos GDC 2016 triangle/interleaved; triangle PDF.
+
+	Blend: Porter–Duff (1984); Photoshop-style blends as commonly published.
+
+	Palettes: Google Turbo (Apache 2); viridis polynomial fit (matplotlib
+	BSD-style published coefficients).
+*/
+
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+SRGB_EPS :: 0.0031308
+SRGB_INV :: 0.04045
+
+luma :: proc(c: vec3) -> f32 {
+	return dot(c, vec3(0.2126729, 0.7151522, 0.0721750))
+}
+
+luma_rec601 :: proc(c: vec3) -> f32 {
+	return dot(c, vec3(0.299, 0.587, 0.114))
+}
+
+srgb_from_linear1 :: proc(c: f32) -> f32 {
+	x := math.saturate(c)
+	return 12.92 * x if x <= SRGB_EPS else 1.055 * pow(x, 1.0 / 2.4) - 0.055
+}
+
+linear_from_srgb1 :: proc(c: f32) -> f32 {
+	x := math.saturate(c)
+	return x / 12.92 if x <= SRGB_INV else pow((x + 0.055) / 1.055, 2.4)
+}
+
+srgb_from_linear :: proc(c: vec3) -> vec3 {
+	return vec3(srgb_from_linear1(c.x), srgb_from_linear1(c.y), srgb_from_linear1(c.z))
+}
+
+linear_from_srgb :: proc(c: vec3) -> vec3 {
+	return vec3(linear_from_srgb1(c.x), linear_from_srgb1(c.y), linear_from_srgb1(c.z))
+}
+
+xyz_from_rgb :: proc(c: vec3) -> vec3 {
+	return vec3(
+		0.4124564 * c.x + 0.3575761 * c.y + 0.1804375 * c.z,
+		0.2126729 * c.x + 0.7151522 * c.y + 0.0721750 * c.z,
+		0.0193339 * c.x + 0.1191920 * c.y + 0.9503041 * c.z,
+	)
+}
+
+rgb_from_xyz :: proc(c: vec3) -> vec3 {
+	return vec3(
+		3.2404542 * c.x - 1.5371385 * c.y - 0.4985314 * c.z,
+		-0.9692660 * c.x + 1.8760108 * c.y + 0.0415560 * c.z,
+		0.0556434 * c.x - 0.2040259 * c.y + 1.0572252 * c.z,
+	)
+}
+
+xyy_from_xyz :: proc(c: vec3) -> vec3 {
+	s := c.x + c.y + c.z
+	if s <= 1e-8 {
+		return vec3(0.3127, 0.3290, 0)
+	}
+	return vec3(c.x / s, c.y / s, c.y)
+}
+
+xyz_from_xyy :: proc(c: vec3) -> vec3 {
+	if c.y <= 1e-8 {
+		return vec3(0, 0, 0)
+	}
+	return vec3(c.x * c.z / c.y, c.z, (1 - c.x - c.y) * c.z / c.y)
+}
+
+lab_f :: proc(t: f32) -> f32 {
+	d := 6.0 / 29.0
+	return pow(t, 1.0 / 3.0) if t > d * d * d else t / (3 * d * d) + 4.0 / 29.0
+}
+
+lab_f_inv :: proc(t: f32) -> f32 {
+	d := 6.0 / 29.0
+	return t * t * t if t > d else 3 * d * d * (t - 4.0 / 29.0)
+}
+
+lab_from_xyz :: proc(c: vec3) -> vec3 {
+	x := lab_f(c.x / 0.95047)
+	y := lab_f(c.y)
+	z := lab_f(c.z / 1.08883)
+	return vec3(116 * y - 16, 500 * (x - y), 200 * (y - z))
+}
+
+xyz_from_lab :: proc(c: vec3) -> vec3 {
+	fy := (c.x + 16) / 116
+	return vec3(
+		0.95047 * lab_f_inv(fy + c.y / 500),
+		lab_f_inv(fy),
+		1.08883 * lab_f_inv(fy - c.z / 200),
+	)
+}
+
+lab_from_rgb :: proc(c: vec3) -> vec3 {
+	return lab_from_xyz(xyz_from_rgb(c))
+}
+
+rgb_from_lab :: proc(c: vec3) -> vec3 {
+	return rgb_from_xyz(xyz_from_lab(c))
+}
+
+lch_from_lab :: proc(c: vec3) -> vec3 {
+	return vec3(c.x, mag(vec2(c.y, c.z)), atan2(c.z, c.y))
+}
+
+lab_from_lch :: proc(c: vec3) -> vec3 {
+	return vec3(c.x, cos(c.z) * c.y, sin(c.z) * c.y)
+}
+
+// Ottosson Oklab (MIT).
+oklab_from_linear_srgb :: proc(c: vec3) -> vec3 {
+	l := 0.4122214708 * c.x + 0.5363325363 * c.y + 0.0514459929 * c.z
+	m := 0.2119034982 * c.x + 0.6806995451 * c.y + 0.1073969566 * c.z
+	s := 0.0883024619 * c.x + 0.2817188376 * c.y + 0.6299787005 * c.z
+	l_ := pow(l, 1.0 / 3.0)
+	m_ := pow(m, 1.0 / 3.0)
+	s_ := pow(s, 1.0 / 3.0)
+	return vec3(
+		0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+		1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+		0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+	)
+}
+
+linear_srgb_from_oklab :: proc(c: vec3) -> vec3 {
+	l_ := c.x + 0.3963377774 * c.y + 0.2158037573 * c.z
+	m_ := c.x - 0.1055613458 * c.y - 0.0638541728 * c.z
+	s_ := c.x - 0.0897126603 * c.y - 1.2914855480 * c.z
+	l := l_ * l_ * l_
+	m := m_ * m_ * m_
+	s := s_ * s_ * s_
+	return vec3(
+		4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+		-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+		-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+	)
+}
+
+oklab_mix :: proc(a: vec3, b: vec3, t: f32) -> vec3 {
+	return linear_srgb_from_oklab(lerp(oklab_from_linear_srgb(a), oklab_from_linear_srgb(b), t))
+}
+
+hsv_from_rgb :: proc(c: vec3) -> vec3 {
+	v := max(max(c.x, c.y), c.z)
+	n := v - min(min(c.x, c.y), c.z)
+	s := 0 if v == 0 else n / v
+	h := 0.0
+	if n > 0 {
+		if v == c.x {
+			h = (c.y - c.z) / n
+			if c.y < c.z {
+				h += 6
+			}
+		} else if v == c.y {
+			h = 2 + (c.z - c.x) / n
+		} else {
+			h = 4 + (c.x - c.y) / n
+		}
+		h /= 6
+	}
+	return vec3(h, s, v)
+}
+
+rgb_from_hsv :: proc(c: vec3) -> vec3 {
+	k := vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)
+	p := abs(fract(vec3(c.x, c.x, c.x) + k) * 6 - 3)
+	return c.z * lerp(vec3(1, 1, 1), clamp(p - 1, 0, 1), c.y)
+}
+
+hsl_from_rgb :: proc(c: vec3) -> vec3 {
+	hsv := hsv_from_rgb(c)
+	l := hsv.z * (1 - hsv.y * 0.5)
+	s := 0.0
+	if l > 0 && l < 1 {
+		s = (hsv.z - l) / min(l, 1 - l)
+	}
+	return vec3(hsv.x, s, l)
+}
+
+rgb_from_hsl :: proc(c: vec3) -> vec3 {
+	v := c.z + c.y * min(c.z, 1 - c.z)
+	s := 0 if v == 0 else 2 * (1 - c.z / v)
+	return rgb_from_hsv(vec3(c.x, s, v))
+}
+
+ycbcr_from_rgb :: proc(c: vec3) -> vec3 {
+	y := luma_rec601(c)
+	return vec3(y, 0.564 * (c.z - y) + 0.5, 0.713 * (c.x - y) + 0.5)
+}
+
+rgb_from_ycbcr :: proc(c: vec3) -> vec3 {
+	y := c.x
+	cb := c.y - 0.5
+	cr := c.z - 0.5
+	return vec3(y + 1.403 * cr, y - 0.344 * cb - 0.714 * cr, y + 1.773 * cb)
+}
+
+yuv_from_rgb :: proc(c: vec3) -> vec3 {
+	y := luma_rec601(c)
+	return vec3(y, 0.492 * (c.z - y), 0.877 * (c.x - y))
+}
+
+rgb_from_yuv :: proc(c: vec3) -> vec3 {
+	return vec3(c.x + 1.140 * c.z, c.x - 0.395 * c.y - 0.581 * c.z, c.x + 2.032 * c.y)
+}
+
+yiq_from_rgb :: proc(c: vec3) -> vec3 {
+	return vec3(
+		0.299 * c.x + 0.587 * c.y + 0.114 * c.z,
+		0.596 * c.x - 0.274 * c.y - 0.322 * c.z,
+		0.211 * c.x - 0.523 * c.y + 0.312 * c.z,
+	)
+}
+
+rgb_from_yiq :: proc(c: vec3) -> vec3 {
+	return vec3(
+		c.x + 0.956 * c.y + 0.621 * c.z,
+		c.x - 0.272 * c.y - 0.647 * c.z,
+		c.x - 1.106 * c.y + 1.703 * c.z,
+	)
+}
+
+cmyk_from_rgb :: proc(c: vec3) -> vec4 {
+	k := 1 - max(max(c.x, c.y), c.z)
+	if k >= 1 - 1e-6 {
+		return vec4(0, 0, 0, 1)
+	}
+	ik := 1 / (1 - k)
+	return vec4((1 - c.x - k) * ik, (1 - c.y - k) * ik, (1 - c.z - k) * ik, k)
+}
+
+rgb_from_cmyk :: proc(c: vec4) -> vec3 {
+	return vec3(1 - c.x, 1 - c.y, 1 - c.z) * (1 - c.w)
+}
+
+lms_from_rgb :: proc(c: vec3) -> vec3 {
+	return vec3(
+		0.4002 * c.x + 0.7076 * c.y - 0.0808 * c.z,
+		-0.2263 * c.x + 1.1653 * c.y + 0.0457 * c.z,
+		0.0000 * c.x + 0.0000 * c.y + 0.9182 * c.z,
+	)
+}
+
+rgb_from_lms :: proc(c: vec3) -> vec3 {
+	return vec3(
+		1.8603 * c.x - 1.1294 * c.y + 0.2199 * c.z,
+		0.3612 * c.x + 0.6388 * c.y + 0.0000 * c.z,
+		0.0000 * c.x + 0.0000 * c.y + 1.0891 * c.z,
+	)
+}
+
+ryb_from_rgb :: proc(c: vec3) -> vec3 {
+	w := min(min(c.x, c.y), c.z)
+	r := c.x - w
+	g := c.y - w
+	b := c.z - w
+	mg := min(r, g)
+	y := g - mg
+	r = r - mg
+	g = 0
+	if b > 0 && y > 0 {
+		b2 := max(b - y, 0)
+		y = y + min(b, y)
+		b = b2
+	}
+	n := max(max(r, y), b)
+	d := max(max(c.x, c.y), c.z)
+	if n > 0 {
+		s := d / n
+		r *= s
+		y *= s
+		b *= s
+	}
+	return vec3(r + w, y + w, b + w)
+}
+
+rgb_from_ryb :: proc(c: vec3) -> vec3 {
+	w := min(min(c.x, c.y), c.z)
+	r := c.x - w
+	y := c.y - w
+	b := c.z - w
+	g := min(y, b)
+	y = y - g
+	b = b - g
+	if y > 0 && b > 0 {
+		b = b * 2
+	}
+	n := max(max(r + y, g), b)
+	d := max(max(c.x, c.y), c.z)
+	if n > 0 {
+		s := d / n
+		r *= s
+		g *= s
+		b *= s
+	}
+	return vec3(r + w, g + w, b + w)
+}
+
+heatmap :: proc(t: f32) -> vec3 {
+	x := math.saturate(t)
+	return vec3(
+		smoothstep(0.00, 0.33, x),
+		smoothstep(0.33, 0.66, x),
+		smoothstep(0.66, 1.00, x),
+	)
+}
+
+tonemap_linear :: proc(c: vec3) -> vec3 {
+	return math.saturate3(c)
+}
+
+tonemap_reinhard :: proc(c: vec3) -> vec3 {
+	return c / (c + vec3(1, 1, 1))
+}
+
+tonemap_reinhard_luma :: proc(c: vec3) -> vec3 {
+	l := luma(c)
+	return c / (l + 1)
+}
+
+tonemap_reinhard_jodie :: proc(c: vec3) -> vec3 {
+	l := luma(c)
+	tc := c / (c + vec3(1, 1, 1))
+	tl := c / (l + 1)
+	return lerp(tl, tc, tc)
+}
+
+tonemap_aces :: proc(c: vec3) -> vec3 {
+	a := 2.51
+	b := 0.03
+	d := 2.43
+	e := 0.59
+	f := 0.14
+	return math.saturate3((c * (a * c + b)) / (c * (d * c + e) + f))
+}
+
+uncharted2_partial :: proc(x: vec3) -> vec3 {
+	a := 0.15
+	b := 0.50
+	c := 0.10
+	d := 0.20
+	e := 0.02
+	f := 0.30
+	return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f
+}
+
+tonemap_uncharted2 :: proc(c: vec3) -> vec3 {
+	exposure := 2.0
+	curr := uncharted2_partial(c * exposure)
+	w := uncharted2_partial(vec3(11.2, 11.2, 11.2))
+	return curr / w
+}
+
+tonemap_filmic :: proc(c: vec3) -> vec3 {
+	x := max(c - 0.004, 0)
+	return (x * (6.2 * x + 0.5)) / (x * (6.2 * x + 1.7) + 0.06)
+}
+
+tonemap_unreal :: proc(c: vec3) -> vec3 {
+	return c / (c + 0.155) * 1.019
+}
+
+agx_contrast :: proc(x: vec3) -> vec3 {
+	x2 := x * x
+	x4 := x2 * x2
+	return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232
+}
+
+tonemap_agx :: proc(c: vec3) -> vec3 {
+	x := vec3(
+		0.842479062253094 * c.x + 0.0784335999999992 * c.y + 0.0792237451477643 * c.z,
+		0.0423282422610123 * c.x + 0.878468636469772 * c.y + 0.0791661274605434 * c.z,
+		0.0423756549057051 * c.x + 0.0784336 * c.y + 0.879142973793104 * c.z,
+	)
+	x = max(x, 1e-10)
+	min_ev := -12.47393
+	max_ev := 4.026069
+	x = math.saturate3((log2(x) - min_ev) / (max_ev - min_ev))
+	return agx_contrast(x)
+}
+
+hue_shift :: proc(c: vec3, turns: f32) -> vec3 {
+	hsv := hsv_from_rgb(c)
+	hsv.x = fract(hsv.x + turns)
+	return rgb_from_hsv(hsv)
+}
+
+vibrance :: proc(c: vec3, amount: f32) -> vec3 {
+	l := luma(c)
+	mx := max(max(c.x, c.y), c.z)
+	sat := mx - min(min(c.x, c.y), c.z)
+	t := (1 - sat) * amount
+	return lerp(vec3(l, l, l), c, 1 + t)
+}
+
+exposure :: proc(c: vec3, ev: f32) -> vec3 {
+	return c * exp2(ev)
+}
+
+brightness_contrast :: proc(c: vec3, brightness: f32, contrast: f32) -> vec3 {
+	return (c - 0.5) * contrast + 0.5 + brightness
+}
+
+levels :: proc(c: vec3, in_black: f32, in_white: f32, gamma: f32, out_black: f32, out_white: f32) -> vec3 {
+	t := math.saturate3((c - in_black) / max(in_white - in_black, 1e-6))
+	t = vec3(pow(t.x, gamma), pow(t.y, gamma), pow(t.z, gamma))
+	return t * (out_white - out_black) + out_black
+}
+
+desaturate :: proc(c: vec3, amount: f32) -> vec3 {
+	l := luma(c)
+	return lerp(c, vec3(l, l, l), amount)
+}
+
+white_balance :: proc(c: vec3, temperature: f32, tint: f32) -> vec3 {
+	lms := lms_from_rgb(c)
+	lms.x *= 1 + temperature
+	lms.y *= 1 - tint
+	lms.z *= 1 - temperature * 0.5
+	return rgb_from_lms(lms)
+}
+
+// Simulate then compensate (simple daltonize). kind: 0 protan, 1 deutan, 2 tritan.
+daltonize :: proc(c: vec3, kind: i32, amount: f32) -> vec3 {
+	sim: vec3
+	if kind == 0 {
+		sim = vec3(dot(vec3(0.567, 0.433, 0), c), dot(vec3(0.558, 0.442, 0), c), dot(vec3(0.0, 0.242, 0.758), c))
+	} else if kind == 1 {
+		sim = vec3(dot(vec3(0.625, 0.375, 0), c), dot(vec3(0.7, 0.3, 0), c), dot(vec3(0.0, 0.3, 0.7), c))
+	} else {
+		sim = vec3(dot(vec3(0.95, 0.05, 0), c), dot(vec3(0.0, 0.433, 0.567), c), dot(vec3(0.0, 0.475, 0.525), c))
+	}
+	err := c - sim
+	comp: vec3
+	if kind == 0 {
+		comp = c + vec3(0, err.x * 0.7, err.x * 0.3)
+	} else if kind == 1 {
+		comp = c + vec3(err.y * 0.7, 0, err.y * 0.3)
+	} else {
+		comp = c + vec3(err.z * 0.7, err.z * 0.3, 0)
+	}
+	return lerp(c, comp, amount)
+}
+
+lut2d :: proc(lut: t32_2d, samp: s32, c: vec3, blue_tiles: f32) -> vec3 {
+	b := math.saturate(c.z) * max(blue_tiles - 1, 1)
+	b0 := floor(b)
+	t := fract(b)
+	u0 := (b0 + math.saturate(c.x)) / blue_tiles
+	u1 := (min(b0 + 1, blue_tiles - 1) + math.saturate(c.x)) / blue_tiles
+	v := math.saturate(c.y)
+	a := sample(lut, samp, vec2(u0, v)).xyz
+	d := sample(lut, samp, vec2(u1, v)).xyz
+	return lerp(a, d, t)
+}
+
+BAYER4 :: [16]f32{
+	0, 8, 2, 10,
+	12, 4, 14, 6,
+	3, 11, 1, 9,
+	15, 7, 13, 5,
+}
+
+BAYER8 :: [64]f32{
+	0, 32, 8, 40, 2, 34, 10, 42,
+	48, 16, 56, 24, 50, 18, 58, 26,
+	12, 44, 4, 36, 14, 46, 6, 38,
+	60, 28, 52, 20, 62, 30, 54, 22,
+	3, 35, 11, 43, 1, 33, 9, 41,
+	51, 19, 59, 27, 49, 17, 57, 25,
+	15, 47, 7, 39, 13, 45, 5, 37,
+	63, 31, 55, 23, 61, 29, 53, 21,
+}
+
+dither_bayer4 :: proc(p: vec2) -> f32 {
+	x := i32(mod(floor(p.x), 4))
+	y := i32(mod(floor(p.y), 4))
+	return BAYER4[y * 4 + x] / 16
+}
+
+dither_bayer8 :: proc(p: vec2) -> f32 {
+	x := i32(mod(floor(p.x), 8))
+	y := i32(mod(floor(p.y), 8))
+	return BAYER8[y * 8 + x] / 64
+}
+
+dither_ign :: proc(p: vec2) -> f32 {
+	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))))
+}
+
+dither_vlachos :: proc(p: vec2) -> vec3 {
+	n := vec3(dot(vec2(171, 231), p), 0, 0)
+	n.y = n.x
+	n.z = n.x
+	return fract(n / vec3(103, 71, 97)) - 0.5
+}
+
+dither_triangle_pdf :: proc(n: f32) -> f32 {
+	t := fract(n + 0.5) - 0.5
+	return t * t + t if t < 0 else t - t * t
+}
+
+// Hash stand-in when no blue-noise texture is bound (true blue noise is a LUT).
+dither_blue_hash :: proc(p: vec2) -> f32 {
+	return dither_ign(p * 1.37 + vec2(17.13, 9.71))
+}
+
+dither_blue_tex :: proc(tex: t32_2d, samp: s32, uv: vec2) -> f32 {
+	return sample(tex, samp, uv).x
+}
+
+pd_over :: proc(s: vec4, d: vec4) -> vec4 {
+	a := s.w + d.w * (1 - s.w)
+	rgb := s.xyz + d.xyz * (1 - s.w)
+	return vec4(rgb.x, rgb.y, rgb.z, a)
+}
+
+pd_in :: proc(s: vec4, d: vec4) -> vec4 {
+	return s * d.w
+}
+
+pd_out :: proc(s: vec4, d: vec4) -> vec4 {
+	return s * (1 - d.w)
+}
+
+pd_atop :: proc(s: vec4, d: vec4) -> vec4 {
+	rgb := s.xyz * d.w + d.xyz * (1 - s.w)
+	return vec4(rgb.x, rgb.y, rgb.z, d.w)
+}
+
+pd_dst_over :: proc(s: vec4, d: vec4) -> vec4 {
+	return pd_over(d, s)
+}
+
+pd_dst_in :: proc(s: vec4, d: vec4) -> vec4 {
+	return d * s.w
+}
+
+pd_dst_out :: proc(s: vec4, d: vec4) -> vec4 {
+	return d * (1 - s.w)
+}
+
+pd_dst_atop :: proc(s: vec4, d: vec4) -> vec4 {
+	return pd_atop(d, s)
+}
+
+pd_xor :: proc(s: vec4, d: vec4) -> vec4 {
+	rgb := s.xyz * (1 - d.w) + d.xyz * (1 - s.w)
+	a := s.w + d.w - 2 * s.w * d.w
+	return vec4(rgb.x, rgb.y, rgb.z, a)
+}
+
+pd_plus :: proc(s: vec4, d: vec4) -> vec4 {
+	return math.saturate4(s + d)
+}
+
+blend_multiply :: proc(a: vec3, b: vec3) -> vec3 {
+	return a * b
+}
+
+blend_screen :: proc(a: vec3, b: vec3) -> vec3 {
+	return 1 - (1 - a) * (1 - b)
+}
+
+blend_overlay1 :: proc(a: f32, b: f32) -> f32 {
+	return 2 * a * b if a < 0.5 else 1 - 2 * (1 - a) * (1 - b)
+}
+
+blend_overlay :: proc(a: vec3, b: vec3) -> vec3 {
+	return vec3(blend_overlay1(a.x, b.x), blend_overlay1(a.y, b.y), blend_overlay1(a.z, b.z))
+}
+
+blend_hard_light :: proc(a: vec3, b: vec3) -> vec3 {
+	return blend_overlay(b, a)
+}
+
+blend_soft_light1 :: proc(a: f32, b: f32) -> f32 {
+	return a - (1 - 2 * b) * a * (1 - a) if b < 0.5 else a + (2 * b - 1) * (sqrt(a) - a)
+}
+
+blend_soft_light :: proc(a: vec3, b: vec3) -> vec3 {
+	return vec3(blend_soft_light1(a.x, b.x), blend_soft_light1(a.y, b.y), blend_soft_light1(a.z, b.z))
+}
+
+blend_color_dodge1 :: proc(a: f32, b: f32) -> f32 {
+	if b >= 1 {
+		return 1
+	}
+	return min(1, a / max(1 - b, 1e-6))
+}
+
+blend_color_dodge :: proc(a: vec3, b: vec3) -> vec3 {
+	return vec3(blend_color_dodge1(a.x, b.x), blend_color_dodge1(a.y, b.y), blend_color_dodge1(a.z, b.z))
+}
+
+blend_color_burn1 :: proc(a: f32, b: f32) -> f32 {
+	if b <= 0 {
+		return 0
+	}
+	return 1 - min(1, (1 - a) / max(b, 1e-6))
+}
+
+blend_color_burn :: proc(a: vec3, b: vec3) -> vec3 {
+	return vec3(blend_color_burn1(a.x, b.x), blend_color_burn1(a.y, b.y), blend_color_burn1(a.z, b.z))
+}
+
+blend_darken :: proc(a: vec3, b: vec3) -> vec3 {
+	return min(a, b)
+}
+
+blend_lighten :: proc(a: vec3, b: vec3) -> vec3 {
+	return max(a, b)
+}
+
+blend_difference :: proc(a: vec3, b: vec3) -> vec3 {
+	return abs(a - b)
+}
+
+blend_exclusion :: proc(a: vec3, b: vec3) -> vec3 {
+	return a + b - 2 * a * b
+}
+
+blend_hue :: proc(a: vec3, b: vec3) -> vec3 {
+	ha := hsv_from_rgb(a)
+	hb := hsv_from_rgb(b)
+	return rgb_from_hsv(vec3(hb.x, ha.y, ha.z))
+}
+
+blend_saturation :: proc(a: vec3, b: vec3) -> vec3 {
+	ha := hsv_from_rgb(a)
+	hb := hsv_from_rgb(b)
+	return rgb_from_hsv(vec3(ha.x, hb.y, ha.z))
+}
+
+blend_color :: proc(a: vec3, b: vec3) -> vec3 {
+	ha := hsv_from_rgb(a)
+	hb := hsv_from_rgb(b)
+	return rgb_from_hsv(vec3(hb.x, hb.y, ha.z))
+}
+
+blend_luminosity :: proc(a: vec3, b: vec3) -> vec3 {
+	ha := hsv_from_rgb(a)
+	hb := hsv_from_rgb(b)
+	return rgb_from_hsv(vec3(ha.x, ha.y, hb.z))
+}
+
+// Google Turbo colormap (Apache 2.0).
+palette_turbo :: proc(t: f32) -> vec3 {
+	x := math.saturate(t)
+	v4 := x * x * x * x
+	v3 := x * x * x
+	v2 := x * x
+	return vec3(
+		0.13572138 + 4.61539260 * x - 42.66032258 * v2 + 132.13108234 * v3 - 152.94239396 * v4 + 59.28637943 * v4 * x,
+		0.09140261 + 2.19418839 * x + 4.84296658 * v2 - 14.18503333 * v3 + 4.27729857 * v4 + 2.82956604 * v4 * x,
+		0.10667330 + 12.64194608 * x - 60.58204836 * v2 + 110.36276771 * v3 - 89.90310912 * v4 + 27.34824973 * v4 * x,
+	)
+}
+
+// Viridis-like polynomial (published matplotlib-style fit).
+palette_viridis :: proc(t: f32) -> vec3 {
+	x := math.saturate(t)
+	return vec3(
+		0.280268003 + x * (-0.143540383 + x * (2.225793818 + x * (-4.133098342 + x * 2.228918396))),
+		0.004617392 + x * (1.405612880 + x * (-0.188166969 + x * (0.212859392 + x * -0.434756304))),
+		0.328921071 + x * (1.428365203 + x * (-3.882766590 + x * (3.648884110 + x * -1.031908306))),
+	)
+}
+
+palette_heatmap :: proc(t: f32) -> vec3 {
+	return heatmap(t)
+}

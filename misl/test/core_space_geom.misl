@@ -1,0 +1,47 @@
+import "core:space.misl"
+import "core:geom.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	st := vec2(0.3, 0.7)
+	_ = space.polar_from_cart(st)
+	_ = space.cart_from_polar(vec2(0.5, 0.2))
+	_ = space.ratio(st, vec2(16, 9))
+	_ = space.tile_hex(st)
+	_ = space.look_at(vec3(0, 0, 3), vec3(0, 0, 0), vec3(0, 1, 0))
+	_ = space.equirect_from_xyz(vec3(0, 1, 0))
+	_ = space.kaleidoscope(st, 6)
+	_ = space.bracketing(0.4, 8)
+	b: geom.AABB
+	b = geom.aabb_make(vec3(-1, -1, -1), vec3(1, 1, 1))
+	_ = geom.aabb_centroid(b)
+	_ = geom.moller_trumbore(vec3(0, 0, -2), vec3(0, 0, 1), vec3(-1, -1, 0), vec3(1, -1, 0), vec3(0, 1, 0))
+	_ = geom.ray_sphere(vec3(0, 0, -3), vec3(0, 0, 1), vec3(0, 0, 0), 1)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

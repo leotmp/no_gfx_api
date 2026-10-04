@@ -1,0 +1,15 @@
+// Used by mst's intentional type-mismatch override check; also a valid default build.
+N :: #config(N, 16)
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vid
+	_ = N
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

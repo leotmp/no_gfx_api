@@ -1,0 +1,5 @@
+// Expect: 'discard' is not allowed in proc "fmag"
+shade :: proc "fmag"(x: f32) -> f32 {
+	discard
+	return x
+}

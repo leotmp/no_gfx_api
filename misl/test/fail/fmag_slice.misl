@@ -1,0 +1,4 @@
+// Expect: proc "fmag" parameters must be f32 or [2/3/4]f32
+shade :: proc "fmag"(s: []f32) -> f32 {
+	return s[0]
+}

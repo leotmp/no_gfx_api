@@ -1,0 +1,107 @@
+// Multi-return helpers: last result = GLSL return; earlier = out params.
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	scale: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+	col: [4]f32,
+}
+
+// 1-result (still a 1-tuple end-to-end)
+double :: proc(x: f32) -> (y: f32) {
+	return x + x
+}
+
+// 2-result
+split :: proc(x: f32) -> (a: f32, b: f32) {
+	return x, x + 1
+}
+
+// Named results are zero-init; naked return keeps untouched names at 0
+named_defaults :: proc(x: f32) -> (a: f32, b: f32) {
+	if x > 0 {
+		a = x
+	}
+	return
+}
+
+// 3-result
+split3 :: proc(x: f32) -> (a: f32, b: f32, c: f32) {
+	return x, x + 1, x + 2
+}
+
+// Forward another multi-return call
+forward_split :: proc(x: f32) -> (a: f32, b: f32) {
+	return split(x)
+}
+
+// #ref + multi-return
+bump_split :: proc(#ref v: f32) -> (lo: f32, hi: f32) {
+	v += 1
+	return v, v + 1
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	// 1-result unpack / use
+	d := double(data.scale)
+	_ = d
+
+	// 2-result decl unpack
+	a, b := split(1.0)
+	_ = a
+	_ = b
+
+	// naked return + named zero-init
+	da, db := named_defaults(-1.0)
+	_ = da + db
+	da, db = named_defaults(2.0)
+	_ = da + db
+
+	// blanks
+	_, only_b := split(2.0)
+	_ = only_b
+
+	// 3-result
+	x, y, z := split3(0.5)
+	_ = x + y + z
+
+	// assign unpack into idents
+	p: f32
+	q: f32
+	p, q = split(3.0)
+
+	// non-ident multi-LHS (selector / swizzle)
+	out.col = vec4(0, 0, 0, 1)
+	out.col.r, out.col.g = split(4.0)
+	out.uv = vec2(0, 0)
+	out.uv.x, out.uv.y = split(5.0)
+
+	// #ref + multi-return
+	s := data.scale
+	lo, hi := bump_split(&s)
+	_ = lo + hi + s
+
+	// return-forward helper
+	fa, fb := forward_split(6.0)
+	_ = fa + fb
+
+	out.pos = vec4(p, q, d, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = fsin.col
+	return out
+}

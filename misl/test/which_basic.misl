@@ -1,0 +1,89 @@
+// File-scope and stmt-scope `which`, empty `which { case bool: }`, `#partial which`.
+Kind :: enum u32 {
+	A,
+	B,
+}
+
+K: Kind : .A
+
+which K {
+case .A:
+	live_which_helper :: proc(x: f32) -> f32 { return x + x }
+case .B:
+	dead_which_helper :: proc(x: f32) -> f32 { return x + x }
+}
+
+which {
+case true:
+	live_empty_which_helper :: proc(x: f32) -> f32 { return x + x }
+case false:
+	dead_empty_which_helper :: proc(x: f32) -> f32 { return x + x }
+}
+
+#partial which K {
+case .A:
+	live_partial_which_helper :: proc(x: f32) -> f32 { return x + x }
+}
+
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	x := live_which_helper(1.0)
+	x = live_empty_which_helper(x)
+	x = live_partial_which_helper(x)
+	_ = x
+
+	M: Kind : .B
+	marker: i32 = 0
+	which M {
+	case .A:
+		marker = 88888
+	case .B:
+		marker = 77777
+	}
+	_ = marker
+
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}
+
+shade :: proc "fmag"(
+	ndv: f32, ndl: f32, ldh: f32, vdh: f32,
+	albedo: [3]f32,
+	metallic: f32, roughness: f32,
+	D: f32, G: f32,
+	light: f32,
+) -> [3]f32 {
+	x := live_which_helper(light)
+	x = live_empty_which_helper(x)
+	x = live_partial_which_helper(x)
+	which K {
+	case .A:
+		x = live_which_helper(x)
+	case .B:
+		x = undeclared_dead_which_ident
+	}
+	return albedo * x
+}

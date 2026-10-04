@@ -1,0 +1,91 @@
+/*
+	Atmosphere and spectral helpers.
+
+	Rayleigh phase: textbooks / GPU Gems 2. Henyey–Greenstein: HG 1941.
+	Blackbody: Planck's law (normalized chromaticity). Wavelength to RGB:
+	approximate CIE XYZ then sRGB (Wyman / common shader form). Aerial
+	perspective / sky: GPU Gems 2 chapter and Zucconi-style Rayleigh +
+	Mie mix.
+*/
+
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+phase_rayleigh :: proc(cos_theta: f32) -> f32 {
+	return (3 / (16 * math.PI)) * (1 + cos_theta * cos_theta)
+}
+
+phase_hg :: proc(cos_theta: f32, g: f32) -> f32 {
+	g2 := g * g
+	return (1 - g2) / (4 * math.PI * pow(1 + g2 - 2 * g * cos_theta, 1.5))
+}
+
+blackbody :: proc(kelvin: f32) -> vec3 {
+	t := kelvin / 100
+	r := 1.0
+	g := 1.0
+	b := 1.0
+	if t <= 66 {
+		r = 1
+		g = math.saturate((99.4708025861 * log(t) - 161.1195681661) / 255)
+		b = 0 if t <= 19 else math.saturate((138.5177312231 * log(t - 10) - 305.0447927307) / 255)
+	} else {
+		r = math.saturate((329.698727446 * pow(t - 60, -0.1332047592)) / 255)
+		g = math.saturate((288.1221695283 * pow(t - 60, -0.0755148492)) / 255)
+		b = 1
+	}
+	return vec3(r, g, b)
+}
+
+rgb_from_wavelength :: proc(nm: f32) -> vec3 {
+	if nm >= 380 && nm < 440 {
+		x := (440 - nm) / (440 - 380)
+		return math.saturate3(vec3(x, 0, 1) * fade_wl(nm))
+	}
+	if nm >= 440 && nm < 490 {
+		return math.saturate3(vec3(0, (nm - 440) / (490 - 440), 1) * fade_wl(nm))
+	}
+	if nm >= 490 && nm < 510 {
+		return math.saturate3(vec3(0, 1, (510 - nm) / (510 - 490)) * fade_wl(nm))
+	}
+	if nm >= 510 && nm < 580 {
+		return math.saturate3(vec3((nm - 510) / (580 - 510), 1, 0) * fade_wl(nm))
+	}
+	if nm >= 580 && nm < 645 {
+		return math.saturate3(vec3(1, (645 - nm) / (645 - 580), 0) * fade_wl(nm))
+	}
+	if nm >= 645 && nm <= 780 {
+		return math.saturate3(vec3(1, 0, 0) * fade_wl(nm))
+	}
+	return vec3(0, 0, 0)
+}
+
+fade_wl :: proc(nm: f32) -> f32 {
+	if nm > 700 {
+		return 0.3 + 0.7 * (780 - nm) / (780 - 700)
+	}
+	if nm < 420 {
+		return 0.3 + 0.7 * (nm - 380) / (420 - 380)
+	}
+	return 1
+}
+
+sky_rayleigh_mie :: proc(view_dir: vec3, sun_dir: vec3) -> vec3 {
+	v := normalize(view_dir)
+	s := normalize(sun_dir)
+	mu := dot(v, s)
+	ray := vec3(5.8e-6, 13.5e-6, 33.1e-6)
+	zenith := pow(max(v.y, 0), 0.25)
+	ext := exp(-ray * 1e6 * (1.2 - zenith))
+	scatter := phase_rayleigh(mu) * vec3(0.3, 0.5, 1.0) + phase_hg(mu, 0.76) * vec3(1, 0.95, 0.85) * 0.15
+	return ext * (scatter + vec3(0.02, 0.05, 0.12) * zenith)
+}
+
+aerial_perspective :: proc(color: vec3, distance: f32, view_dir: vec3, sun_dir: vec3) -> vec3 {
+	fog := 1 - exp(-distance * 0.04)
+	sky := sky_rayleigh_mie(view_dir, sun_dir)
+	return lerp(color, sky, math.saturate(fog))
+}

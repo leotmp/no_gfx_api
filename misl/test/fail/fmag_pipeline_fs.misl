@@ -1,0 +1,18 @@
+// Expect: pipeline.fragment must be a fragment entry
+shade :: proc "fmag"(x: f32) -> f32 {
+	return x
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: [4]f32 | SV_Position) {
+	_ = vid
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}
+
+bad :: pipeline {
+	vertex = vs,
+	fragment = shade,
+	targets = {
+		{ format = .rgba_u8_srgb, write_mask = .All },
+	},
+}

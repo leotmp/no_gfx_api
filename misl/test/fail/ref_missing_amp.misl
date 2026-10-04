@@ -1,0 +1,14 @@
+// Expected to fail: '#ref' argument requires '&'
+bump :: proc(#ref v: f32) {
+	v += 1
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	x: f32 = 0
+	bump(x)
+	_ = vid
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

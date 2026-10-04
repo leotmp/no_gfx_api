@@ -1,0 +1,66 @@
+import "core:brdf.misl"
+import "core:pbr.misl"
+import "core:atmosphere.misl"
+import "core:sh.misl"
+import "core:ao.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	n := vec3(0, 1, 0)
+	v := vec3(0, 0, 1)
+	l := normalize(vec3(0.3, 0.8, 0.4))
+	_ = brdf.ndf_ggx(0.9, 0.3)
+	_ = brdf.ndf_beckmann(0.9, 0.3)
+	_ = brdf.ndf_charlie(0.9, 0.4)
+	_ = brdf.smith_ggx_correlated(0.8, 0.7, 0.3)
+	_ = brdf.fresnel_schlick(0.5, vec3(0.04, 0.04, 0.04))
+	_ = brdf.lambert()
+	_ = brdf.burley(0.8, 0.7, 0.6, 0.4)
+	_ = brdf.oren_nayar(0.8, 0.7, 0.5)
+	_ = brdf.env_brdf_approx(0.7, 0.3)
+	_ = brdf.f0_from_ior(1.5)
+	_ = brdf.specular_ggx(n, v, l, 0.4, vec3(0.04, 0.04, 0.04))
+	s := pbr.surface_make(vec3(0.7, 0.1, 0.08), 0.2, 0.4, 0.04)
+	_ = pbr.evaluate_lit(s, n, v, l, vec3(1, 1, 1))
+	_ = pbr.evaluate_clearcoat(s, 0.1, n, v, l, vec3(1, 1, 1))
+	_ = pbr.evaluate_glass(s, n, v, l, vec3(1, 1, 1))
+	_ = pbr.ibl_approx(s, n, v, vec3(0.2, 0.2, 0.25), vec3(1, 0.9, 0.8))
+	_ = atmosphere.phase_rayleigh(0.3)
+	_ = atmosphere.phase_hg(0.3, 0.7)
+	_ = atmosphere.blackbody(5600)
+	_ = atmosphere.rgb_from_wavelength(550)
+	_ = atmosphere.sky_rayleigh_mie(v, l)
+	_ = atmosphere.aerial_perspective(vec3(0.2, 0.2, 0.2), 10, v, l)
+	_ = sh.sh_y00()
+	_ = sh.irradiance_l1(n, vec3(0.2, 0.2, 0.25), vec3(0.1, 0.2, 0.05))
+	_ = ao.gtao_multibounce(0.6, vec3(0.5, 0.4, 0.3))
+	_ = ao.specular_ao(0.6, 0.4, 0.7)
+	_ = ao.horizon_specular_ao(0.6, 0.4)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

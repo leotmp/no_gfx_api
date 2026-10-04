@@ -1,0 +1,5 @@
+// Expect: builtin 'matrix_comp_mult' is not allowed in proc "fmag"
+shade :: proc "fmag"(x: f32) -> f32 {
+	_ = matrix_comp_mult()
+	return x
+}

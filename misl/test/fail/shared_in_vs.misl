@@ -1,0 +1,19 @@
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	@shared tile: [4]f32
+	out.pos.x = tile[0]
+	out.pos.y = 0
+	out.pos.z = 0
+	out.pos.w = 1
+	return out
+}

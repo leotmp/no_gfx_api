@@ -1,0 +1,5 @@
+// Expect: builtin 'inverse' is not allowed in proc "fmag"
+shade :: proc "fmag"(x: f32) -> f32 {
+	_ = inverse()
+	return x
+}

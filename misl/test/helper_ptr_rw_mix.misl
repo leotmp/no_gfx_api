@@ -1,0 +1,28 @@
+// Same [^]T origin: a read helper stays Ptr_RO, a write helper upgrades to Ptr_RW.
+// The parent SV_Data block stays Data_Ptr_RO; the nested particles field is RW.
+Particle :: struct #align(16) {
+	pos: [2]f32,
+}
+
+Data :: struct #align(16) {
+	particles: [^]Particle,
+	count: u32,
+}
+
+read_pos :: proc(p: [^]Particle, i: u32) -> f32 {
+	return p[i].pos.x
+}
+
+write_pos :: proc(p: [^]Particle, i: u32) {
+	p[i].pos.x += 1
+}
+
+@(size = 64)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	if gid.x >= data.count do return
+	_ = read_pos(data.particles, gid.x)
+	write_pos(data.particles, gid.x)
+}

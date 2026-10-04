@@ -1,0 +1,49 @@
+/*
+	Spherical harmonics.
+
+	Evaluate Ylm (real) and irradiance convolution: Ramamoorthi & Hanrahan
+	2001; Sloan / Filament SH helpers for L2 irradiance.
+*/
+
+import "core:math.misl"
+
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+sh_y00 :: proc() -> f32 {
+	return 0.28209479177387814
+}
+
+sh_y1 :: proc(n: vec3) -> vec3 {
+	c := 0.4886025119029199
+	return vec3(c * n.y, c * n.z, c * n.x)
+}
+
+sh_y2 :: proc(n: vec3) -> vec4 {
+	c1 := 1.0925484305920792
+	c2 := 0.31539156525252005
+	c3 := 0.5462742152960396
+	return vec4(c1 * n.x * n.y, c1 * n.y * n.z, c2 * (3 * n.z * n.z - 1), c1 * n.x * n.z)
+}
+
+sh_y2_xy :: proc(n: vec3) -> f32 {
+	return 0.5462742152960396 * (n.x * n.x - n.y * n.y)
+}
+
+evaluate_l2 :: proc(n: vec3, l0: vec3, l1: vec3, l2r: vec3, l2g: vec3, l2b: vec3, l2_xy: vec3) -> vec3 {
+	nn := normalize(n)
+	y1 := sh_y1(nn)
+	y2 := sh_y2(nn)
+	yxy := sh_y2_xy(nn)
+	c := l0 * sh_y00()
+	c = c + l1 * y1.x + vec3(l2r.x, l2g.x, l2b.x) * y1.y + vec3(l2r.y, l2g.y, l2b.y) * y1.z
+	c = c + vec3(l2r.z, l2g.z, l2b.z) * y2.x
+	c = c + l2_xy * yxy
+	_ = y2
+	return max(c, 0)
+}
+
+irradiance_l1 :: proc(n: vec3, l0: vec3, l1n: vec3) -> vec3 {
+	nn := normalize(n)
+	return max(l0 + l1n * nn, 0)
+}

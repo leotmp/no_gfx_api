@@ -1,0 +1,80 @@
+import common "import_deps/common.misl"
+using common
+
+vec4 :: [4]f32
+
+Position :: struct {
+	x: f32,
+	y: f32,
+	z: f32,
+}
+
+Base :: struct {
+	n: f32,
+}
+
+Thing :: struct {
+	using position: Position,
+	id: u32,
+}
+
+Child :: struct {
+	#subtype base: Base,
+	extra: f32,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+take_pos :: proc(p: Position) {
+	_ = p.x
+}
+
+take_base :: proc(b: Base) {
+	_ = b.n
+}
+
+move :: proc(using t: Thing) {
+	_ = x
+	_ = t.x
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	_ = double(1.0)
+
+	t: Thing
+	t.x = 1
+	t.position.y = 2
+	take_pos(t)
+	move(t)
+
+	using t.position
+	_ = z
+
+	c: Child
+	c.base.n = 3
+	c.extra = 4
+	take_base(c)
+
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

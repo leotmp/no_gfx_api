@@ -1,0 +1,129 @@
+import "core:color.misl"
+import "core:s2h.misl"
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	resolution: [2]f32,
+	time:       f32,
+	mode:       i32,
+	s2h_mouse:  [4]f32,
+	exposure:   f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(vertex_id: u32 | SV_Vertex) -> (out: VS_Out) {
+	positions := [3]vec2 {
+		vec2(-1, -1),
+		vec2(3, -1),
+		vec2(-1, 3),
+	}
+	p := positions[vertex_id]
+	out.pos = vec4(p, 0, 1)
+	return out
+}
+
+hdr_ramp :: proc(uv: vec2, exposure: f32) -> vec3 {
+	hue := uv.x
+	lin := color.rgb_from_hsv(vec3(hue, 0.85, 1))
+	ev := (1 - uv.y) * 8 - 1
+	return lin * exp2(ev) * exposure
+}
+
+apply_tonemap :: proc(c: vec3, mode: i32) -> vec3 {
+	if mode == 0 {
+		return color.tonemap_linear(c)
+	}
+	if mode == 1 {
+		return color.tonemap_reinhard(c)
+	}
+	if mode == 2 {
+		return color.tonemap_reinhard_luma(c)
+	}
+	if mode == 3 {
+		return color.tonemap_reinhard_jodie(c)
+	}
+	if mode == 4 {
+		return color.tonemap_aces(c)
+	}
+	if mode == 5 {
+		return color.tonemap_uncharted2(c)
+	}
+	if mode == 6 {
+		return color.tonemap_filmic(c)
+	}
+	if mode == 7 {
+		return color.tonemap_unreal(c)
+	}
+	return color.tonemap_agx(c)
+}
+
+overlay :: proc(px: vec2, mouse: vec4, mode: i32, exposure: f32) -> vec4 {
+	ui := s2h.init(px)
+	ui.mouse_input = mouse
+	s2h.set_scale(&ui, 2)
+	s2h.draw_rectangle(&ui, vec2(8, 8), vec2(440, 104), vec4(0, 0, 0, 0.65))
+	s2h.set_cursor(&ui, vec2(16, 16))
+	s2h.print_txt(&ui, "tonemap")
+	s2h.print_lf(&ui)
+	s2h.print_txt(&ui, "mode ")
+	mf := f32(mode)
+	s2h.slider_float(&ui, 12, &mf, 0, 8)
+	s2h.print_space(&ui, 1)
+	if mode == 0 {
+		s2h.print_txt(&ui, "linear")
+	} else if mode == 1 {
+		s2h.print_txt(&ui, "reinhard")
+	} else if mode == 2 {
+		s2h.print_txt(&ui, "reinhard luma")
+	} else if mode == 3 {
+		s2h.print_txt(&ui, "reinhard-jodie")
+	} else if mode == 4 {
+		s2h.print_txt(&ui, "aces")
+	} else if mode == 5 {
+		s2h.print_txt(&ui, "uncharted2")
+	} else if mode == 6 {
+		s2h.print_txt(&ui, "filmic")
+	} else if mode == 7 {
+		s2h.print_txt(&ui, "unreal")
+	} else {
+		s2h.print_txt(&ui, "agx")
+	}
+	s2h.print_lf(&ui)
+	s2h.print_txt(&ui, "ev   ")
+	ev := exposure
+	s2h.slider_float(&ui, 12, &ev, 0.05, 4)
+	return ui.dst_color
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	uv := fsin.pos.xy / data.resolution
+	hdr := hdr_ramp(uv, data.exposure)
+	mapped := apply_tonemap(hdr, data.mode)
+	srgb := color.srgb_from_linear(math.saturate3(mapped))
+	hud := overlay(fsin.pos.xy, data.s2h_mouse, data.mode, data.exposure)
+	out.rgb = lerp(srgb, hud.rgb, hud.a)
+	out.a = 1
+	return out
+}
+
+main_pipeline :: pipeline {
+	topology = .Triangle_List,
+	vertex = vs,
+	fragment = fs,
+	targets = {
+		{
+			format = .rgba_u8_srgb,
+			write_mask = .All,
+		},
+	},
+}

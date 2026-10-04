@@ -1,0 +1,51 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+mat2 :: matrix[2, 2]f32
+mat4 :: matrix[4, 4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+rotate :: proc(rads: f32) -> (rotation_matrix: mat4) {
+	s := sin(rads)
+	c := cos(rads)
+	return {
+		c,  s, 0, 0,
+		-s, c, 0, 0,
+		0,  0, 1, 0,
+		0,  0, 0, 1,
+	}
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	m: mat4
+	m = {}
+	m = {
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+	m2 := mat2{1, 0, 0, 1}
+	_ = m2
+	_ = rotate(0.5)
+	out.pos = m * vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin.pos
+	out = data.color
+	return out
+}

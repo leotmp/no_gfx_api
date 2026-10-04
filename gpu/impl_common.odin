@@ -8,6 +8,7 @@ import "core:sync"
 import "core:log"
 import "base:runtime"
 import intr "base:intrinsics"
+import "core:fmt"
 
 // Implementation of a thread-safe resource pool to be used for no_gfx_api handles
 Resource_Pool :: struct($Handle_T: typeid, $Info_T: typeid) where size_of(Handle_T) == 8
@@ -288,9 +289,10 @@ align_up :: proc(x, align: u64) -> (aligned: u64)
 
 // Misc
 
-fatal_error :: proc(fmt: string, args: ..any, location := #caller_location)
+fatal_error :: proc(fmt_: string, args: ..any, location := #caller_location)
 {
-    log.fatalf(fmt, ..args, location = location)
+    log.fatalf(fmt_, ..args, location = location)
+    fmt.printfln(fmt_, ..args)
     runtime.panic("")
 }
 
@@ -322,4 +324,29 @@ texture_view_desc_cleanup :: #force_inline proc(texture: Texture, desc: Texture_
     res.mip_count = max(1, res.mip_count)
     res.layer_count = max(1, res.layer_count)
     return res
+}
+
+// Assert API
+
+Assert_Kind :: enum u32
+{
+    None,
+    User,
+    Panic,
+    Slice_Index,
+}
+
+Assert_Record :: struct #align(16)
+{
+    fired: u32,
+    overflow: u32,
+    kind: u32,
+    line: u32,
+    column: u32,
+    path_len: u32,
+    msg_len: u32,
+    index: u32,
+    length: u32,
+    path: [256]u8,
+    message: [256]u8,
 }

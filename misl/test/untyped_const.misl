@@ -1,0 +1,50 @@
+// Untyped constants keep expression type until a typed use site.
+A :: 2
+B :: 2 + 2
+C :: true
+D :: 1.5
+
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	local :: 3
+	as_f32: f32 = A
+	as_f32_local: f32 = local
+	as_f32_sum: f32 = B
+	as_i32: i32 = A
+	flag: b32 = C
+	as_f64: f64 = D
+	_ = as_f32
+	_ = as_f32_local
+	_ = as_f32_sum
+	_ = as_i32
+	_ = flag
+	_ = as_f64
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

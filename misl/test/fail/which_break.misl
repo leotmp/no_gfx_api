@@ -1,0 +1,15 @@
+// Expect: 'break' is not allowed in 'which'
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	x: i32 = 0
+	which {
+	case true:
+		x = 1
+		break
+	}
+	_ = x
+	_ = vid
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

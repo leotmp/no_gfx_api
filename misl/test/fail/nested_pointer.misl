@@ -1,0 +1,12 @@
+// Nested ^^T must be rejected
+T :: struct { x: i32 }
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+	p: ^^T | SV_Data,
+) -> (out: [4]f32 | SV_Position) {
+	_ = vid
+	_ = p
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

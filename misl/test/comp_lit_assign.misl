@@ -1,0 +1,53 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Point :: struct #align(16) {
+	pos: [2]f32,
+	radius: f32,
+	pad: f32,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	points: [^]Point,
+	count: i32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	p: Point
+	p = {}
+	p = { pos = {1, 2} }
+	p = { pos = {3, 4}, radius = 5 }
+	v := vec2{6, 7}
+	v = {}
+	v = {8, 9}
+	// Splicing is constructor-only: vec4(v, 0, 1)
+	w := vec4(v, 0, 1)
+	_ = w
+	_ = p.radius
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin.pos
+	out = 0
+	for i := 0; i < data.count; i += 1 {
+		light := data.points[i]
+		light = {}
+		light = { pos = {1, 2} }
+		out.rg += light.pos
+		out.a = light.radius
+	}
+	return out
+}

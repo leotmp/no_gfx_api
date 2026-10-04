@@ -1,0 +1,358 @@
+// Ambient `core:builtin`. Names with @builtin are harvested into this scope.
+// Resource ids are compiler types named here, not user `distinct`.
+// Scalars (`i32`, `f32`) and `true`/`false` stay compiler-injected.
+// `Mode` member order is a compiler ABI (matches `Misl_Mode`).
+
+@builtin
+Mode :: enum u32 {
+	SPIRV,
+	FMAG,
+}
+
+@builtin MISL_MODE :: #intrinsic("compiler.mode")
+
+// GPU pipeline / raster types. Member order is an ABI with `oge/gpu` and
+// `misl_gpu_iface.odin` (`GPU_*` / `gpu_*_names`).
+@builtin
+Topology :: enum u32 {
+	Triangle_List,
+	Triangle_Strip,
+	Triangle_Fan,
+}
+
+@builtin
+Color_Write_Mask :: enum u32 {
+	All,
+	None,
+	Color,
+	Alpha,
+}
+
+@builtin
+Cull_Mode :: enum u32 {
+	Front,
+	Back,
+}
+
+@builtin Cull_Modes :: bit_set[Cull_Mode; u32]
+
+@builtin
+Sample_Count :: enum u32 {
+	_1,
+	_2,
+	_4,
+	_8,
+	_16,
+	_32,
+	_64,
+}
+
+@builtin
+Format :: enum u32 {
+	None,
+	r_u8,
+	r_u8_scaled,
+	r_u8_norm,
+	r_u8_srgb,
+	r_i8,
+	r_i8_scaled,
+	r_i8_norm,
+	r_f16,
+	rgb_u8,
+	rgb_u8_scaled,
+	rgb_u8_norm,
+	rgb_u8_srgb,
+	rgb_i8,
+	rgb_i8_scaled,
+	rgb_i8_norm,
+	rgba_u8,
+	rgba_u8_scaled,
+	rgba_u8_norm,
+	rgba_u8_srgb,
+	rgba_i8,
+	rgba_i8_scaled,
+	rgba_i8_norm,
+	depth_f32,
+	stencil_u8,
+	depth_f32_stencil_u8,
+}
+
+@builtin
+Raster_Flag :: enum u32 {
+	Alpha_To_Coverage,
+	Dual_Source_Blending,
+}
+
+@builtin Raster_Flags :: bit_set[Raster_Flag; u32]
+
+@builtin
+Blend_Op :: enum u32 {
+	Add,
+	Sub,
+	Rev_Sub,
+	Min,
+	Max,
+}
+
+@builtin
+Blend_Factor :: enum u32 {
+	Zero,
+	One,
+	Src_Color,
+	One_Minus_Src_Color,
+	Src_Alpha,
+	One_Minus_Src_Alpha,
+	Dst_Color,
+	One_Minus_Dst_Color,
+	Dst_Alpha,
+	One_Minus_Dst_Alpha,
+	Secondary_Src_Color,
+	One_Minus_Secondary_Src_Color,
+	Secondary_Src_Alpha,
+	One_Minus_Secondary_Src_Alpha,
+}
+
+@builtin
+Blend_Mode :: struct {
+	src: Blend_Factor,
+	dst: Blend_Factor,
+	op:  Blend_Op,
+}
+
+@builtin
+Blend_State :: struct {
+	color: Blend_Mode,
+	alpha: Blend_Mode,
+}
+
+@builtin
+Color_Attachment_Desc :: struct {
+	format:     Format,
+	write_mask: Color_Write_Mask,
+	blend:      Blend_State,
+}
+
+@builtin abs :: #intrinsic("spirv.abs") // proc(x: genType) -> genType
+@builtin min :: #intrinsic("spirv.min") // proc(x: genNumeric, y: genNumeric, rest: ..genNumeric) -> genNumeric
+@builtin max :: #intrinsic("spirv.max") // proc(x: genNumeric, y: genNumeric, rest: ..genNumeric) -> genNumeric
+@builtin clamp :: #intrinsic("spirv.clamp") // proc(x: genNumeric, min_val: genNumeric, max_val: genNumeric) -> genNumeric
+@builtin lerp :: #intrinsic("spirv.mix") // proc(a: genType, b: genType, t: genType) -> genType
+@builtin fma :: #intrinsic("spirv.fma") // proc(a: genType, b: genType, c: genType) -> genType
+@builtin dot :: #intrinsic("spirv.dot") // proc(x: genType, y: genType) -> f32
+
+@builtin t8_2d :: #intrinsic("builtin.t8_2d")
+@builtin t16_2d :: #intrinsic("builtin.t16_2d")
+@builtin t32_2d :: #intrinsic("builtin.t32_2d")
+
+@builtin t8_1d :: #intrinsic("builtin.t8_1d")
+@builtin t16_1d :: #intrinsic("builtin.t16_1d")
+@builtin t32_1d :: #intrinsic("builtin.t32_1d")
+@builtin t8_3d :: #intrinsic("builtin.t8_3d")
+@builtin t16_3d :: #intrinsic("builtin.t16_3d")
+@builtin t32_3d :: #intrinsic("builtin.t32_3d")
+@builtin t8_cube :: #intrinsic("builtin.t8_cube")
+@builtin t16_cube :: #intrinsic("builtin.t16_cube")
+@builtin t32_cube :: #intrinsic("builtin.t32_cube")
+@builtin t8_1d_array :: #intrinsic("builtin.t8_1d_array")
+@builtin t16_1d_array :: #intrinsic("builtin.t16_1d_array")
+@builtin t32_1d_array :: #intrinsic("builtin.t32_1d_array")
+@builtin t8_2d_array :: #intrinsic("builtin.t8_2d_array")
+@builtin t16_2d_array :: #intrinsic("builtin.t16_2d_array")
+@builtin t32_2d_array :: #intrinsic("builtin.t32_2d_array")
+@builtin t8_cube_array :: #intrinsic("builtin.t8_cube_array")
+@builtin t16_cube_array :: #intrinsic("builtin.t16_cube_array")
+@builtin t32_cube_array :: #intrinsic("builtin.t32_cube_array")
+
+@builtin s8 :: #intrinsic("builtin.s8")
+@builtin s16 :: #intrinsic("builtin.s16")
+@builtin s32 :: #intrinsic("builtin.s32")
+@builtin s8_cmp :: #intrinsic("builtin.s8_cmp")
+@builtin s16_cmp :: #intrinsic("builtin.s16_cmp")
+@builtin s32_cmp :: #intrinsic("builtin.s32_cmp")
+
+@builtin rw8_2d :: #intrinsic("builtin.rw8_2d")
+@builtin rw16_2d :: #intrinsic("builtin.rw16_2d")
+@builtin rw32_2d :: #intrinsic("builtin.rw32_2d")
+
+@builtin bvh32 :: #intrinsic("builtin.bvh32")
+@builtin Ray_Query :: #intrinsic("builtin.ray_query")
+
+Ray_Flag :: enum u32 {
+	Opaque,
+	No_Opaque,
+	Terminate_On_First_Hit,
+	Skip_Closest_Hit_Shader,
+	Cull_Back_Facing_Triangles,
+	Cull_Front_Facing_Triangles,
+	Cull_Opaque,
+	Cull_No_Opaque,
+	Skip_Triangles,
+	Skip_ABBs,
+	Force_Opacity_Micromap2_State,
+}
+
+Ray_Flags :: bit_set[Ray_Flag; u32]
+
+@builtin
+Ray_Desc :: struct {
+	flags:     Ray_Flags,
+	cull_mask: u32,
+	t_min:     f32,
+	t_max:     f32,
+	origin:    [3]f32,
+	dir:       [3]f32,
+}
+
+@builtin
+Ray_Result :: struct {
+	kind:            u32,
+	t:               f32,
+	instance_idx:    u32,
+	primitive_idx:   u32,
+	barycentrics:    [2]f32,
+	front_face:      b32,
+	object_to_world: matrix[3, 4]f32,
+	world_to_object: matrix[3, 4]f32,
+}
+
+@builtin rw8_1d :: #intrinsic("builtin.rw8_1d")
+@builtin rw16_1d :: #intrinsic("builtin.rw16_1d")
+@builtin rw32_1d :: #intrinsic("builtin.rw32_1d")
+@builtin rw8_3d :: #intrinsic("builtin.rw8_3d")
+@builtin rw16_3d :: #intrinsic("builtin.rw16_3d")
+@builtin rw32_3d :: #intrinsic("builtin.rw32_3d")
+@builtin rw8_cube :: #intrinsic("builtin.rw8_cube")
+@builtin rw16_cube :: #intrinsic("builtin.rw16_cube")
+@builtin rw32_cube :: #intrinsic("builtin.rw32_cube")
+@builtin rw8_1d_array :: #intrinsic("builtin.rw8_1d_array")
+@builtin rw16_1d_array :: #intrinsic("builtin.rw16_1d_array")
+@builtin rw32_1d_array :: #intrinsic("builtin.rw32_1d_array")
+@builtin rw8_2d_array :: #intrinsic("builtin.rw8_2d_array")
+@builtin rw16_2d_array :: #intrinsic("builtin.rw16_2d_array")
+@builtin rw32_2d_array :: #intrinsic("builtin.rw32_2d_array")
+@builtin rw8_cube_array :: #intrinsic("builtin.rw8_cube_array")
+@builtin rw16_cube_array :: #intrinsic("builtin.rw16_cube_array")
+@builtin rw32_cube_array :: #intrinsic("builtin.rw32_cube_array")
+
+#partial which MISL_MODE {
+case .SPIRV:
+	@builtin radians :: #intrinsic("spirv.radians") // proc(x: genType) -> genType
+	@builtin degrees :: #intrinsic("spirv.degrees") // proc(x: genType) -> genType
+	@builtin sin :: #intrinsic("spirv.sin") // proc(x: genType) -> genType
+	@builtin cos :: #intrinsic("spirv.cos") // proc(x: genType) -> genType
+	@builtin tan :: #intrinsic("spirv.tan") // proc(x: genType) -> genType
+	@builtin asin :: #intrinsic("spirv.asin") // proc(x: genType) -> genType
+	@builtin acos :: #intrinsic("spirv.acos") // proc(x: genType) -> genType
+	@builtin atan :: #intrinsic("spirv.atan") // proc(x: genType) -> genType
+	@builtin atan2 :: #intrinsic("spirv.atan2") // proc(y: genType, x: genType) -> genType
+	@builtin pow :: #intrinsic("spirv.pow") // proc(x: genType, y: genType) -> genType
+	@builtin exp :: #intrinsic("spirv.exp") // proc(x: genType) -> genType
+	@builtin log :: #intrinsic("spirv.log") // proc(x: genType) -> genType
+	@builtin exp2 :: #intrinsic("spirv.exp2") // proc(x: genType) -> genType
+	@builtin log2 :: #intrinsic("spirv.log2") // proc(x: genType) -> genType
+	@builtin sqrt :: #intrinsic("spirv.sqrt") // proc(x: genType) -> genType
+	@builtin isqrt :: #intrinsic("spirv.inversesqrt") // proc(x: genType) -> genType
+	@builtin sign :: #intrinsic("spirv.sign") // proc(x: genType) -> genType
+	@builtin floor :: #intrinsic("spirv.floor") // proc(x: genType) -> genType
+	@builtin trunc :: #intrinsic("spirv.trunc") // proc(x: genType) -> genType
+	@builtin round :: #intrinsic("spirv.round") // proc(x: genType) -> genType
+	@builtin round_even :: #intrinsic("spirv.roundEven") // proc(x: genType) -> genType
+	@builtin ceil :: #intrinsic("spirv.ceil") // proc(x: genType) -> genType
+	@builtin fract :: #intrinsic("spirv.fract") // proc(x: genType) -> genType
+	@builtin step :: #intrinsic("spirv.step") // proc(edge: genType, x: genType) -> genType
+	@builtin smoothstep :: #intrinsic("spirv.smoothstep") // proc(edge0: genType, edge1: genType, x: genType) -> genType
+	@builtin frexp :: #intrinsic("spirv.frexp") // proc(x: genType) -> (exp: genIType, significand: genType)
+	@builtin mag :: #intrinsic("spirv.length") // proc(x: genType) -> f32
+
+	// t8_2d/t16_2d and s8/s16 match t32_2d / s32.
+	// sample_1d :: proc(tex: t32_1d, samp: s32, coord: f32) -> [4]f32
+	// sample_1d_lod :: proc(tex: t32_1d, samp: s32, coord: f32, lod: f32) -> [4]f32
+	// sample_2d :: proc(tex: t32_2d, samp: s32, coord: [2]f32) -> [4]f32
+	// sample_2d_lod :: proc(tex: t32_2d, samp: s32, coord: [2]f32, lod: f32) -> [4]f32
+	// sample_3d :: proc(tex: t32_3d, samp: s32, coord: [3]f32) -> [4]f32
+	// sample_3d_lod :: proc(tex: t32_3d, samp: s32, coord: [3]f32, lod: f32) -> [4]f32
+	// sample_cube :: proc(tex: t32_cube, samp: s32, coord: [3]f32) -> [4]f32
+	// sample_cube_lod :: proc(tex: t32_cube, samp: s32, coord: [3]f32, lod: f32) -> [4]f32
+	// sample_1d_array :: proc(tex: t32_1d_array, samp: s32, coord: [2]f32) -> [4]f32
+	// sample_1d_array_lod :: proc(tex: t32_1d_array, samp: s32, coord: [2]f32, lod: f32) -> [4]f32
+	// sample_2d_array :: proc(tex: t32_2d_array, samp: s32, coord: [3]f32) -> [4]f32
+	// sample_2d_array_lod :: proc(tex: t32_2d_array, samp: s32, coord: [3]f32, lod: f32) -> [4]f32
+	// sample_cube_array :: proc(tex: t32_cube_array, samp: s32, coord: [4]f32) -> [4]f32
+	// sample_cube_array_lod :: proc(tex: t32_cube_array, samp: s32, coord: [4]f32, lod: f32) -> [4]f32
+	// sample_1d_cmp :: proc(tex: t32_1d, samp: s32_cmp, coord: f32, ref: f32) -> f32
+	// sample_1d_cmp_lod :: proc(tex: t32_1d, samp: s32_cmp, coord: f32, ref: f32, lod: f32) -> f32
+	// sample_2d_cmp :: proc(tex: t32_2d, samp: s32_cmp, coord: [2]f32, ref: f32) -> f32
+	// sample_2d_cmp_lod :: proc(tex: t32_2d, samp: s32_cmp, coord: [2]f32, ref: f32, lod: f32) -> f32
+	// sample_cube_cmp :: proc(tex: t32_cube, samp: s32_cmp, coord: [3]f32, ref: f32) -> f32
+	// sample_cube_cmp_lod :: proc(tex: t32_cube, samp: s32_cmp, coord: [3]f32, ref: f32, lod: f32) -> f32
+	// sample_1d_array_cmp :: proc(tex: t32_1d_array, samp: s32_cmp, coord: [2]f32, ref: f32) -> f32
+	// sample_2d_array_cmp :: proc(tex: t32_2d_array, samp: s32_cmp, coord: [3]f32, ref: f32) -> f32
+	// sample_cube_array_cmp :: proc(tex: t32_cube_array, samp: s32_cmp, coord: [4]f32, ref: f32) -> f32
+	@builtin sample :: #intrinsic("builtin.sample")
+
+	// t8_2d/t16_2d and rw8_2d/rw16_2d match t32_2d / rw32_2d. Cube views cannot load.
+	// proc(tex: t32_1d, coord: i32) -> [4]f32
+	// proc(tex: t32_1d, coord: i32, mip: i32) -> [4]f32
+	// proc(tex: t32_2d, coord: [2]i32) -> [4]f32
+	// proc(tex: t32_2d, coord: [2]i32, mip: i32) -> [4]f32
+	// proc(tex: t32_3d, coord: [3]i32) -> [4]f32
+	// proc(tex: t32_3d, coord: [3]i32, mip: i32) -> [4]f32
+	// proc(tex: t32_1d_array, coord: [2]i32) -> [4]f32
+	// proc(tex: t32_1d_array, coord: [2]i32, mip: i32) -> [4]f32
+	// proc(tex: t32_2d_array, coord: [3]i32) -> [4]f32
+	// proc(tex: t32_2d_array, coord: [3]i32, mip: i32) -> [4]f32
+	// proc(tex: rw32_1d, coord: i32) -> [4]f32
+	// proc(tex: rw32_2d, coord: [2]i32) -> [4]f32
+	// proc(tex: rw32_3d, coord: [3]i32) -> [4]f32
+	// proc(tex: rw32_cube, coord: [3]i32) -> [4]f32
+	// proc(tex: rw32_1d_array, coord: [2]i32) -> [4]f32
+	// proc(tex: rw32_2d_array, coord: [3]i32) -> [4]f32
+	// proc(tex: rw32_cube_array, coord: [3]i32) -> [4]f32
+	@builtin load :: #intrinsic("builtin.load")
+
+	// rw8_2d/rw16_2d match rw32_2d.
+	// proc(tex: rw32_1d, coord: i32, color: [4]f32)
+	// proc(tex: rw32_2d, coord: [2]i32, color: [4]f32)
+	// proc(tex: rw32_3d, coord: [3]i32, color: [4]f32)
+	// proc(tex: rw32_cube, coord: [3]i32, color: [4]f32)
+	// proc(tex: rw32_1d_array, coord: [2]i32, color: [4]f32)
+	// proc(tex: rw32_2d_array, coord: [3]i32, color: [4]f32)
+	// proc(tex: rw32_cube_array, coord: [3]i32, color: [4]f32)
+	@builtin store :: #intrinsic("builtin.store")
+
+	// t8_2d/t16_2d and rw8_2d/rw16_2d match t32_2d / rw32_2d.
+	// proc(tex: t32_1d) -> i32
+	// proc(tex: t32_2d) -> [2]i32
+	// proc(tex: t32_cube) -> [2]i32
+	// proc(tex: t32_1d_array) -> [2]i32
+	// proc(tex: t32_3d) -> [3]i32
+	// proc(tex: t32_2d_array) -> [3]i32
+	// proc(tex: t32_cube_array) -> [3]i32
+	// proc(tex: rw32_1d) -> i32
+	// proc(tex: rw32_2d) -> [2]i32
+	// proc(tex: rw32_cube) -> [2]i32
+	// proc(tex: rw32_1d_array) -> [2]i32
+	// proc(tex: rw32_3d) -> [3]i32
+	// proc(tex: rw32_2d_array) -> [3]i32
+	// proc(tex: rw32_cube_array) -> [3]i32
+	@builtin dim :: #intrinsic("builtin.dim")
+
+	@builtin rayquery_init :: #intrinsic("builtin.rayquery_init") // proc(desc: Ray_Desc, bvh: bvh32) -> Ray_Query
+	@builtin rayquery_proceed :: #intrinsic("builtin.rayquery_proceed") // proc(rq: Ray_Query) -> b32
+	@builtin rayquery_result :: #intrinsic("builtin.rayquery_result") // proc(rq: Ray_Query) -> Ray_Result
+	@builtin rayquery_candidate :: #intrinsic("builtin.rayquery_candidate") // proc(rq: Ray_Query) -> Ray_Result
+	@builtin rayquery_accept :: #intrinsic("builtin.rayquery_accept") // proc(rq: Ray_Query)
+
+	// fragment only — call-site stage gate
+	@builtin fwidth :: #intrinsic("spirv.fwidth") // proc(x: genType) -> genType
+	@builtin dFdx :: #intrinsic("spirv.dFdx") // proc(x: genType) -> genType
+	@builtin dFdy :: #intrinsic("spirv.dFdy") // proc(x: genType) -> genType
+
+	// compute only — call-site stage gate
+	@builtin barrier :: #intrinsic("spirv.barrier") // proc()
+	@builtin memory_barrier :: #intrinsic("spirv.memory_barrier") // proc()
+	@builtin memory_barrier_shared :: #intrinsic("spirv.memory_barrier_shared") // proc()
+	@builtin memory_barrier_buffer :: #intrinsic("spirv.memory_barrier_buffer") // proc()
+	@builtin memory_barrier_image :: #intrinsic("spirv.memory_barrier_image") // proc()
+	@builtin group_memory_barrier :: #intrinsic("spirv.group_memory_barrier") // proc()
+}

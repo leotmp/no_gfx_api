@@ -1,0 +1,18 @@
+// Bare type (must be ^T)
+My_Indirect :: struct {
+	seed: u32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	args: My_Indirect | SV_Indirect_Data,
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = args
+	_ = vid
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

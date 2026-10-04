@@ -1,0 +1,49 @@
+/*
+	Screen-space ambient occlusion.
+
+	Alchemy AO (McGuire / Bavoil / Mara) / HBAO-style horizon sampling
+	in a hemisphere around the reconstructed view-space position.
+	Depth is a sampled t32_2d; caller supplies projection scale.
+*/
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+view_from_depth :: proc(uv: vec2, depth: f32, inv_proj: matrix[4, 4]f32) -> vec3 {
+	clip := vec4(uv * 2 - 1, depth, 1)
+	v := inv_proj * clip
+	return v.xyz / v.w
+}
+
+ssao_alchemy :: proc(depth_tex: t32_2d, samp: s32, uv: vec2, res: vec2, radius: f32, bias: f32, samples: i32) -> f32 {
+	d0 := sample(depth_tex, samp, uv).x
+	nacc := 0.0
+	for i := 0; i < samples; i += 1 {
+		a := f32(i) * 2.399963
+		r := radius * sqrt((f32(i) + 0.5) / f32(samples))
+		off := vec2(cos(a), sin(a)) * r / res
+		d := sample(depth_tex, samp, uv + off).x
+		diff := d0 - d
+		nacc += max(diff - bias, 0) / (diff * diff + 1e-4)
+	}
+	ao := 1 - nacc / f32(samples)
+	return clamp(ao, 0, 1)
+}
+
+hbao :: proc(depth_tex: t32_2d, samp: s32, uv: vec2, res: vec2, radius: f32, dirs: i32) -> f32 {
+	d0 := sample(depth_tex, samp, uv).x
+	occ := 0.0
+	for i := 0; i < dirs; i += 1 {
+		a := f32(i) / f32(dirs) * 6.2831853
+		dir := vec2(cos(a), sin(a))
+		h := d0
+		for k := 1; k <= 4; k += 1 {
+			uv2 := uv + dir * (f32(k) * radius / res)
+			d := sample(depth_tex, samp, uv2).x
+			h = min(h, d)
+		}
+		occ += max(d0 - h, 0)
+	}
+	return clamp(1 - occ / f32(dirs), 0, 1)
+}

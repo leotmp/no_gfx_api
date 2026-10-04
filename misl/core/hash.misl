@@ -1,0 +1,76 @@
+/*
+	Integer and float hashes.
+
+	PCG: Melissa O'Neill, PCG: A Family of Simple Fast Space-Efficient
+	Statistically Good Algorithms for Random Number Generation (2014).
+	The 32-bit permute used here is the common shader form of that PCG hash.
+
+	Hash without Sine (Dave Hoskins, 2014), MIT:
+	https://www.shadertoy.com/view/4djSRW
+*/
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+hash_pcg :: proc(n: u32) -> u32 {
+	state := n * 747796405 + 2891336453
+	word := ((state >> ((state >> 28) + 4)) ~ state) * 277803737
+	return (word >> 22) ~ word
+}
+
+hash_u32 :: proc(n: u32) -> u32 {
+	return hash_pcg(n)
+}
+
+float_from_hash :: proc(n: u32) -> f32 {
+	return f32(hash_pcg(n)) * (1.0 / 4294967296.0)
+}
+
+hash_2u :: proc(x: u32, y: u32) -> u32 {
+	return hash_pcg(x + hash_pcg(y))
+}
+
+// Dave Hoskins Hash without Sine (MIT).
+hash11 :: proc(p: f32) -> f32 {
+	p3 := fract(vec3(p, p, p) * 0.1031)
+	h := dot(p3, vec3(p3.y + 33.33, p3.z + 33.33, p3.x + 33.33))
+	p3 = p3 + vec3(h, h, h)
+	return fract((p3.x + p3.y) * p3.z)
+}
+
+hash21 :: proc(p: vec2) -> f32 {
+	p3 := fract(vec3(p.x, p.y, p.x) * 0.1031)
+	h := dot(p3, vec3(p3.y + 33.33, p3.z + 33.33, p3.x + 33.33))
+	p3 = p3 + vec3(h, h, h)
+	return fract((p3.x + p3.y) * p3.z)
+}
+
+hash22 :: proc(p: vec2) -> vec2 {
+	p3 := fract(vec3(p.x, p.y, p.x) * vec3(0.1031, 0.1030, 0.0973))
+	h := dot(p3, vec3(p3.y + 33.33, p3.z + 33.33, p3.x + 33.33))
+	p3 = p3 + vec3(h, h, h)
+	return fract((vec2(p3.x, p3.x) + vec2(p3.y, p3.z)) * vec2(p3.z, p3.y))
+}
+
+hash31 :: proc(p: vec3) -> f32 {
+	p3 := fract(p * 0.1031)
+	h := dot(p3, vec3(p3.y + 33.33, p3.z + 33.33, p3.x + 33.33))
+	p3 = p3 + vec3(h, h, h)
+	return fract((p3.x + p3.y) * p3.z)
+}
+
+hash33 :: proc(p: vec3) -> vec3 {
+	p3 := fract(p * vec3(0.1031, 0.1030, 0.0973))
+	h := dot(p3, vec3(p3.y + 33.33, p3.z + 33.33, p3.x + 33.33))
+	p3 = p3 + vec3(h, h, h)
+	return fract((vec3(p3.x, p3.x, p3.y) + vec3(p3.y, p3.z, p3.z)) * vec3(p3.z, p3.y, p3.x))
+}
+
+srandom :: proc(p: vec2) -> f32 {
+	return hash21(p) * 2 - 1
+}
+
+srandom3 :: proc(p: vec3) -> f32 {
+	return hash31(p) * 2 - 1
+}

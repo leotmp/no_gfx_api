@@ -1,0 +1,46 @@
+import "core:color.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	lut: t32_2d,
+	samp: s32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vertex_id
+	c := vec3(0.8, 0.2, 0.1)
+	_ = color.srgb_from_linear(c)
+	_ = color.xyz_from_rgb(c)
+	_ = color.oklab_from_linear_srgb(c)
+	_ = color.hsv_from_rgb(c)
+	_ = color.tonemap_aces(c * 4)
+	_ = color.tonemap_agx(c * 4)
+	_ = color.dither_bayer4(vec2(3, 5))
+	_ = color.dither_ign(vec2(10, 20))
+	_ = color.palette_turbo(0.4)
+	_ = color.pd_over(vec4(c, 0.5), vec4(0.1, 0.2, 0.3, 1))
+	_ = color.blend_overlay(c, vec3(0.5, 0.5, 0.2))
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	_ = color.lut2d(data.lut, data.samp, vec3(0.5, 0.4, 0.3), 16)
+	out = data.color
+	return out
+}

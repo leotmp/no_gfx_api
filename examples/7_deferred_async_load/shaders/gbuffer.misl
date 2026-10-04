@@ -1,0 +1,72 @@
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat4 :: matrix[4, 4]f32
+
+Vert_Data :: struct {
+	positions            : [^]vec4,
+	normals              : [^]vec4,
+	uvs                  : [^]vec2,
+	model_to_world       : mat4,
+	model_to_world_normal: mat4,
+	world_to_view        : mat4,
+	view_to_proj         : mat4,
+}
+
+VS_Out :: struct {
+	pos      : vec4 | SV_Position,
+	normal   : vec4,
+	uv       : vec2,
+	world_pos: vec4,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+	data: ^Vert_Data | SV_Data,
+) -> (out: VS_Out) {
+	clip_pos := vec4(data.positions[vid].xyz, 1)
+	world_pos := data.model_to_world * clip_pos
+	clip_pos = data.world_to_view * world_pos
+	clip_pos = data.view_to_proj * clip_pos
+	clip_pos.y = 0 - clip_pos.y
+
+	out.pos = clip_pos
+	out.normal = data.model_to_world_normal * data.normals[vid]
+	out.uv = data.uvs[vid]
+	out.world_pos = world_pos
+	return out
+}
+
+Frag_Data :: struct {
+	base_color_map                : t32_2d,
+	base_color_map_sampler        : s32,
+	metallic_roughness_map        : t32_2d,
+	metallic_roughness_map_sampler: s32,
+	normal_map                    : t32_2d,
+	normal_map_sampler            : s32,
+}
+
+GBuffer_Output :: struct {
+	albedo            : vec4 | SV_Target,
+	normal            : vec4 | SV_Target,
+	metallic_roughness: vec4 | SV_Target,
+}
+
+fs :: proc "fragment"(
+	input: VS_Out,
+	data: ^Frag_Data | SV_Data,
+) -> (out: GBuffer_Output) {
+	base_color := sample(data.base_color_map, data.base_color_map_sampler, input.uv)
+	if base_color.w < 0.1 {
+		discard
+	}
+	_ = sample(data.normal_map, data.normal_map_sampler, input.uv)
+	world_normal := normalize(input.normal.xyz)
+	packed_normal := vec4(world_normal * 0.5 + 0.5, 1)
+	metallic_roughness_sample := sample(data.metallic_roughness_map, data.metallic_roughness_map_sampler, input.uv)
+
+	out.albedo = base_color
+	out.normal = packed_normal
+	out.metallic_roughness = metallic_roughness_sample
+	return out
+}

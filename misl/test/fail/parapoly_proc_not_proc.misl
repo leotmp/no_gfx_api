@@ -1,0 +1,27 @@
+// Expect: constant parapoly argument must be a named procedure
+vec4 :: [4]f32
+
+Fn :: #type proc(n: i32)
+
+Data :: struct #align(16) {
+	v: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+pass_proc :: proc($fn: Fn) {
+	fn(1)
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	pass_proc(1)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

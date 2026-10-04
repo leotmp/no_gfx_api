@@ -1,0 +1,5 @@
+// Expect: semantic name not allowed in this context
+shade :: proc "fmag"(x: f32) -> (out: f32 | SV_Target) {
+	out = x
+	return out
+}

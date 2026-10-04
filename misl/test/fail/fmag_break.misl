@@ -1,0 +1,5 @@
+// Expect: 'break' is only allowed inside a loop or switch
+shade :: proc "fmag"(x: f32) -> f32 {
+	break
+	return x
+}

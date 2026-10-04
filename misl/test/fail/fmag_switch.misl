@@ -1,0 +1,8 @@
+// Expect: 'switch' is not allowed in proc "fmag"
+shade :: proc "fmag"(x: f32) -> f32 {
+	switch {
+	case x > 0:
+		return x
+	}
+	return 0
+}

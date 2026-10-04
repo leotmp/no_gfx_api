@@ -1,0 +1,190 @@
+/*
+	AABB, triangle, and ray intersection.
+
+	AABB ops: real-time collision textbooks. Ray–triangle: Möller–Trumbore
+	(Journal of Graphics Tools, 1997). Triangle SDF: Inigo Quilez.
+	Ray–sphere / ray–AABB: RT / collision textbooks (Slabs method).
+*/
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+AABB :: struct {
+	mn: vec3,
+	mx: vec3,
+}
+
+aabb_make :: proc(mn: vec3, mx: vec3) -> AABB {
+	out: AABB
+	out.mn = mn
+	out.mx = mx
+	return out
+}
+
+aabb_centroid :: proc(b: AABB) -> vec3 {
+	return (b.mn + b.mx) * 0.5
+}
+
+aabb_contains :: proc(b: AABB, p: vec3) -> b32 {
+	return p.x >= b.mn.x && p.x <= b.mx.x && p.y >= b.mn.y && p.y <= b.mx.y && p.z >= b.mn.z && p.z <= b.mx.z
+}
+
+aabb_expand_point :: proc(b: AABB, p: vec3) -> AABB {
+	out: AABB
+	out.mn = min(b.mn, p)
+	out.mx = max(b.mx, p)
+	return out
+}
+
+aabb_expand_aabb :: proc(a: AABB, b: AABB) -> AABB {
+	out: AABB
+	out.mn = min(a.mn, b.mn)
+	out.mx = max(a.mx, b.mx)
+	return out
+}
+
+aabb_intersect :: proc(a: AABB, b: AABB) -> b32 {
+	return a.mn.x <= b.mx.x && a.mx.x >= b.mn.x && a.mn.y <= b.mx.y && a.mx.y >= b.mn.y && a.mn.z <= b.mx.z && a.mx.z >= b.mn.z
+}
+
+aabb_surface_area :: proc(b: AABB) -> f32 {
+	e := b.mx - b.mn
+	return 2 * (e.x * e.y + e.y * e.z + e.z * e.x)
+}
+
+triangle_area :: proc(a: vec3, b: vec3, c: vec3) -> f32 {
+	return 0.5 * mag(cross(b - a, c - a))
+}
+
+triangle_normal :: proc(a: vec3, b: vec3, c: vec3) -> vec3 {
+	return normalize(cross(b - a, c - a))
+}
+
+triangle_barycentric :: proc(p: vec3, a: vec3, b: vec3, c: vec3) -> vec3 {
+	v0 := b - a
+	v1 := c - a
+	v2 := p - a
+	d00 := dot(v0, v0)
+	d01 := dot(v0, v1)
+	d11 := dot(v1, v1)
+	d20 := dot(v2, v0)
+	d21 := dot(v2, v1)
+	denom := d00 * d11 - d01 * d01
+	v := (d11 * d20 - d01 * d21) / denom
+	w := (d00 * d21 - d01 * d20) / denom
+	u := 1 - v - w
+	return vec3(u, v, w)
+}
+
+// Closest point on triangle (Ericson, Real-Time Collision Detection).
+triangle_closest_point :: proc(p: vec3, a: vec3, b: vec3, c: vec3) -> vec3 {
+	ab := b - a
+	ac := c - a
+	ap := p - a
+	d1 := dot(ab, ap)
+	d2 := dot(ac, ap)
+	if d1 <= 0 && d2 <= 0 {
+		return a
+	}
+	bp := p - b
+	d3 := dot(ab, bp)
+	d4 := dot(ac, bp)
+	if d3 >= 0 && d4 <= d3 {
+		return b
+	}
+	vc := d1 * d4 - d3 * d2
+	if vc <= 0 && d1 >= 0 && d3 <= 0 {
+		v := d1 / (d1 - d3)
+		return a + ab * v
+	}
+	cp := p - c
+	d5 := dot(ab, cp)
+	d6 := dot(ac, cp)
+	if d6 >= 0 && d5 <= d6 {
+		return c
+	}
+	vb := d5 * d2 - d1 * d6
+	if vb <= 0 && d2 >= 0 && d6 <= 0 {
+		w := d2 / (d2 - d6)
+		return a + ac * w
+	}
+	va := d3 * d6 - d5 * d4
+	if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
+		w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
+		return b + (c - b) * w
+	}
+	denom := 1 / (va + vb + vc)
+	v := vb * denom
+	w := vc * denom
+	return a + ab * v + ac * w
+}
+
+// Inigo Quilez unsigned triangle distance (3D).
+triangle_sd :: proc(p: vec3, a: vec3, b: vec3, c: vec3) -> f32 {
+	return mag(p - triangle_closest_point(p, a, b, c))
+}
+
+triangle_sd_signed :: proc(p: vec3, a: vec3, b: vec3, c: vec3) -> f32 {
+	n := triangle_normal(a, b, c)
+	d := triangle_sd(p, a, b, c)
+	return d if dot(p - a, n) >= 0 else -d
+}
+
+// Möller–Trumbore ray–triangle. Returns t (ray param), bary u,v, and hit.
+moller_trumbore :: proc(ro: vec3, rd: vec3, a: vec3, b: vec3, c: vec3) -> vec4 {
+	eps := 1e-6
+	e1 := b - a
+	e2 := c - a
+	pvec := cross(rd, e2)
+	det := dot(e1, pvec)
+	if abs(det) < eps {
+		return vec4(0, 0, 0, 0)
+	}
+	inv := 1 / det
+	tvec := ro - a
+	u := dot(tvec, pvec) * inv
+	if u < 0 || u > 1 {
+		return vec4(0, 0, 0, 0)
+	}
+	qvec := cross(tvec, e1)
+	v := dot(rd, qvec) * inv
+	if v < 0 || u + v > 1 {
+		return vec4(0, 0, 0, 0)
+	}
+	t := dot(e2, qvec) * inv
+	hit := 1.0 if t > eps else 0.0
+	return vec4(t, u, v, hit)
+}
+
+ray_sphere :: proc(ro: vec3, rd: vec3, center: vec3, radius: f32) -> vec2 {
+	oc := ro - center
+	b := dot(oc, rd)
+	c := dot(oc, oc) - radius * radius
+	h := b * b - c
+	if h < 0 {
+		return vec2(-1, -1)
+	}
+	s := sqrt(h)
+	return vec2(-b - s, -b + s)
+}
+
+// Slab ray–AABB. Returns tmin, tmax (negative if miss).
+ray_aabb :: proc(ro: vec3, rd: vec3, b: AABB) -> vec2 {
+	inv := vec3(1 / rd.x, 1 / rd.y, 1 / rd.z)
+	t0 := (b.mn - ro) * inv
+	t1 := (b.mx - ro) * inv
+	tmin := max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z))
+	tmax := min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z))
+	if tmax < tmin {
+		return vec2(-1, -1)
+	}
+	return vec2(tmin, tmax)
+}
+
+ray_box :: proc(ro: vec3, rd: vec3, center: vec3, half_extents: vec3) -> vec2 {
+	b: AABB
+	b.mn = center - half_extents
+	b.mx = center + half_extents
+	return ray_aabb(ro, rd, b)
+}

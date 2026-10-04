@@ -1,0 +1,20 @@
+// Empty struct is valid (size/align 0). Incomplete `S :: struct` while typing must not trap.
+Empty :: struct {}
+
+Nested :: struct {
+	x: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: VS_Out) {
+	_ = vid
+	e: Empty
+	n: Nested = {x = 1}
+	_ = e
+	_ = n
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

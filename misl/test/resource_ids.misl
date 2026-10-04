@@ -1,0 +1,71 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+ivec2 :: [2]i32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	tex: t32_2d,
+	samp: s32,
+	rw: rw32_2d,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	// untyped → resource id in typed context
+	tex: t32_2d = 0
+	samp: s32 = 1
+	_ = tex
+	_ = samp
+
+	_ = t32_2d(0)
+	tex8: t8_2d = 0
+	tex16: t16_2d = 0
+	_ = tex8
+	_ = tex16
+	_ = t8_2d(0)
+	_ = t16_1d(0)
+	_ = rw8_2d(0)
+	_ = rw16_3d(0)
+	_ = s8_cmp(0)
+	_ = s16_cmp(0)
+
+	// arithmetic keeps kind
+	tex2 := t32_2d(0) + 1
+	_ = tex2
+
+	sz := dim(data.tex)
+	_ = sz
+
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = sample(data.tex, data.samp, fsin.uv)
+	// untyped sampler from context
+	out = sample(data.tex, 0, fsin.uv)
+
+	coord := ivec2(0, 0)
+	loaded := load(data.tex, coord, 0)
+	_ = loaded
+
+	rw_loaded := load(data.rw, coord)
+	_ = rw_loaded
+
+	// narrower width accepted + widened at call
+	narrow: t16_2d = 0
+	_ = load(narrow, coord, 0)
+
+	return out
+}

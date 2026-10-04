@@ -1,0 +1,5 @@
+// Expect: unknown identifier 'barrier'
+shade :: proc "fmag"(x: f32) -> f32 {
+	barrier()
+	return x
+}

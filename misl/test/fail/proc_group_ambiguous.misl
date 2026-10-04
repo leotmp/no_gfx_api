@@ -1,0 +1,45 @@
+// Expect: ambiguous call
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+foo_a :: proc(a: i32, b: f32) {
+	_ = a
+	_ = b
+}
+
+foo_b :: proc(a: f32, b: i32) {
+	_ = a
+	_ = b
+}
+
+foo :: proc {
+	foo_a,
+	foo_b,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	foo(1, 1)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

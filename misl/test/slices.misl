@@ -1,0 +1,56 @@
+// Slice construction + reslice: mp[:n], mp[i:j], s[i:j], s[i:], s[:j], s[:]
+vec4 :: [4]f32
+
+Item :: struct #align(16) {
+	v: f32,
+}
+
+Data :: struct #align(16) {
+	items_mp: [^]Item,
+	items: []Item,
+	count: i32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	n := data.count
+
+	// multipointer → slice
+	a := data.items_mp[:n]
+	b := data.items_mp[1:n]
+	_ = len(a) + len(b)
+
+	// multipointer advance (still [^]T)
+	p := data.items_mp[1:]
+	_ = p[0].v
+
+	// reslice []T
+	full := data.items[:]
+	head := data.items[:n]
+	tail := data.items[1:]
+	mid := data.items[1:n]
+	_ = len(full) + len(head) + len(tail) + len(mid)
+
+	if len(mid) > 0 {
+		_ = mid[0].v
+	}
+
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin.pos
+	_ = data.count
+	out = vec4(0, 0, 0, 1)
+	return out
+}

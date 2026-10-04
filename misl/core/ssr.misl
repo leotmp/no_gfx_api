@@ -1,0 +1,40 @@
+/*
+	Screen-space reflections.
+
+	Linear ray march in UV space against a depth t32_2d.
+	ssr_trace is a linear UV march. Cubemap fallback is a lat-long lookup on a t32_2d.
+*/
+
+import "core:space.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+ssr_trace :: proc(depth_tex: t32_2d, samp: s32, uv: vec2, dir: vec2, steps: i32, stride: f32) -> vec3 {
+	p := uv
+	hit := 0.0
+	d0 := sample(depth_tex, samp, uv, 0).x
+	for i := 0; i < steps; i += 1 {
+		p = p + dir * stride
+		if p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1 {
+			break
+		}
+		d := sample(depth_tex, samp, p, 0).x
+		if d < d0 - 0.002 {
+			hit = 1
+			d0 = d
+			break
+		}
+	}
+	col := sample(depth_tex, samp, p).xyz
+	return col * hit
+}
+
+ssr_cubemap :: proc(env: t32_2d, samp: s32, r: vec3) -> vec3 {
+	return sample(env, samp, space.equirect_from_xyz(r)).xyz
+}
+
+reflect_dir :: proc(v: vec3, n: vec3) -> vec3 {
+	return reflect(v, n)
+}

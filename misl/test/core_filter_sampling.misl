@@ -1,0 +1,44 @@
+import "core:filter.misl"
+import "core:sampling.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	tex: t32_2d,
+	samp: s32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	uv := vec2(0.5, 0.5)
+	res := vec2(64, 64)
+	_ = filter.box_blur(data.tex, data.samp, uv, res, 1)
+	_ = filter.gaussian_blur(data.tex, data.samp, uv, res, vec2(1, 0), 1)
+	_ = filter.sobel(data.tex, data.samp, uv, res)
+	_ = filter.cas(data.tex, data.samp, uv, res, 0.5)
+	_ = sampling.bicubic(data.tex, data.samp, uv, res)
+	_ = sampling.fxaa(data.tex, data.samp, uv, res)
+	_ = sampling.pcf3(data.tex, data.samp, uv, res, 0.5)
+	out = data.color
+	return out
+}

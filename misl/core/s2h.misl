@@ -1,0 +1,1183 @@
+/*
+Port of Electronic Arts Shader To Human (S2H) to MISL.
+
+Copyright (c) 2024-2025 Electronic Arts Inc.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+/*
+	Language gaps this translation hits (why the MISL API is not a 1:1 clone):
+
+	- No procedure overloading. Gather vs scatter vs 3d keep distinct names
+	  (print_txt / scatter_print_txt / init_3d). Compile-time `print_txt($str: string)`
+	  replaces the old numbered 1–6 character overloads.
+	- No user proc values / inlinable proc parameters. onGfxForAllScatter,
+	  s2h_tableLookup*, s2h_floatLookupFloat, and scene/sceneWithShadows cannot
+	  be "implement this in your TU". Scatter writes through Context_Scatter.dst
+	  (rw32_2d). Tables/plots take []T. sceneWithShadows is not a library proc.
+	- No while. Digit loops use C-style for.
+	- No saturate. clamp(x, 0, 1).
+	- Module-level MINI_FONT :: [192]u32{…} emits as a named GLSL `const uint[]`.
+	- HLSL if (float) truthiness is illegal; comparisons are explicit.
+	- No preprocessor. Version and GLSL/HLSL forks are just MISL.
+	- Scatter lives in this same module and calls store(rw32_2d). Importing gather
+	  into a fragment shader still sees those helpers in the TU. `when` / a
+	  split file would keep imageStore out of graphics entries.
+*/
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+ivec2 :: [2]i32
+mat4 :: matrix[4, 4]f32
+
+S2H_VERSION :: 13
+FLT_MAX :: 3.40282347e+38
+FONT_SIZE :: 8.0
+
+// s2h.hlsl: g_miniFont
+MINI_FONT :: [192]u32{
+	0x00306c6c, 0x30003860, 0x18600000, 0x00000006,
+	0x00786c6c, 0x7cc66c60, 0x30306630, 0x0000000c,
+	0x00786cfe, 0xc0cc38c0, 0x60183c30, 0x00000018,
+	0x0030006c, 0x78187600, 0x6018fffc, 0x00fc0030,
+	0x003000fe, 0x0c30dc00, 0x60183c30, 0x00000060,
+	0x0000006c, 0xf866cc00, 0x30306630, 0x300030c0,
+	0x0030006c, 0x30c67600, 0x18600000, 0x30003080,
+	0x00000000, 0x00000000, 0x00000000, 0x60000000,
+	0x7c307878, 0x1cfc38fc, 0x78780000, 0x18006078,
+	0xc670cccc, 0x3cc060cc, 0xcccc3030, 0x300030cc,
+	0xce300c0c, 0x6cf8c00c, 0xcccc3030, 0x60fc180c,
+	0xde303838, 0xcc0cf818, 0x787c0000, 0xc0000c18,
+	0xf630600c, 0xfe0ccc30, 0xcc0c0000, 0x60001830,
+	0xe630cccc, 0x0ccccc30, 0xcc183030, 0x30fc3000,
+	0x7cfcfc78, 0x1e787830, 0x78703030, 0x18006030,
+	0x00000000, 0x00000000, 0x00000060, 0x00000000,
+	0x7c30fc3c, 0xf8fefe3c, 0xcc781ee6, 0xf0c6c638,
+	0xc6786666, 0x6c626266, 0xcc300c66, 0x60eee66c,
+	0xdecc66c0, 0x666868c0, 0xcc300c6c, 0x60fef6c6,
+	0xdecc7cc0, 0x667878c0, 0xfc300c78, 0x60fedec6,
+	0xdefc66c0, 0x666868ce, 0xcc30cc6c, 0x62d6cec6,
+	0xc0cc6666, 0x6c626066, 0xcc30cc66, 0x66c6c66c,
+	0x78ccfc3c, 0xf8fef03e, 0xcc7878e6, 0xfec6c638,
+	0x00000000, 0x00000000, 0x00000000, 0x00000000,
+	0xfc78fc78, 0xfcccccc6, 0xc6ccfe78, 0xc0781000,
+	0x66cc66cc, 0xb4ccccc6, 0xc6ccc660, 0x60183800,
+	0x66cc66e0, 0x30ccccc6, 0x6ccc8c60, 0x30186c00,
+	0x7ccc7c70, 0x30ccccd6, 0x38781860, 0x1818c600,
+	0x60dc6c1c, 0x30ccccfe, 0x38303260, 0x0c180000,
+	0x607866cc, 0x30cc78ee, 0x6c306660, 0x06180000,
+	0xf01ce678, 0x78fc30c6, 0xc678fe78, 0x02780000,
+	0x00000000, 0x00000000, 0x00000000, 0x000000ff,
+	0x3000e000, 0x1c003800, 0xe0300ce0, 0x70000000,
+	0x30006000, 0x0c006c00, 0x60000060, 0x30000000,
+	0x18786078, 0x0c786076, 0x6c700c66, 0x30ccf878,
+	0x000c7ccc, 0x7cccf0cc, 0x76300c6c, 0x30fecccc,
+	0x007c66c0, 0xccfc60cc, 0x66300c78, 0x30fecccc,
+	0x00cc66cc, 0xccc0607c, 0x6630cc6c, 0x30d6cccc,
+	0x0076dc78, 0x7678f00c, 0xe678cce6, 0x78c6cc78,
+	0x00000000, 0x000000f8, 0x00007800, 0x00000000,
+	0x00000000, 0x10000000, 0x0000001c, 0x18e076ff,
+	0x00000000, 0x30000000, 0x00000030, 0x1830dcff,
+	0xdc76dc7c, 0x7cccccc6, 0xc6ccfc30, 0x183000ff,
+	0x66cc76c0, 0x30ccccd6, 0x6ccc98e0, 0x001c00ff,
+	0x66cc6678, 0x30ccccfe, 0x38cc3030, 0x183000ff,
+	0x7c7c600c, 0x34cc78fe, 0x6c7c6430, 0x183000ff,
+	0x600cf0f8, 0x1876306c, 0xc60cfc1c, 0x18e000ff,
+	0xf01e0000, 0x00000000, 0x00f80000, 0x000000ff,
+}
+
+// s2h.hlsl: struct ContextGather
+Context_Gather :: struct {
+	px_cursor:    vec2,
+	scale:        f32,
+	mouse_input:  vec4,
+	px_left_x:    f32,
+	px_pos:       vec2,
+	dst_color:    vec4,
+	text_color:   vec4,
+	frame_fill:   vec4,
+	frame_border: vec4,
+	button_color: vec4,
+	line_width:   f32,
+	state:        [4]i32,
+}
+
+// s2h.hlsl: struct s2h_Triangle
+Triangle :: struct {
+	a: vec2,
+	b: vec2,
+	c: vec2,
+}
+
+// s2h_scatter.hlsl: struct ContextScatter
+// dst replaces the user callback onGfxForAllScatter (writes via store).
+Context_Scatter :: struct {
+	text_color: vec4,
+	px_cursor:  ivec2,
+	px_left_x:  i32,
+	scale:      i32,
+	dst:        rw32_2d,
+}
+
+// s2h_3d.hlsl: struct Context3D
+Context_3D :: struct {
+	ro:        vec3,
+	rd:        vec3,
+	depth:     f32,
+	dst_color: vec4,
+}
+
+// s2h.hlsl: s2h_fontSize
+font_size :: proc() -> f32 {
+	return FONT_SIZE
+}
+
+// s2h.hlsl: s2h_fontLookup
+font_lookup :: proc(ch: rune, px_pos: ivec2) -> b32 {
+	ascii := u32(ch)
+	if u32(px_pos.x) >= 8 || u32(px_pos.y) >= 8 {
+		return false
+	}
+	if ascii <= 32 || ascii > 127 {
+		return false
+	}
+	chr := ascii - 32
+	chr_pos := [2]u32{chr % 16, chr / 16}
+	pixel := [2]u32{chr_pos.x * 8 + u32(px_pos.x), chr_pos.y * 8 + u32(px_pos.y)}
+	dword_id := pixel.x / 32 + pixel.y * 4
+	bit_id := pixel.x & 31
+	dword_value := MINI_FONT[dword_id]
+	return ((dword_value >> (31 - bit_id)) & 1) != 0
+}
+
+// s2h.hlsl: s2h_init (pxPos overload; the no-arg prototype has no body)
+init :: proc(px_pos: vec2) -> (ui: Context_Gather) {
+	ui.text_color = vec4(1, 1, 1, 1)
+	ui.px_left_x = 0
+	ui.px_cursor = vec2(0, 0)
+	ui.scale = 1
+	ui.mouse_input = vec4(-100, -100, 0, 0)
+	ui.px_pos = px_pos
+	ui.dst_color = vec4(0, 0, 0, 0)
+	ui.state = [4]i32{0, 0, 0, 0}
+	ui.frame_fill = vec4(0.9, 0.9, 0.9, 1)
+	ui.frame_border = vec4(0.7, 0.7, 0.7, 1)
+	ui.button_color = vec4(0.5, 0.5, 0.5, 1)
+	ui.line_width = 2
+	return
+}
+
+// s2h.hlsl: s2h_setCursor
+set_cursor :: proc(#ref ui: Context_Gather, px_left_top: vec2) {
+	ui.px_cursor = px_left_top
+	ui.px_left_x = px_left_top.x
+}
+
+// s2h.hlsl: s2h_deinit
+deinit :: proc(#ref ui: Context_Gather) -> [4]i32 {
+	if ui.mouse_input.x != -100 && ui.mouse_input.z == 0 {
+		ui.state = [4]i32{0, 0, 0, 0}
+	}
+	return ui.state
+}
+
+// s2h.hlsl: s2h_setScale
+set_scale :: proc(#ref ui: Context_Gather, scale: f32) {
+	ui.scale = scale
+}
+
+// s2h.hlsl: s2h_printCharacter
+print_character :: proc(#ref ui: Context_Gather, ch: rune) {
+	px_local := cast(ivec2)floor((ui.px_pos - ui.px_cursor) / ui.scale)
+	if font_lookup(ch, px_local) {
+		ui.dst_color = lerp(ui.dst_color, vec4(ui.text_color.rgb, 1), ui.text_color.a)
+	}
+	ui.px_cursor.x += font_size() * ui.scale
+}
+
+// s2h.hlsl: s2h_printTxt — compile-time string (ASCII bytes)
+print_txt :: proc(#ref ui: Context_Gather, $str: string) {
+	for i := 0; i < i32(len(str)); i += 1 {
+		print_character(&ui, rune(str[i]))
+	}
+}
+
+// s2h.hlsl: s2h_printSpace
+print_space :: proc(#ref ui: Context_Gather, number_of_chars: f32) {
+	ui.px_cursor.x += font_size() * number_of_chars * ui.scale
+}
+
+// s2h.hlsl: s2h_printLF
+print_lf :: proc(#ref ui: Context_Gather) {
+	ui.px_cursor.x = ui.px_left_x
+	ui.px_cursor.y += font_size() * ui.scale
+}
+
+// s2h.hlsl: s2h_printInt
+print_int :: proc(#ref ui: Context_Gather, value: i32) {
+	v := value
+	if v < 0 {
+		print_character(&ui, '-')
+		v = -v
+	}
+	if v == 0 {
+		print_character(&ui, '0')
+		return
+	}
+	for lead := u32(v); lead != 0; {
+		ui.px_cursor.x += font_size() * ui.scale
+		lead /= 10
+	}
+	backup := ui.px_cursor.x
+	for rest := u32(v); rest != 0; {
+		digit := rest % 10
+		rest /= 10
+		ui.px_cursor.x -= font_size() * ui.scale
+		print_character(&ui, '0' + digit)
+		ui.px_cursor.x -= font_size() * ui.scale
+	}
+	ui.px_cursor.x = backup
+}
+
+// s2h.hlsl: s2h_printHex
+print_hex :: proc(#ref ui: Context_Gather, value: u32) {
+	for i := 7; i >= 0; i -= 1 {
+		nibble := (value >> u32(i * 4)) & 0xf
+		start := nibble < 10 ? '0' : ('A' - 10)
+		print_character(&ui, start + nibble)
+	}
+}
+
+// s2h.hlsl: s2h_printFloat
+print_float :: proc(#ref ui: Context_Gather, value: f32) {
+	print_int(&ui, i32(value))
+	fractional := fract(abs(value))
+	print_character(&ui, '.')
+	for i: u32 = 0; i < 3; i += 1 {
+		fractional *= 10
+		digit := u32(fractional)
+		fractional = fract(fractional)
+		print_character(&ui, '0' + digit)
+	}
+}
+
+// s2h.hlsl: s2h_printBox
+print_box :: proc(#ref ui: Context_Gather, color: vec4) {
+	px_local := (ui.px_pos - ui.px_cursor) / ui.scale - vec2(4, 4)
+	mask := clamp(4 - max(abs(px_local.x), abs(px_local.y)), 0, 1)
+	if mask > 0 {
+		ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a)
+	}
+	ui.px_cursor.x += font_size() * ui.scale
+}
+
+// s2h.hlsl: s2h_printDisc
+print_disc :: proc(#ref ui: Context_Gather, color: vec4) {
+	px_local := (ui.px_pos - ui.px_cursor) / ui.scale - vec2(4, 4)
+	mask := clamp(4 - mag(px_local), 0, 1)
+	if mask > 0 {
+		ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a)
+	}
+	ui.px_cursor.x += font_size() * ui.scale
+}
+
+// s2h.hlsl: s2h_drawDisc
+draw_disc :: proc(#ref ui: Context_Gather, px_center: vec2, px_radius: f32, color: vec4) {
+	len := mag(ui.px_pos - px_center)
+	mask := clamp(px_radius - len, 0, 1)
+	ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a * mask)
+}
+
+// s2h.hlsl: s2h_drawCircle
+draw_circle :: proc(#ref ui: Context_Gather, px_center: vec2, px_radius: f32, color: vec4) {
+	r := ui.line_width * 0.5
+	px_local := ui.px_pos - px_center
+	len := mag(px_local)
+	mask := clamp(px_radius - len + r, 0, 1) * (1 - clamp(px_radius - len - r, 0, 1))
+	ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a * mask)
+}
+
+// s2h.hlsl: s2h_drawHalfSpace
+draw_half_space :: proc(#ref ui: Context_Gather, half_space: vec3, visualize_point: vec2, color: vec4, px_circle_radius: f32, line_radius: f32) {
+	hs := half_space
+	hs /= mag(hs.xy)
+	on_point := visualize_point - hs.xy * dot(hs, vec3(visualize_point, 1))
+	plane_dist := dot(hs, vec3(ui.px_pos, 1))
+	disk_dist := mag(on_point - ui.px_pos)
+	side_mask := clamp(plane_dist, 0, 1)
+	line_mask := clamp(ui.line_width - abs(plane_dist - ui.line_width), 0, 1) * clamp(line_radius - disk_dist, 0, 1)
+	semi_disk_mask := clamp(px_circle_radius - disk_dist, 0, 1) * side_mask
+	mask := max(semi_disk_mask, line_mask)
+	ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a * mask)
+}
+
+// s2h.hlsl: s2h_drawRectangle
+draw_rectangle :: proc(#ref ui: Context_Gather, px_left_top: vec2, px_bottom_right: vec2, color: vec4) {
+	if ui.px_pos.x >= px_left_top.x && ui.px_pos.y >= px_left_top.y && ui.px_pos.x < px_bottom_right.x && ui.px_pos.y < px_bottom_right.y {
+		ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a)
+	}
+}
+
+// s2h.hlsl: s2h_drawRectangleAA
+draw_rectangle_aa :: proc(#ref ui: Context_Gather, px_a: vec2, px_b: vec2, border_color: vec4, inner_color: vec4, px_thickness: f32) {
+	r := px_thickness * 0.5
+	px_center := (px_a + px_b) * 0.5
+	px_half_size := abs(px_b - px_a) * 0.5
+	px_local_outer := max(abs(ui.px_pos - px_center) - px_half_size, vec2(0, 0))
+	px_local_inner := max(abs(ui.px_pos - px_center) - px_half_size + r, vec2(0, 0))
+	mask_outer := clamp(1 + r - mag(px_local_outer), 0, 1)
+	mask_inner := clamp(mag(px_local_inner) - 0.5, 0, 1)
+	color := lerp(inner_color, vec4(border_color.rgb, 1), border_color.a * mask_inner)
+	ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a * mask_outer)
+}
+
+// s2h.hlsl: s2h_drawLine
+draw_line :: proc(#ref ui: Context_Gather, px_begin: vec2, px_end: vec2, color: vec4) {
+	px_thickness := ui.line_width + 1
+	r := px_thickness * 0.5
+	delta := px_end - px_begin
+	len := mag(delta)
+	if len > 0.01 {
+		tangent := delta / len
+		normal := vec2(tangent.y, -tangent.x)
+		local := ui.px_pos - px_begin
+		uv := vec2(dot(local, tangent), dot(local, normal))
+		mask := clamp(r - abs(uv.y), 0, 1) * clamp(r - uv.x + len, 0, 1) * clamp(r + uv.x, 0, 1)
+		ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a * mask)
+	}
+}
+
+// s2h.hlsl: s2h_drawCrosshair
+draw_crosshair :: proc(#ref ui: Context_Gather, px_center: vec2, px_radius: f32, color: vec4) {
+	h := vec2(px_radius, 0)
+	v := vec2(0, px_radius)
+	draw_line(&ui, px_center - h, px_center + h, color)
+	draw_line(&ui, px_center - v, px_center + v, color)
+}
+
+// s2h.hlsl: s2h_getHalfSpacePlane
+get_half_space_plane :: proc(point_a: vec2, point_b: vec2) -> vec3 {
+	ab := normalize(point_a - point_b)
+	ab_plane := vec3(-ab.y, ab.x, 0)
+	ab_plane.z = dot(ab_plane.xy, -point_a)
+	return ab_plane
+}
+
+// s2h.hlsl: s2h_drawTriangle
+draw_triangle :: proc(#ref ui: Context_Gather, tri: Triangle, color: vec4) {
+	ab_mask := clamp(dot(get_half_space_plane(tri.a, tri.b), vec3(ui.px_pos, 1)) - 0.5, 0, 1)
+	bc_mask := clamp(dot(get_half_space_plane(tri.b, tri.c), vec3(ui.px_pos, 1)) - 0.5, 0, 1)
+	ca_mask := clamp(dot(get_half_space_plane(tri.c, tri.a), vec3(ui.px_pos, 1)) - 0.5, 0, 1)
+	mask := ab_mask * bc_mask * ca_mask
+	ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a * mask)
+}
+
+// s2h.hlsl: s2h_drawArrow
+draw_arrow :: proc(#ref ui: Context_Gather, px_start: vec2, px_end: vec2, color: vec4, arrow_head_length: f32, arrow_head_width: f32) {
+	direction := normalize(px_end - px_start)
+	line_end := px_end - direction * arrow_head_length
+	perpendicular := normalize(vec2(direction.y, -direction.x))
+	draw_line(&ui, px_start, line_end, color)
+	tri: Triangle
+	tri.a = line_end - perpendicular * arrow_head_width
+	tri.b = line_end + direction * arrow_head_length
+	tri.c = line_end + perpendicular * arrow_head_width
+	draw_triangle(&ui, tri, color)
+}
+
+// s2h.hlsl: s2h_accurateLinearToSRGB
+accurate_srgb_from_linear :: proc(linear_col: vec3) -> vec3 {
+	srgb_lo := linear_col * 12.92
+	srgb_hi := pow(abs(linear_col), vec3(1.0 / 2.4, 1.0 / 2.4, 1.0 / 2.4)) * 1.055 - 0.055
+	return vec3(
+		linear_col.r <= 0.0031308 ? srgb_lo.r : srgb_hi.r,
+		linear_col.g <= 0.0031308 ? srgb_lo.g : srgb_hi.g,
+		linear_col.b <= 0.0031308 ? srgb_lo.b : srgb_hi.b,
+	)
+}
+
+// s2h.hlsl: s2h_accurateSRGBToLinear
+accurate_linear_from_srgb :: proc(srgb_col: vec3) -> vec3 {
+	linear_lo := srgb_col / 12.92
+	linear_hi := pow((srgb_col + 0.055) / 1.055, vec3(2.4, 2.4, 2.4))
+	return vec3(
+		srgb_col.r <= 0.04045 ? linear_lo.r : linear_hi.r,
+		srgb_col.g <= 0.04045 ? linear_lo.g : linear_hi.g,
+		srgb_col.b <= 0.04045 ? linear_lo.b : linear_hi.b,
+	)
+}
+
+// s2h.hlsl: s2h_indexToColor
+color_from_index :: proc(index: u32) -> vec3 {
+	a := (index >> 0) & 1
+	d := (index >> 1) & 1
+	g := (index >> 2) & 1
+	b := (index >> 3) & 1
+	e := (index >> 4) & 1
+	h := (index >> 5) & 1
+	c := (index >> 6) & 1
+	f := (index >> 7) & 1
+	i := (index >> 8) & 1
+	return vec3(f32(a * 4 + b * 2 + c), f32(d * 4 + e * 2 + f), f32(g * 4 + h * 2 + i)) / 7
+}
+
+// s2h.hlsl: s2h_colorRampRGB
+color_ramp_rgb :: proc(value: f32) -> vec3 {
+	return vec3(
+		clamp(1 - abs(value) * 2, 0, 1),
+		clamp(1 - abs(value - 0.5) * 2, 0, 1),
+		clamp(1 - abs(value - 1) * 2, 0, 1),
+	)
+}
+
+// s2h.hlsl: s2h_drawSRGBRamp
+draw_srgb_ramp :: proc(#ref ui: Context_Gather, px_pos: vec2) {
+	pos := floor(px_pos) + 0.5
+	local := ui.px_pos - pos
+	u := local.x / 256
+	if local.y > 16 {
+		u = floor(u * 16) / 16
+	}
+	col := accurate_linear_from_srgb(vec3(u, u, u))
+	draw_rectangle(&ui, pos - 2, pos + vec2(256, 32) + 2, vec4(color_ramp_rgb(u), 1))
+	draw_rectangle(&ui, pos, pos + vec2(256, 32), vec4(col, 1))
+	backup := ui
+	set_scale(&ui, 1)
+	ui.text_color = vec4(1, 1, 1, 1)
+	set_cursor(&ui, pos + vec2(2, 22))
+	print_txt(&ui, "0")
+	set_cursor(&ui, pos + vec2(128 - 1.5 * 8, 22))
+	print_txt(&ui, "127")
+	ui.text_color = vec4(0, 0, 0, 1)
+	set_cursor(&ui, pos + vec2(256 - 3.2 * 8, 22))
+	print_txt(&ui, "255")
+	ui.px_cursor = backup.px_cursor
+	ui.scale = backup.scale
+	ui.text_color = backup.text_color
+	ui.px_left_x = backup.px_left_x
+}
+
+// s2h.hlsl: s2h_coordinateSystem
+coordinate_system :: proc(#ref ui: Context_Gather, px_origin: vec2, domain: vec4, px_scale: f32, grid_size: f32, grid_color: vec4, flags: u32) {
+	origin := floor(px_origin)
+	y_is_up := (flags & 1) != 0
+	grid_lines := (flags & 2) != 0
+	color := ui.text_color
+	px_dot_size := ui.line_width
+	px_d := fract(floor(ui.px_pos - origin + px_dot_size / 2) / grid_size) * grid_size
+	gc := grid_color
+	if grid_lines {
+		if px_d.x > floor(px_dot_size) && px_d.y > floor(px_dot_size) {
+			gc = vec4(0, 0, 0, 0)
+		}
+	} else {
+		if px_d.x > floor(px_dot_size) || px_d.y > floor(px_dot_size) {
+			gc = vec4(0, 0, 0, 0)
+		}
+	}
+	px_domain := domain * px_scale + vec4(origin.x, origin.y, origin.x, origin.y)
+	draw_rectangle(&ui, px_domain.xy, px_domain.zw, gc)
+	backup := ui.line_width
+	if px_d.x < backup {
+		ui.line_width *= 2
+	}
+	draw_arrow(&ui, vec2(px_domain.x, origin.y), vec2(px_domain.z, origin.y), color, 16, 8)
+	ui.line_width = backup
+	if px_d.y < backup {
+		ui.line_width *= 2
+	}
+	if y_is_up {
+		draw_arrow(&ui, vec2(origin.x, px_domain.w), vec2(origin.x, px_domain.y), color, 16, 8)
+	} else {
+		draw_arrow(&ui, vec2(origin.x, px_domain.y), vec2(origin.x, px_domain.w), color, 16, 8)
+	}
+	ui.line_width = backup
+}
+
+// s2h.hlsl: s2h_computeDistToBox (center / halfSize overload)
+compute_dist_to_box :: proc(#ref ui: Context_Gather, p: vec2, center: vec2, half_size: vec2) -> f32 {
+	_ = ui
+	dist2 := max(vec2(0, 0), abs(p - center) - half_size)
+	return max(dist2.x, dist2.y)
+}
+
+// s2h.hlsl: s2h_computeDistToBox (aabb overload)
+compute_dist_to_box_aabb :: proc(#ref ui: Context_Gather, p: vec2, aabb: vec4) -> f32 {
+	center := (aabb.xy + aabb.zw) * 0.5
+	half_size := (aabb.zw - aabb.xy) * 0.5
+	return compute_dist_to_box(&ui, p, center, half_size)
+}
+
+// s2h.hlsl: s2h_frame
+frame :: proc(#ref ui: Context_Gather, width_in_characters: u32) {
+	aabb := vec4(ui.px_cursor - vec2(f32(width_in_characters), 0) * font_size() * ui.scale, ui.px_cursor)
+	aabb += vec4(4, 4, -4, 4) * ui.scale
+	dist := compute_dist_to_box_aabb(&ui, ui.px_pos, aabb) / ui.scale
+	rim_mask := clamp(3 - dist, 0, 1)
+	outer_mask := clamp(4 - dist, 0, 1)
+	local_color := vec4(0, 0, 0, 0)
+	if outer_mask > 0 {
+		local_color = ui.frame_border
+	}
+	if rim_mask > 0 {
+		local_color = ui.frame_fill
+	}
+	ui.dst_color = lerp(ui.dst_color, vec4(local_color.rgb, 1), local_color.a * (1 - ui.dst_color.a))
+}
+
+// s2h.hlsl: s2h_button
+button :: proc(#ref ui: Context_Gather, width_in_characters: u32) -> b32 {
+	color := ui.button_color
+	aabb := vec4(ui.px_cursor - vec2(f32(width_in_characters), 0) * font_size() * ui.scale, ui.px_cursor)
+	aabb += vec4(4, 4, -4, 4) * ui.scale
+	dist := compute_dist_to_box_aabb(&ui, ui.px_pos, aabb) / ui.scale
+	mouse_over := compute_dist_to_box_aabb(&ui, ui.mouse_input.xy, aabb) / ui.scale < 5
+	rim_mask := clamp(5 - dist, 0, 1)
+	outer_mask := clamp(4 - dist, 0, 1)
+	local_color := vec4(0, 0, 0, 0)
+	if mouse_over && rim_mask > 0 {
+		local_color = vec4(1, 1, 1, 1)
+	}
+	if outer_mask > 0 {
+		local_color = color
+	}
+	ui.dst_color = lerp(ui.dst_color, vec4(local_color.rgb, 1), local_color.a * (1 - ui.dst_color.a))
+	delta := round(ui.mouse_input.xy + 0.5 - ui.px_pos)
+	return mouse_over && delta.x == 0 && delta.y == 0
+}
+
+// s2h.hlsl: s2h_radioButton
+radio_button :: proc(#ref ui: Context_Gather, checked: b32) -> b32 {
+	color := ui.button_color
+	px_local := (ui.px_pos - ui.px_cursor - 0.5) / ui.scale - vec2(3.5, 3.5)
+	dist := mag(px_local)
+	rim_mask := clamp(5 - dist, 0, 1)
+	outer_mask := clamp(4 - dist, 0, 1)
+	inner_mask := clamp(2.5 - dist, 0, 1)
+	mouse_over := mag((ui.mouse_input.xy - ui.px_cursor) / ui.scale - vec2(3.5, 3.5)) < 4
+	if mouse_over && rim_mask > 0 {
+		ui.dst_color = vec4(1, 1, 1, 1)
+	}
+	if outer_mask > 0 {
+		ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a)
+	}
+	if checked && inner_mask > 0 {
+		ui.dst_color = lerp(ui.dst_color, vec4(ui.text_color.rgb, 1), ui.text_color.a)
+	}
+	ui.px_cursor.x += font_size() * ui.scale
+	delta := round(ui.mouse_input.xy + 0.5 - ui.px_pos)
+	return mouse_over && delta.x == 0 && delta.y == 0
+}
+
+// s2h.hlsl: s2h_checkBox
+check_box :: proc(#ref ui: Context_Gather, checked: b32) -> b32 {
+	color := ui.button_color
+	px_local := (ui.px_pos - ui.px_cursor - 0.5) / ui.scale - vec2(3.5, 3.5)
+	dist := max(abs(px_local.x), abs(px_local.y))
+	rim_mask := clamp(5 - dist, 0, 1)
+	outer_mask := clamp(4 - dist, 0, 1)
+	inner_mask := clamp(2.5 - dist, 0, 1)
+	mouse_over := mag((ui.mouse_input.xy - ui.px_cursor) / ui.scale - vec2(3.5, 3.5)) < 4
+	if mouse_over && rim_mask > 0 {
+		ui.dst_color = vec4(1, 1, 1, 1)
+	}
+	if outer_mask > 0 {
+		ui.dst_color = lerp(ui.dst_color, vec4(color.rgb, 1), color.a)
+	}
+	if checked && inner_mask > 0 {
+		ui.dst_color = lerp(ui.dst_color, vec4(ui.text_color.rgb, 1), ui.text_color.a)
+	}
+	ui.px_cursor.x += font_size() * ui.scale
+	delta := round(ui.mouse_input.xy + 0.5 - ui.px_pos)
+	return mouse_over && delta.x == 0 && delta.y == 0
+}
+
+// s2h.hlsl: s2h_progress
+progress :: proc(#ref ui: Context_Gather, width_in_characters: u32, fraction: f32) {
+	color := ui.button_color
+	outer_aabb := vec4(ui.px_cursor, ui.px_cursor + vec2(f32(width_in_characters) * font_size(), font_size() - 2) * ui.scale)
+	outer_aabb += 0.5
+	inner_aabb := outer_aabb + vec4(1, 1, -1, -1) * ui.scale
+	inner_aabb.z = lerp(inner_aabb.x, inner_aabb.z, clamp(fraction, 0, 1))
+	slider_dist := compute_dist_to_box_aabb(&ui, ui.px_pos, outer_aabb)
+	inner_dist := compute_dist_to_box_aabb(&ui, ui.px_pos, inner_aabb)
+	local_color := vec4(0, 0, 0, 0)
+	if slider_dist <= 0 {
+		local_color = color
+	}
+	if inner_dist <= 0 {
+		local_color = lerp(local_color, vec4(ui.text_color.rgb, 1), ui.text_color.a)
+	}
+	ui.px_cursor.x += f32(width_in_characters) * font_size() * ui.scale
+	ui.dst_color = lerp(ui.dst_color, vec4(local_color.rgb, 1), local_color.a * (1 - ui.dst_color.a))
+}
+
+// s2h.hlsl: s2h_sliderFloat
+slider_float :: proc(#ref ui: Context_Gather, width_in_characters: u32, #ref value: f32, min_value: f32, max_value: f32) {
+	color := ui.button_color
+	outer_aabb := vec4(ui.px_cursor, ui.px_cursor + vec2(f32(width_in_characters) * font_size(), font_size() - 2) * ui.scale)
+	outer_aabb += 0.5
+	half_char := font_size() / 2
+	inner_aabb := outer_aabb + vec4(1, 1, -1, -1) * ui.scale
+	slider_dist := compute_dist_to_box_aabb(&ui, ui.px_pos, outer_aabb)
+	current_mouse := (ui.state.x == 0 && ui.state.y == 0) ? ui.mouse_input.xy : vec2(f32(ui.state.x), f32(ui.state.y))
+	mouse_over := compute_dist_to_box_aabb(&ui, current_mouse, outer_aabb) <= 0
+	knob_color := ui.text_color.rgb
+	if mouse_over && ui.mouse_input.z != 0 {
+		new_fraction := clamp((ui.mouse_input.x - inner_aabb.x) / (inner_aabb.z - inner_aabb.x), 0, 1)
+		value = lerp(min_value, max_value, new_fraction)
+		knob_color = vec3(1, 1, 1)
+		if ui.state.x == 0 && ui.state.y == 0 {
+			ui.state.xy = cast(ivec2)ui.mouse_input.xy
+		}
+	}
+	fraction := clamp((value - min_value) / (max_value - min_value), 0, 1)
+	knob_range := (f32(width_in_characters) - 1) * font_size() * ui.scale
+	knob_pos := ui.px_cursor + vec2(half_char * ui.scale, 0) + vec2(fraction * knob_range, 3 * ui.scale)
+	knob_size := vec2(font_size() - 4, font_size() - 4) * 0.5 * ui.scale
+	knob_aabb := vec4(knob_pos - knob_size, knob_pos + knob_size)
+	knob_aabb += 0.5
+	knob_dist := compute_dist_to_box_aabb(&ui, ui.px_pos, knob_aabb)
+	local_color := vec4(0, 0, 0, 0)
+	if mouse_over && slider_dist <= 2 {
+		local_color = vec4(1, 1, 1, 1)
+	}
+	if slider_dist <= 0 {
+		local_color = color
+	}
+	if knob_dist <= 0 {
+		local_color = lerp(local_color, vec4(knob_color, 1), ui.text_color.a)
+	}
+	ui.px_cursor.x += f32(width_in_characters) * font_size() * ui.scale
+	ui.dst_color = lerp(ui.dst_color, vec4(local_color.rgb, 1), local_color.a * (1 - ui.dst_color.a))
+}
+
+// s2h.hlsl: s2h_sliderRGB
+slider_rgb :: proc(#ref ui: Context_Gather, width_in_characters: u32, #ref value: vec3) {
+	r := 3 * font_size() * 0.5 * ui.scale - 1
+	backup := ui.button_color
+	initial_pos := ui.px_cursor
+	pos := initial_pos + vec2(3 * font_size() * ui.scale, 0)
+	ui.px_cursor.x = pos.x
+	ui.button_color = vec4(1, 0.1, 0.1, 1)
+	slider_float(&ui, width_in_characters - 3, &value.r, 0, 1)
+	print_lf(&ui)
+	ui.px_cursor.x = pos.x
+	ui.button_color = vec4(0, 1, 0, 1)
+	slider_float(&ui, width_in_characters - 3, &value.g, 0, 1)
+	print_lf(&ui)
+	ui.px_cursor.x = pos.x
+	ui.button_color = vec4(0.2, 0.2, 1, 1)
+	slider_float(&ui, width_in_characters - 3, &value.b, 0, 1)
+	print_lf(&ui)
+	draw_disc(&ui, initial_pos + r, r, vec4(value, 1))
+	ui.px_cursor = initial_pos + vec2(f32(width_in_characters) * font_size() * ui.scale, 0)
+	ui.button_color = backup
+}
+
+// s2h.hlsl: s2h_sliderRGBA
+slider_rgba :: proc(#ref ui: Context_Gather, width_in_characters: u32, #ref value: vec4) {
+	r := 3 * font_size() * 0.5 * ui.scale - 1
+	backup := ui.button_color
+	initial_pos := ui.px_cursor
+	pos := initial_pos + vec2(3 * font_size() * ui.scale, 0)
+	ui.px_cursor.x = pos.x
+	ui.button_color = vec4(1, 0.1, 0.1, 1)
+	slider_float(&ui, width_in_characters - 3, &value.r, 0, 1)
+	print_lf(&ui)
+	ui.px_cursor.x = pos.x
+	ui.button_color = vec4(0, 1, 0, 1)
+	slider_float(&ui, width_in_characters - 3, &value.g, 0, 1)
+	print_lf(&ui)
+	ui.px_cursor.x = pos.x
+	ui.button_color = vec4(0.2, 0.2, 1, 1)
+	slider_float(&ui, width_in_characters - 3, &value.b, 0, 1)
+	print_lf(&ui)
+	ui.px_cursor.x = pos.x
+	ui.button_color = vec4(0.5, 0.5, 0.5, 1)
+	slider_float(&ui, width_in_characters - 3, &value.a, 0, 1)
+	print_lf(&ui)
+	draw_disc(&ui, initial_pos + r, r, value)
+	ui.px_cursor = initial_pos + vec2(f32(width_in_characters) * font_size() * ui.scale, 0)
+	ui.button_color = backup
+}
+
+// s2h.hlsl: s2h_tableInt
+// Original: column + user s2h_tableLookupInt(column, row, out value).
+// MISL has no importer callbacks; rows come from `values`.
+table_int :: proc(#ref ui: Context_Gather, values: []i32, background_color: vec4, size_in_characters: ivec2, go_right_not_down: b32) {
+	px_char_size := font_size() * ui.scale
+	backup := ui.px_cursor
+	local_pos := ui.px_pos - ui.px_cursor
+	px_size := cast(vec2)size_in_characters * px_char_size
+	if local_pos.x >= 0 && local_pos.y >= 0 && local_pos.x < px_size.x && local_pos.y < px_size.y {
+		ui.dst_color = lerp(ui.dst_color, vec4(background_color.rgb, 1), background_color.a * (1 - ui.dst_color.a))
+		row := i32(local_pos.y / px_char_size)
+		ui.px_cursor.y = backup.y + floor(local_pos.y / px_char_size) * px_char_size
+		if row >= 0 && i64(row) < len(values) {
+			print_int(&ui, values[row])
+		}
+	}
+	if go_right_not_down {
+		ui.px_cursor.x = backup.x + px_size.x
+	} else {
+		print_lf(&ui)
+		ui.px_cursor.y = backup.y + px_size.y
+	}
+}
+
+// s2h.hlsl: s2h_tableFloat
+// Original: column + user s2h_tableLookupFloat. See table_int.
+table_float :: proc(#ref ui: Context_Gather, values: []f32, background_color: vec4, size_in_characters: ivec2, go_right_not_down: b32) {
+	px_char_size := font_size() * ui.scale
+	backup := ui.px_cursor
+	local_pos := ui.px_pos - ui.px_cursor
+	px_size := cast(vec2)size_in_characters * px_char_size
+	if local_pos.x >= 0 && local_pos.y >= 0 && local_pos.x < px_size.x && local_pos.y < px_size.y {
+		ui.dst_color = lerp(ui.dst_color, vec4(background_color.rgb, 1), background_color.a * (1 - ui.dst_color.a))
+		row := i32(local_pos.y / px_char_size)
+		ui.px_cursor.y = backup.y + floor(local_pos.y / px_char_size) * px_char_size
+		if row >= 0 && i64(row) < len(values) {
+			print_float(&ui, values[row])
+		}
+	}
+	if go_right_not_down {
+		ui.px_cursor.x = backup.x + px_size.x
+	} else {
+		print_lf(&ui)
+		ui.px_cursor.y = backup.y + px_size.y
+	}
+}
+
+// s2h.hlsl: s2h_function
+// Original: functionId + user s2h_floatLookupFloat(id, x). `ys` are samples across range_x.
+function_plot :: proc(#ref ui: Context_Gather, ys: []f32, background_color: vec4, size_in_characters: ivec2, range_x: vec2, range_y: vec2) {
+	_ = range_x
+	scaled := font_size() * ui.scale
+	backup := ui.px_cursor
+	local_pos := ui.px_pos - ui.px_cursor
+	px_size := cast(vec2)size_in_characters * scaled
+	if local_pos.x >= 0 && local_pos.y >= 0 && local_pos.x < px_size.x && local_pos.y < px_size.y {
+		ui.dst_color = lerp(ui.dst_color, vec4(background_color.rgb, 1), background_color.a * (1 - ui.dst_color.a))
+		n := len(ys)
+		if n > 0 {
+			t := local_pos.x / px_size.x
+			idx := i32(t * f32(n))
+			if idx < 0 {
+				idx = 0
+			}
+			if i64(idx) >= n {
+				idx = i32(n - 1)
+			}
+			y := ys[idx]
+			px_y := (1 - (y - range_y.x) / (range_y.y - range_y.x)) * px_size.y
+			if px_y < local_pos.y {
+				ui.dst_color = lerp(ui.dst_color, vec4(ui.text_color.rgb, 1), ui.text_color.a)
+			}
+		}
+	}
+	print_lf(&ui)
+	ui.px_cursor.y = backup.y + px_size.y
+}
+
+// s2h_scatter.hlsl: onGfxForAllScatter (user callback → store through ui.dst)
+scatter_put :: proc(ui: Context_Scatter, px: ivec2, color: vec4) {
+	store(ui.dst, px, color)
+}
+
+// s2h_scatter.hlsl: s2h_init
+scatter_init :: proc(dst: rw32_2d) -> (ui: Context_Scatter) {
+	ui.text_color = vec4(1, 1, 1, 1)
+	ui.px_cursor = ivec2(0, 0)
+	ui.px_left_x = 0
+	ui.scale = 1
+	ui.dst = dst
+	return
+}
+
+// s2h_scatter.hlsl: s2h_setCursor
+scatter_set_cursor :: proc(#ref ui: Context_Scatter, px_left_top: vec2) {
+	ui.px_cursor = ivec2(i32(px_left_top.x), i32(px_left_top.y))
+	ui.px_left_x = i32(px_left_top.x)
+}
+
+// s2h_scatter.hlsl: s2h_setScale
+scatter_set_scale :: proc(#ref ui: Context_Scatter, scale: u32) {
+	ui.scale = i32(scale)
+}
+
+// s2h_scatter.hlsl: s2h_printCharacter
+scatter_print_character :: proc(#ref ui: Context_Scatter, ch: rune) {
+	limit := 8 * ui.scale
+	for y := 0; y < limit; y += 1 {
+		for x := 0; x < limit; x += 1 {
+			if font_lookup(ch, ivec2(x, y) / ui.scale) {
+				scatter_put(ui, ui.px_cursor + ivec2(x, y), ui.text_color)
+			}
+		}
+	}
+	ui.px_cursor.x += 8 * ui.scale
+}
+
+// s2h_scatter.hlsl: s2h_printTxt — compile-time string (ASCII bytes)
+scatter_print_txt :: proc(#ref ui: Context_Scatter, $str: string) {
+	for i := 0; i < i32(len(str)); i += 1 {
+		scatter_print_character(&ui, rune(str[i]))
+	}
+}
+
+// s2h_scatter.hlsl: s2h_printLF
+scatter_print_lf :: proc(#ref ui: Context_Scatter) {
+	ui.px_cursor.x = ui.px_left_x
+	ui.px_cursor.y += 8 * ui.scale
+}
+
+// s2h_scatter.hlsl: s2h_printInt
+scatter_print_int :: proc(#ref ui: Context_Scatter, value: i32) {
+	v := value
+	if v < 0 {
+		scatter_print_character(&ui, '-')
+		v = -v
+	}
+	if v == 0 {
+		scatter_print_character(&ui, '0')
+		return
+	}
+	for lead := u32(v); lead != 0; {
+		ui.px_cursor.x += 8 * ui.scale
+		lead /= 10
+	}
+	backup := ui.px_cursor.x
+	for rest := u32(v); rest != 0; {
+		digit := rest % 10
+		rest /= 10
+		ui.px_cursor.x -= 8 * ui.scale
+		scatter_print_character(&ui, '0' + digit)
+		ui.px_cursor.x -= 8 * ui.scale
+	}
+	ui.px_cursor.x = backup
+}
+
+// s2h_scatter.hlsl: s2h_printHex
+scatter_print_hex :: proc(#ref ui: Context_Scatter, value: u32) {
+	for i := 7; i >= 0; i -= 1 {
+		nibble := (value >> u32(i * 4)) & 0xf
+		start := nibble < 10 ? '0' : ('A' - 10)
+		scatter_print_character(&ui, start + nibble)
+	}
+}
+
+// s2h_scatter.hlsl: s2h_printFloat
+scatter_print_float :: proc(#ref ui: Context_Scatter, value: f32) {
+	scatter_print_int(&ui, i32(value))
+	fractional := fract(abs(value))
+	scatter_print_character(&ui, '.')
+	for i: u32 = 0; i < 3; i += 1 {
+		fractional *= 10
+		digit := u32(fractional)
+		fractional = fract(fractional)
+		scatter_print_character(&ui, '0' + digit)
+	}
+}
+
+// s2h_scatter.hlsl: s2h_printBlock
+scatter_print_block :: proc(#ref ui: Context_Scatter, color: vec4) {
+	limit := 8 * ui.scale
+	for y := 0; y < limit; y += 1 {
+		for x := 0; x < limit; x += 1 {
+			px_local := vec2(f32(x), f32(y)) / f32(ui.scale) - vec2(3.5, 3.5)
+			mask := clamp(4 - max(abs(px_local.x), abs(px_local.y)), 0, 1)
+			if mask > 0 {
+				scatter_put(ui, ui.px_cursor + ivec2(x, y), color)
+			}
+		}
+	}
+	ui.px_cursor.x += 8 * ui.scale
+}
+
+// s2h_scatter.hlsl: s2h_printDisc
+scatter_print_disc :: proc(#ref ui: Context_Scatter, color: vec4) {
+	limit := 8 * ui.scale
+	for y := 0; y < limit; y += 1 {
+		for x := 0; x < limit; x += 1 {
+			px_local := vec2(f32(x), f32(y)) / f32(ui.scale) - vec2(3.5, 3.5)
+			mask := clamp(4 - mag(px_local), 0, 1)
+			if mask > 0 {
+				scatter_put(ui, ui.px_cursor + ivec2(x, y), color)
+			}
+		}
+	}
+	ui.px_cursor.x += 8 * ui.scale
+}
+
+// s2h_scatter.hlsl: s2h_drawCrosshair
+scatter_draw_crosshair :: proc(#ref ui: Context_Scatter, px_center: vec2, px_radius: f32, color: vec4) {
+	c := ivec2(i32(px_center.x), i32(px_center.y))
+	scatter_put(ui, c, ui.text_color)
+	for i := 1.0; i < px_radius; i += 1 {
+		scatter_put(ui, ivec2(i32(px_center.x + i), i32(px_center.y)), color)
+		scatter_put(ui, ivec2(i32(px_center.x - i), i32(px_center.y)), color)
+		scatter_put(ui, ivec2(i32(px_center.x), i32(px_center.y + i)), color)
+		scatter_put(ui, ivec2(i32(px_center.x), i32(px_center.y - i)), color)
+	}
+}
+
+// s2h_3d.hlsl: s2h_init
+init_3d :: proc(ro: vec3, rd: vec3) -> (ctx: Context_3D) {
+	ctx.ro = ro
+	ctx.rd = rd
+	ctx.depth = FLT_MAX
+	ctx.dst_color = vec4(0, 0, 0, 0)
+	return
+}
+
+// s2h_3d.hlsl: s2h_sphIntersect
+sph_intersect :: proc(ro: vec3, rd: vec3, ce: vec3, ra: f32) -> vec2 {
+	oc := ro - ce
+	b := dot(oc, rd)
+	c := dot(oc, oc) - ra * ra
+	h := b * b - c
+	if h < 0 {
+		return vec2(-1, -1)
+	}
+	h = sqrt(h)
+	return vec2(-b - h, -b + h)
+}
+
+// s2h_3d.hlsl: s2h_boxIntersection
+box_intersection :: proc(ro: vec3, rd: vec3, box_size: vec3) -> (hit: vec2, out_normal: vec3) {
+	m := 1.0 / rd
+	n := m * ro
+	k := abs(m) * box_size
+	t1 := -n - k
+	t2 := -n + k
+	t_n := max(max(t1.x, t1.y), t1.z)
+	t_f := min(min(t2.x, t2.y), t2.z)
+	if t_n > t_f || t_f < 0 {
+		return vec2(-1, -1), vec3(0, 0, 0)
+	}
+	if t_n > 0 {
+		out_normal = step(vec3(t_n, t_n, t_n), t1)
+	} else {
+		out_normal = step(t2, vec3(t_f, t_f, t_f))
+	}
+	out_normal *= -sign(rd)
+	return vec2(t_n, t_f), out_normal
+}
+
+// s2h_3d.hlsl: s2h_dot2
+dot2 :: proc(p: vec3) -> f32 {
+	return dot(p, p)
+}
+
+// s2h_3d.hlsl: s2h_cylIntersect
+cyl_intersect :: proc(ro: vec3, rd: vec3, a: vec3, b: vec3, ra: f32) -> vec4 {
+	ba := b - a
+	oc := ro - a
+	baba := dot(ba, ba)
+	bard := dot(ba, rd)
+	baoc := dot(ba, oc)
+	k2 := baba - bard * bard
+	k1 := baba * dot(oc, rd) - baoc * bard
+	k0 := baba * dot(oc, oc) - baoc * baoc - ra * ra * baba
+	h := k1 * k1 - k2 * k0
+	if h < 0 {
+		return vec4(-1, -1, -1, -1)
+	}
+	h = sqrt(h)
+	t := (-k1 - h) / k2
+	y := baoc + t * bard
+	if y > 0 && y < baba {
+		return vec4(t, (oc + t * rd - ba * y / baba) / ra)
+	}
+	t = ((y < 0 ? 0.0 : baba) - baoc) / bard
+	if abs(k1 + k2 * t) < h {
+		return vec4(t, ba * sign(y) / sqrt(baba))
+	}
+	return vec4(-1, -1, -1, -1)
+}
+
+// s2h_3d.hlsl: s2h_cylNormal
+cyl_normal :: proc(p: vec3, a: vec3, b: vec3, ra: f32) -> vec3 {
+	pa := p - a
+	ba := b - a
+	h := dot(pa, ba) / dot(ba, ba)
+	return (pa - ba * h) / ra
+}
+
+// s2h_3d.hlsl: s2h_coneIntersect
+cone_intersect :: proc(ro: vec3, rd: vec3, pa: vec3, pb: vec3, ra: f32, rb: f32) -> vec4 {
+	ba := pb - pa
+	oa := ro - pa
+	ob := ro - pb
+	m0 := dot(ba, ba)
+	m1 := dot(oa, ba)
+	m2 := dot(rd, ba)
+	m3 := dot(rd, oa)
+	m5 := dot(oa, oa)
+	m9 := dot(ob, ba)
+	if m1 < 0 {
+		if dot2(oa * m2 - rd * m1) < (ra * ra * m2 * m2) {
+			return vec4(-m1 / m2, -ba * isqrt(m0))
+		}
+	} else if m9 > 0 {
+		t := -m9 / m2
+		if dot2(ob + rd * t) < (rb * rb) {
+			return vec4(t, ba * isqrt(m0))
+		}
+	}
+	rr := ra - rb
+	hy := m0 + rr * rr
+	k2 := m0 * m0 - m2 * m2 * hy
+	k1 := m0 * m0 * m3 - m1 * m2 * hy + m0 * ra * (rr * m2)
+	k0 := m0 * m0 * m5 - m1 * m1 * hy + m0 * ra * (rr * m1 * 2 - m0 * ra)
+	h := k1 * k1 - k2 * k0
+	if h < 0 {
+		return vec4(-1, -1, -1, -1)
+	}
+	t := (-k1 - sqrt(h)) / k2
+	y := m1 + t * m2
+	if y < 0 || y > m0 {
+		return vec4(-1, -1, -1, -1)
+	}
+	return vec4(t, normalize(m0 * (m0 * (oa + t * rd) + rr * ba * ra) - ba * hy * y))
+}
+
+// s2h_3d.hlsl: s2h_drawAABB
+draw_aabb :: proc(#ref ctx: Context_3D, center: vec3, half_size: vec3, color: vec4) {
+	hit, normal := box_intersection(ctx.ro - center, ctx.rd, half_size)
+	if hit.y > 0 && hit.x < ctx.depth {
+		ctx.depth = hit.x
+		ctx.dst_color = lerp(color, vec4(normal * 0.5 + 0.5, 1), 0.3)
+	}
+}
+
+// s2h_3d.hlsl: s2h_drawLineWS
+draw_line_ws :: proc(#ref ctx: Context_3D, from: vec3, to: vec3, color: vec4, thickness: f32) {
+	cyl := cyl_intersect(ctx.ro, ctx.rd, from, to, thickness)
+	hit := cyl.xy
+	if hit.x > 0 && hit.x < ctx.depth {
+		ctx.depth = hit.x
+		p := ctx.ro + ctx.depth * ctx.rd
+		normal := cyl_normal(p, from, to, thickness)
+		c := color
+		c.rgb = lerp(c.rgb, normal * 0.5 + 0.5, 0.3)
+		ctx.dst_color = c
+	}
+}
+
+// s2h_3d.hlsl: s2h_drawArrowWS
+draw_arrow_ws :: proc(#ref ctx: Context_3D, from: vec3, to: vec3, color: vec4, thickness: f32) {
+	hit := cone_intersect(ctx.ro, ctx.rd, from, to, thickness, 0)
+	if hit.x > 0 && hit.x < ctx.depth {
+		ctx.depth = hit.x
+		normal := hit.yzw
+		c := color
+		c.rgb = lerp(c.rgb, normal * 0.5 + 0.5, 0.3)
+		ctx.dst_color = c
+	}
+}
+
+// s2h_3d.hlsl: s2h_drawBasis
+draw_basis :: proc(#ref ctx: Context_3D, world_from_object: mat4, r: f32) {
+	o_hom := world_from_object * vec4(0, 0, 0, 1)
+	x_hom := world_from_object * vec4(r, 0, 0, 1)
+	y_hom := world_from_object * vec4(0, r, 0, 1)
+	z_hom := world_from_object * vec4(0, 0, r, 1)
+	o := o_hom.xyz / o_hom.w
+	x := x_hom.xyz / x_hom.w
+	y := y_hom.xyz / y_hom.w
+	z := z_hom.xyz / z_hom.w
+	draw_arrow_ws(&ctx, o, x, vec4(1, 0, 0, 1), 0.09)
+	draw_arrow_ws(&ctx, o, y, vec4(0, 1, 0, 1), 0.09)
+	draw_arrow_ws(&ctx, o, z, vec4(0, 0, 1, 1), 0.09)
+}
+
+// s2h_3d.hlsl: s2h_drawSphereWS
+draw_sphere_ws :: proc(#ref ctx: Context_3D, pos: vec3, color: vec4, radius: f32) {
+	hit := sph_intersect(ctx.ro, ctx.rd, pos, radius)
+	if hit.x > 0 && hit.x < ctx.depth {
+		hit_pos := ctx.ro + hit.x * ctx.rd
+		normal := normalize(hit_pos - pos)
+		ctx.depth = hit.x
+		c := color
+		c.rgb = lerp(c.rgb, normal * 0.5 + 0.5, 0.3)
+		ctx.dst_color = c
+	}
+}
+
+// s2h_3d.hlsl: s2h_drawCheckerBoard
+draw_checker_board :: proc(#ref ctx: Context_3D, offset: vec3) {
+	pos := vec3(0, -0.2, 0) + offset
+	size := vec3(4.4, 0.2, 4.4)
+	hit, normal := box_intersection(ctx.ro - pos, ctx.rd, size)
+	if hit.y > 0 && hit.x < ctx.depth {
+		ctx.depth = hit.x
+		hit_pos := ctx.ro + hit.x * ctx.rd
+		uv := hit_pos.zx
+		value := 1.0
+		if abs(uv.x) < 4 && abs(uv.y) < 4 {
+			value = fract(floor(uv.x) * 0.5 + floor(uv.y) * 0.5) > 0.25 ? 0.4 : 0.6
+		}
+		ctx.dst_color = vec4(value, value, value, 1)
+		if abs(uv.x) < (4 - uv.y) * 0.1 && uv.y > 0 {
+			ctx.dst_color.rgb = vec3(1, 0, 0)
+		}
+		if abs(uv.y) < (4 - uv.x) * 0.1 && uv.x > 0 {
+			ctx.dst_color.rgb = vec3(0, 0, 1)
+		}
+		if dot(uv, uv) < 0.25 {
+			ctx.dst_color.rgb = vec3(0, 1, 0)
+		}
+		ctx.dst_color = lerp(ctx.dst_color, vec4(normal * 0.5 + 0.5, 1), 0.3)
+	}
+}
+
+// s2h_3d.hlsl: s2h_drawSkybox
+draw_skybox :: proc(#ref ctx: Context_3D) {
+	if ctx.depth == FLT_MAX {
+		d := ctx.rd
+		pi := 3.14159265
+		uv := vec2(-atan2(d.z, d.x) / pi + 1, acos(d.y) / pi)
+		px := uv * vec2(font_size() * 8, font_size() * 4)
+		tile_x := font_size() * 4
+		ui := init(vec2(fract(px.x / tile_x + 0.5) * tile_x, px.y))
+		ui.dst_color.rgb = vec3(1, 1, 1) * clamp(1 - pow(abs(d.y), 0.2), 0, 1)
+		ui.dst_color.a = 1
+		{
+			grid_xy := fract(ui.px_pos)
+			grid_xy = min(grid_xy, vec2(1, 1) - grid_xy)
+			grid := min(grid_xy.x, grid_xy.y)
+			ui.dst_color.rgb = lerp(ui.dst_color.rgb, vec3(1, 1, 1), 0.07 * clamp(1 - grid * 30, 0, 1))
+		}
+		xz_axis := abs(d.x) > abs(d.z)
+		pos_axis := xz_axis ? (d.x > 0) : (d.z > 0)
+		set_cursor(&ui, vec2(0, 12))
+		ui.text_color.rgb = xz_axis ? vec3(1, 0, 0) : vec3(0, 0, 1)
+		ui.text_color.a = 0.4
+		print_character(&ui, ' ')
+		print_character(&ui, pos_axis ? '+' : '-')
+		print_character(&ui, xz_axis ? 'X' : 'Z')
+		ctx.dst_color = ui.dst_color
+	}
+}
+
+// s2h_3d.hlsl: scene
+// Not a library procedure. Original is a user-implemented `void scene(inout Context3D)`.
+// An imported MISL module cannot call a proc defined in the importer (no proc values;
+// import graph is a DAG). User writes scene in their module and calls draw_* themselves.
+//
+// s2h_3d.hlsl: sceneWithShadows
+// Same gap. Desired if constant proc parameters were inlined before GLSL emit:
+//   scene_with_shadows :: proc(#ref ctx: Context_3D, scene: proc(#ref Context_3D))
+// User can copy the original shadow-ray loop next to their scene proc.

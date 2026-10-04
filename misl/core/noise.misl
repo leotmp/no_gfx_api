@@ -1,0 +1,406 @@
+/*
+	Generative noise.
+
+	Simplex / classic / periodic Perlin: webgl-noise (Ashima Arts / Stefan
+	Gustavson), MIT. https://github.com/stegu/webgl-noise
+
+	PSRD (rotating gradients, analytic derivative): Stefan Gustavson,
+	psrdnoise, MIT. https://github.com/stegu/psrdnoise
+
+	Voronoi / Worley / Voronoise: Inigo Quilez. FBM: successive octaves.
+	Curl: finite differences of a scalar potential. Gerstner: Tessendorf /
+	GPU Gems. Wavelet: Cook & DeRose band-pass idea (difference of scales).
+	Gradient / value noise: hashed lattice textbooks. Hash-as-random: see
+	core:hash (PCG / Hoskins).
+*/
+
+import "core:hash.misl"
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+mod289_1 :: proc(x: f32) -> f32 {
+	return x - floor(x * (1.0 / 289.0)) * 289.0
+}
+
+mod289_2 :: proc(x: vec2) -> vec2 {
+	return x - floor(x * (1.0 / 289.0)) * 289.0
+}
+
+mod289_3 :: proc(x: vec3) -> vec3 {
+	return x - floor(x * (1.0 / 289.0)) * 289.0
+}
+
+mod289_4 :: proc(x: vec4) -> vec4 {
+	return x - floor(x * (1.0 / 289.0)) * 289.0
+}
+
+permute_1 :: proc(x: f32) -> f32 {
+	return mod289_1(((x * 34) + 1) * x)
+}
+
+permute_3 :: proc(x: vec3) -> vec3 {
+	return mod289_3(((x * 34) + 1) * x)
+}
+
+permute_4 :: proc(x: vec4) -> vec4 {
+	return mod289_4(((x * 34) + 1) * x)
+}
+
+taylor_inv_sqrt1 :: proc(r: f32) -> f32 {
+	return 1.79284291400159 - 0.85373472095314 * r
+}
+
+taylor_inv_sqrt3 :: proc(r: vec3) -> vec3 {
+	return 1.79284291400159 - 0.85373472095314 * r
+}
+
+taylor_inv_sqrt4 :: proc(r: vec4) -> vec4 {
+	return 1.79284291400159 - 0.85373472095314 * r
+}
+
+fade2 :: proc(t: vec2) -> vec2 {
+	return t * t * t * (t * (t * 6 - 15) + 10)
+}
+
+fade3 :: proc(t: vec3) -> vec3 {
+	return t * t * t * (t * (t * 6 - 15) + 10)
+}
+
+// 2D simplex (webgl-noise, MIT).
+snoise2 :: proc(v: vec2) -> f32 {
+	c_x := 0.211324865405187
+	c_y := 0.366025403784439
+	c_z := -0.577350269189626
+	c_w := 0.024390243902439
+	i := floor(v + dot(v, vec2(c_y, c_y)))
+	x0 := v - i + dot(i, vec2(c_x, c_x))
+	i1 := vec2(1, 0) if x0.x > x0.y else vec2(0, 1)
+	x12 := vec4(x0.x, x0.y, x0.x, x0.y) + vec4(c_x, c_x, c_z, c_z)
+	x12 = vec4(x12.x - i1.x, x12.y - i1.y, x12.z, x12.w)
+	i = mod289_2(i)
+	p := permute_3(permute_3(i.y + vec3(0, i1.y, 1)) + i.x + vec3(0, i1.x, 1))
+	m := max(0.5 - vec3(dot(x0, x0), dot(vec2(x12.x, x12.y), vec2(x12.x, x12.y)), dot(vec2(x12.z, x12.w), vec2(x12.z, x12.w))), 0)
+	m = m * m
+	m = m * m
+	x := 2 * fract(p * c_w) - 1
+	h := abs(x) - 0.5
+	ox := floor(x + 0.5)
+	a0 := x - ox
+	m *= taylor_inv_sqrt3(a0 * a0 + h * h)
+	g := vec3(
+		a0.x * x0.x + h.x * x0.y,
+		a0.y * x12.x + h.y * x12.y,
+		a0.z * x12.z + h.z * x12.w,
+	)
+	return 130 * dot(m, g)
+}
+
+// 3D simplex (webgl-noise, MIT).
+snoise3 :: proc(v: vec3) -> f32 {
+	c := vec2(1.0 / 6.0, 1.0 / 3.0)
+	d := vec4(0, 0.5, 1, 2)
+	i := floor(v + dot(v, vec3(c.y, c.y, c.y)))
+	x0 := v - i + dot(i, vec3(c.x, c.x, c.x))
+	gt := step(vec3(x0.y, x0.z, x0.x), x0)
+	l := 1 - gt
+	i1 := min(gt, vec3(l.z, l.x, l.y))
+	i2 := max(gt, vec3(l.z, l.x, l.y))
+	x1 := x0 - i1 + vec3(c.x, c.x, c.x)
+	x2 := x0 - i2 + vec3(c.y, c.y, c.y)
+	x3 := x0 - vec3(d.y, d.y, d.y)
+	i = mod289_3(i)
+	p := permute_4(permute_4(permute_4(
+		i.z + vec4(0, i1.z, i2.z, 1)) +
+		i.y + vec4(0, i1.y, i2.y, 1)) +
+		i.x + vec4(0, i1.x, i2.x, 1))
+	n_ := 0.142857142857
+	ns := n_ * vec3(d.w, d.y, d.z) - vec3(d.x, d.z, d.x)
+	j := p - 49 * floor(p * ns.z * ns.z)
+	x_ := floor(j * ns.z)
+	y_ := floor(j - 7 * x_)
+	xx := x_ * ns.x + vec4(ns.y, ns.y, ns.y, ns.y)
+	yy := y_ * ns.x + vec4(ns.y, ns.y, ns.y, ns.y)
+	hh := 1 - abs(xx) - abs(yy)
+	b0 := vec4(xx.x, xx.y, yy.x, yy.y)
+	b1 := vec4(xx.z, xx.w, yy.z, yy.w)
+	s0 := floor(b0) * 2 + 1
+	s1 := floor(b1) * 2 + 1
+	sh := -step(hh, vec4(0, 0, 0, 0))
+	a0 := vec4(b0.x, b0.z, b0.y, b0.w) + vec4(s0.x, s0.z, s0.y, s0.w) * vec4(sh.x, sh.x, sh.y, sh.y)
+	a1 := vec4(b1.x, b1.z, b1.y, b1.w) + vec4(s1.x, s1.z, s1.y, s1.w) * vec4(sh.z, sh.z, sh.w, sh.w)
+	p0 := vec3(a0.x, a0.y, hh.x)
+	p1 := vec3(a0.z, a0.w, hh.y)
+	p2 := vec3(a1.x, a1.y, hh.z)
+	p3 := vec3(a1.z, a1.w, hh.w)
+	norm := taylor_inv_sqrt4(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)))
+	p0 *= norm.x
+	p1 *= norm.y
+	p2 *= norm.z
+	p3 *= norm.w
+	m0 := max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0)
+	m0 = m0 * m0
+	return 42 * (m0.x * m0.x * dot(p0, x0) + m0.y * m0.y * dot(p1, x1) + m0.z * m0.z * dot(p2, x2) + m0.w * m0.w * dot(p3, x3))
+}
+
+// Classic Perlin 2D (webgl-noise).
+cnoise2 :: proc(p: vec2) -> f32 {
+	pi := floor(p.xyxy) + vec4(0, 0, 1, 1)
+	pf := fract(p.xyxy) - vec4(0, 0, 1, 1)
+	pi = mod289_4(pi)
+	ix := vec4(pi.x, pi.z, pi.x, pi.z)
+	iy := vec4(pi.y, pi.y, pi.w, pi.w)
+	fx := vec4(pf.x, pf.z, pf.x, pf.z)
+	fy := vec4(pf.y, pf.y, pf.w, pf.w)
+	i := permute_4(permute_4(ix) + iy)
+	gx := fract(i * (1.0 / 41.0)) * 2 - 1
+	gy := abs(gx) - 0.5
+	tx := floor(gx + 0.5)
+	gx = gx - tx
+	g00 := vec2(gx.x, gy.x)
+	g10 := vec2(gx.y, gy.y)
+	g01 := vec2(gx.z, gy.z)
+	g11 := vec2(gx.w, gy.w)
+	norm := taylor_inv_sqrt4(vec4(dot(g00, g00), dot(g01, g01), dot(g10, g10), dot(g11, g11)))
+	n00 := dot(g00 * norm.x, vec2(fx.x, fy.x))
+	n10 := dot(g10 * norm.z, vec2(fx.y, fy.y))
+	n01 := dot(g01 * norm.y, vec2(fx.z, fy.z))
+	n11 := dot(g11 * norm.w, vec2(fx.w, fy.w))
+	fade_xy := fade2(vec2(pf.x, pf.y))
+	n_x := lerp(vec2(n00, n01), vec2(n10, n11), fade_xy.x)
+	return 2.3 * lerp(n_x.x, n_x.y, fade_xy.y)
+}
+
+pnoise2 :: proc(p: vec2, period: vec2) -> f32 {
+	pi := floor(p.xyxy) + vec4(0, 0, 1, 1)
+	pf := fract(p.xyxy) - vec4(0, 0, 1, 1)
+	pi = mod(pi, vec4(period.x, period.y, period.x, period.y))
+	pi = mod289_4(pi)
+	ix := vec4(pi.x, pi.z, pi.x, pi.z)
+	iy := vec4(pi.y, pi.y, pi.w, pi.w)
+	fx := vec4(pf.x, pf.z, pf.x, pf.z)
+	fy := vec4(pf.y, pf.y, pf.w, pf.w)
+	i := permute_4(permute_4(ix) + iy)
+	gx := fract(i * (1.0 / 41.0)) * 2 - 1
+	gy := abs(gx) - 0.5
+	tx := floor(gx + 0.5)
+	gx = gx - tx
+	g00 := vec2(gx.x, gy.x)
+	g10 := vec2(gx.y, gy.y)
+	g01 := vec2(gx.z, gy.z)
+	g11 := vec2(gx.w, gy.w)
+	norm := taylor_inv_sqrt4(vec4(dot(g00, g00), dot(g01, g01), dot(g10, g10), dot(g11, g11)))
+	n00 := dot(g00 * norm.x, vec2(fx.x, fy.x))
+	n10 := dot(g10 * norm.z, vec2(fx.y, fy.y))
+	n01 := dot(g01 * norm.y, vec2(fx.z, fy.z))
+	n11 := dot(g11 * norm.w, vec2(fx.w, fy.w))
+	fade_xy := fade2(vec2(pf.x, pf.y))
+	n_x := lerp(vec2(n00, n01), vec2(n10, n11), fade_xy.x)
+	return 2.3 * lerp(n_x.x, n_x.y, fade_xy.y)
+}
+
+cnoise3 :: proc(p: vec3) -> f32 {
+	pi := floor(p)
+	pf := fract(p)
+	a := hash.hash31(pi)
+	b := hash.hash31(pi + vec3(1, 0, 0))
+	c := hash.hash31(pi + vec3(0, 1, 0))
+	d := hash.hash31(pi + vec3(1, 1, 0))
+	e := hash.hash31(pi + vec3(0, 0, 1))
+	f := hash.hash31(pi + vec3(1, 0, 1))
+	g := hash.hash31(pi + vec3(0, 1, 1))
+	h := hash.hash31(pi + vec3(1, 1, 1))
+	u := fade3(pf)
+	k0 := lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y)
+	k1 := lerp(lerp(e, f, u.x), lerp(g, h, u.x), u.y)
+	return lerp(k0, k1, u.z) * 2 - 1
+}
+
+pnoise3 :: proc(p: vec3, period: vec3) -> f32 {
+	q := vec3(mod(p.x, period.x), mod(p.y, period.y), mod(p.z, period.z))
+	return cnoise3(q)
+}
+
+// Value / gradient lattice noise.
+value_noise2 :: proc(p: vec2) -> f32 {
+	i := floor(p)
+	f := fract(p)
+	u := fade2(f)
+	a := hash.hash21(i)
+	b := hash.hash21(i + vec2(1, 0))
+	c := hash.hash21(i + vec2(0, 1))
+	d := hash.hash21(i + vec2(1, 1))
+	return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y)
+}
+
+gradient_noise2 :: proc(p: vec2) -> f32 {
+	return snoise2(p)
+}
+
+// PSRD 2D, reduced form (Gustavson): noise with rotating gradients; analytic deriv in .yz.
+psrdnoise2 :: proc(x: vec2, period: vec2, alpha: f32) -> vec3 {
+	uv := vec2(x.x + x.y * 0.5, x.y)
+	i0 := floor(uv)
+	f0 := fract(uv)
+	cmp := step(f0.yx, f0.xy)
+	o1 := vec2(cmp.x, 1 - cmp.y)
+	i1 := i0 + o1
+	i2 := i0 + vec2(1, 1)
+	v0 := vec2(i0.x - i0.y * 0.5, i0.y)
+	v1 := vec2(v0.x + o1.x - o1.y * 0.5, v0.y + o1.y)
+	v2 := vec2(v0.x + 0.5, v0.y + 1)
+	x0 := x - v0
+	x1 := x - v1
+	x2 := x - v2
+	iu := vec3(0, 0, 0)
+	iv := vec3(0, 0, 0)
+	if period.x > 0 {
+		iu = vec3(mod(i0.x, period.x), mod(i1.x, period.x), mod(i2.x, period.x))
+		iv = vec3(mod(i0.y, period.y), mod(i1.y, period.y), mod(i2.y, period.y))
+	} else {
+		iu = vec3(i0.x, i1.x, i2.x)
+		iv = vec3(i0.y, i1.y, i2.y)
+	}
+	hash_g := permute_3(permute_3(iu) + iv)
+	angle := hash_g * 0.020408163265306 + alpha
+	grad := vec3(cos(angle.x), cos(angle.y), cos(angle.z))
+	grad_y := vec3(sin(angle.x), sin(angle.y), sin(angle.z))
+	g0 := vec2(grad.x, grad_y.x)
+	g1 := vec2(grad.y, grad_y.y)
+	g2 := vec2(grad.z, grad_y.z)
+	w := vec3(dot(x0, x0), dot(x1, x1), dot(x2, x2))
+	w = max(0.8 - w, 0)
+	w2 := w * w
+	w4 := w2 * w2
+	gdotx := vec3(dot(g0, x0), dot(g1, x1), dot(g2, x2))
+	n := dot(w4, gdotx)
+	w3 := w2 * w
+	dw := -8 * w3 * gdotx
+	dn0 := w4.x * g0 + dw.x * x0
+	dn1 := w4.y * g1 + dw.y * x1
+	dn2 := w4.z * g2 + dw.z * x2
+	gsum := dn0 + dn1 + dn2
+	return vec3(n * 10.9, gsum.x * 10.9, gsum.y * 10.9)
+}
+
+fbm_simplex2 :: proc(p: vec2, octaves: i32) -> f32 {
+	a := 0.0
+	amp := 0.5
+	q := p
+	for i := 0; i < octaves; i += 1 {
+		a += amp * snoise2(q)
+		q = q * 2.03
+		amp *= 0.5
+	}
+	return a
+}
+
+fbm_classic2 :: proc(p: vec2, octaves: i32) -> f32 {
+	a := 0.0
+	amp := 0.5
+	q := p
+	for i := 0; i < octaves; i += 1 {
+		a += amp * cnoise2(q)
+		q = q * 2.03
+		amp *= 0.5
+	}
+	return a
+}
+
+fbm_value2 :: proc(p: vec2, octaves: i32) -> f32 {
+	a := 0.0
+	amp := 0.5
+	q := p
+	for i := 0; i < octaves; i += 1 {
+		a += amp * value_noise2(q)
+		q = q * 2.03
+		amp *= 0.5
+	}
+	return a
+}
+
+curl2 :: proc(p: vec2, eps: f32) -> vec2 {
+	e := max(eps, 1e-4)
+	n1 := snoise2(p + vec2(0, e))
+	n2 := snoise2(p - vec2(0, e))
+	n3 := snoise2(p + vec2(e, 0))
+	n4 := snoise2(p - vec2(e, 0))
+	return vec2((n1 - n2) / (2 * e), (n4 - n3) / (2 * e))
+}
+
+curl_analytic2 :: proc(p: vec2) -> vec2 {
+	g := psrdnoise2(p, vec2(0, 0), 0)
+	return vec2(g.z, -g.y)
+}
+
+// iq Voronoi: F1, F2, hashed id.
+voronoi2 :: proc(p: vec2) -> vec3 {
+	n := floor(p)
+	f := fract(p)
+	md := 8.0
+	md2 := 8.0
+	id := 0.0
+	for j := -1; j <= 1; j += 1 {
+		for i := -1; i <= 1; i += 1 {
+			g := vec2(f32(i), f32(j))
+			o := hash.hash22(n + g)
+			r := g + o - f
+			d := dot(r, r)
+			if d < md {
+				md2 = md
+				md = d
+				id = hash.hash21(n + g)
+			} else if d < md2 {
+				md2 = d
+			}
+		}
+	}
+	return vec3(sqrt(md), sqrt(md2), id)
+}
+
+worley2 :: proc(p: vec2) -> vec2 {
+	v := voronoi2(p)
+	return vec2(v.x, v.y)
+}
+
+// iq Voronoise (smooth cellular).
+voronoise2 :: proc(p: vec2, u: f32, v: f32) -> f32 {
+	n := floor(p)
+	f := fract(p)
+	k := 1 + 63 * pow(1 - v, 4)
+	va := 0.0
+	wt := 0.0
+	for j := -2; j <= 2; j += 1 {
+		for i := -2; i <= 2; i += 1 {
+			g := vec2(f32(i), f32(j))
+			o := hash.hash22(n + g) * vec2(u, u)
+			r := g - f + o
+			d := dot(r, r)
+			ww := pow(1 - math.saturate(d / 1.5), k)
+			va += ww * hash.hash21(n + g)
+			wt += ww
+		}
+	}
+	return va / max(wt, 1e-6)
+}
+
+wavelet2 :: proc(p: vec2) -> f32 {
+	return value_noise2(p) - 0.5 * value_noise2(p * 0.5)
+}
+
+gerstner :: proc(p: vec2, dir: vec2, steepness: f32, wavelength: f32, t: f32) -> vec3 {
+	d := normalize(dir)
+	k := math.TAU / max(wavelength, 1e-4)
+	c := sqrt(9.8 / k)
+	a := steepness / k
+	f := k * (dot(d, p) - c * t)
+	s := sin(f)
+	co := cos(f)
+	return vec3(d.x * a * co, a * s, d.y * a * co)
+}
+
+srandom2 :: proc(p: vec2) -> f32 {
+	return hash.srandom(p)
+}

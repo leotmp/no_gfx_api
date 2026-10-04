@@ -1,0 +1,41 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	flag: b32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	// C-style ?: 
+	a := 1 > 0 ? 3 : 4
+	_ = a
+
+	// Odin-style if-else expr
+	b := 10 if vertex_id == 0 else 20
+	_ = b
+
+	// when expr (compile-time)
+	c := 1 when true else 2
+	_ = c
+
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color if data.flag else vec4(0, 0, 0, 1)
+	return out
+}

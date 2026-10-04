@@ -1,0 +1,17 @@
+// Compute SV_Data + rw32_2d store / dim. Workgroup size is a 2-axis @(size).
+ivec2 :: [2]i32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	dst: rw32_2d,
+}
+
+@(size = {8, 8})
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	res := dim(data.dst)
+	if gid.x >= u32(res.x) || gid.y >= u32(res.y) do return
+	store(data.dst, ivec2(i32(gid.x), i32(gid.y)), vec4(1, 0, 0, 1))
+}

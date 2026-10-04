@@ -196,8 +196,11 @@ codegen_ast_defs :: proc(ast: Ast, input_path: string, is_module_main: bool)
     {
         writeln("layout(push_constant, scalar) uniform Push")
         writeln("{")
+
         if writer_scope()
         {
+            writeln("_res_ptr_void _res_assert_buf_;")
+            
             writefln("#ifdef _res_type_compute_")
             for proc_def in ast.procs
             {

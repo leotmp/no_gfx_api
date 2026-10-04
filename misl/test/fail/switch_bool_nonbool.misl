@@ -1,0 +1,12 @@
+// Non-boolean case in conditionless switch
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	x: i32 = 1
+	switch {
+	case x:
+		out = [4]f32{0, 0, 0, 1}
+	}
+	_ = vid
+	return out
+}
