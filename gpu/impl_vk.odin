@@ -34,14 +34,16 @@ Workgroup_Size_Z_Spec_Const_ID :: 13372
 Assert_Buf_Spec_Const_ID :: 13373
 
 @(private="file")
-Graphics_Shader_Push_Constants :: struct #packed {
+Graphics_Shader_Push_Constants :: struct #all_or_none {
+    assert_buf: rawptr,
     vert_data: rawptr,
     frag_data: rawptr,
     indirect_data: rawptr,
 }
 
 @(private="file")
-Compute_Shader_Push_Constants :: struct #packed {
+Compute_Shader_Push_Constants :: struct #all_or_none {
+    assert_buf: rawptr,
     compute_data: rawptr,
 }
 
@@ -2829,6 +2831,7 @@ _cmd_dispatch :: proc(cmd_buf: Command_Buffer, compute_data: gpuptr, num_groups_
     vk_cmd_buf := cmd_buf_info.handle
 
     push_constants := Compute_Shader_Push_Constants {
+        assert_buf   = cmd_buf_info.context_buf.gpu.ptr,
         compute_data = compute_data.ptr,
     }
 
@@ -2856,6 +2859,7 @@ _cmd_dispatch_indirect_raw :: proc(cmd_buf: Command_Buffer, compute_data, argume
     assert(ok_a)
 
     push_constants := Compute_Shader_Push_Constants {
+        assert_buf   = cmd_buf_info.context_buf.gpu.ptr,
         compute_data = compute_data.ptr,
     }
 
@@ -3039,6 +3043,7 @@ _cmd_draw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data: gpuptr,
     vk_cmd_buf := cmd_buf.handle
 
     push_constants := Graphics_Shader_Push_Constants {
+        assert_buf = cmd_buf.context_buf.gpu.ptr,
         vert_data = vertex_data.ptr,
         frag_data = fragment_data.ptr,
         indirect_data = nil,
@@ -3070,6 +3075,7 @@ _cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_dat
     assert(ok_i)
 
     push_constants := Graphics_Shader_Push_Constants {
+        assert_buf = cmd_buf.context_buf.gpu.ptr,
         vert_data = vertex_data.ptr,
         frag_data = fragment_data.ptr,
         indirect_data = nil,
@@ -3100,6 +3106,7 @@ _cmd_draw_indexed_indirect_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fra
     arguments_buf, arguments_offset, _ := get_buf_offset_from_gpu_ptr(indirect_arguments)
 
     push_constants := Graphics_Shader_Push_Constants {
+        assert_buf   = cmd_buf_info.context_buf.gpu.ptr,
         vert_data = vertex_data.ptr,
         frag_data = fragment_data.ptr,
         indirect_data = indirect_arguments.ptr,
@@ -3138,6 +3145,7 @@ _cmd_draw_indexed_indirect_multi_raw :: proc(cmd_buf: Command_Buffer, vertex_dat
     // indirect_arguments points to the unified indirect data array containing both command and user data
     // The stride is the size of the combined struct { IndirectDrawCommand cmd; UserData data; }
     push_constants := Graphics_Shader_Push_Constants {
+        assert_buf = cmd_buf.context_buf.gpu.ptr,
         vert_data = vertex_data.ptr,
         frag_data = fragment_data.ptr,
         indirect_data = indirect_arguments.ptr,
