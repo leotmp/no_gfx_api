@@ -297,7 +297,7 @@ Spec_Constant :: struct
 // Procedures
 
 // Initialization and interaction with the OS.
-init: proc(validation := true, loc := #caller_location) -> bool : _init_meta
+init: proc(validation := true, debugging := false, loc := #caller_location) -> bool : _init_meta
 cleanup: proc(loc := #caller_location) : _cleanup_meta
 wait_idle: proc() : _wait_idle_meta
 // Can be called for recreation. Automatically destroyed by cleanup()
@@ -413,3 +413,7 @@ cmd_begin_debug_label: proc(cmd_buf: Command_Buffer, name: string, color: [4]f32
 cmd_end_debug_label: proc(cmd_buf: Command_Buffer, loc := #caller_location) : _cmd_end_debug_label_meta
 // Shows up as a single event in the debugger
 cmd_insert_debug_label: proc(cmd_buf: Command_Buffer, name: string, color: [4]f32, loc := #caller_location) : _cmd_insert_debug_label_meta
+
+// Debug recording
+debug_record_begin: proc(loc := #caller_location) : _debug_record_begin_meta
+debug_record_end: proc(loc := #caller_location) : _debug_record_end_meta

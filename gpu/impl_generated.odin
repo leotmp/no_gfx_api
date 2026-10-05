@@ -9,11 +9,11 @@ import vk "vendor:vulkan"
 
 LAYERS: [dynamic; 8]Layer
 
-// Each proc returns a bool which decides whether to proceed with the lib call or not.
+// Each proc returns a bool which decides whether to proceed with the next layers (and lib call) or not.
 @(private)
 Layer :: struct //#all_or_none
 {
-    init: proc(validation := true, loc := #caller_location) -> bool,
+    init: proc(validation := true, debugging := false, loc := #caller_location) -> bool,
     cleanup: proc(loc := #caller_location) -> bool,
     wait_idle: proc() -> bool,
     swapchain_create: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_flight: u32, present_mode: Present_Mode = {}) -> bool,
@@ -83,18 +83,20 @@ Layer :: struct //#all_or_none
     cmd_begin_debug_label: proc(cmd_buf: Command_Buffer, name: string, color: [4]f32, loc := #caller_location) -> bool,
     cmd_end_debug_label: proc(cmd_buf: Command_Buffer, loc := #caller_location) -> bool,
     cmd_insert_debug_label: proc(cmd_buf: Command_Buffer, name: string, color: [4]f32, loc := #caller_location) -> bool,
+    debug_record_begin: proc(loc := #caller_location) -> bool,
+    debug_record_end: proc(loc := #caller_location) -> bool,
 }
 
-_init_meta :: proc(validation := true, loc := #caller_location)->(bool)
+_init_meta :: proc(validation := true, debugging := false, loc := #caller_location)->(bool)
 {
     if intr.unlikely(len(LAYERS) > 0) {
         for layer in LAYERS {
             if layer.init != nil {
-                if !layer.init(validation, loc) do return {}
+                if !layer.init(validation, debugging, loc) do return {}
             }
         }
     }
-    return #force_inline _init(validation, loc)
+    return #force_inline _init(validation, debugging, loc)
 }
 
 _cleanup_meta :: proc(loc := #caller_location)
@@ -925,3 +927,104 @@ _cmd_insert_debug_label_meta :: proc(cmd_buf: Command_Buffer, name: string, colo
     #force_inline _cmd_insert_debug_label(cmd_buf, name, color, loc)
 }
 
+_debug_record_begin_meta :: proc(loc := #caller_location)
+{
+    if intr.unlikely(len(LAYERS) > 0) {
+        for layer in LAYERS {
+            if layer.debug_record_begin != nil {
+                if !layer.debug_record_begin(loc) do return 
+            }
+        }
+    }
+    #force_inline _debug_record_begin(loc)
+}
+
+_debug_record_end_meta :: proc(loc := #caller_location)
+{
+    if intr.unlikely(len(LAYERS) > 0) {
+        for layer in LAYERS {
+            if layer.debug_record_end != nil {
+                if !layer.debug_record_end(loc) do return 
+            }
+        }
+    }
+    #force_inline _debug_record_end(loc)
+}
+
+
+@(private)
+Lib_Proc_ID :: enum
+{
+    init,
+    cleanup,
+    wait_idle,
+    swapchain_create,
+    swapchain_resize,
+    swapchain_acquire_next,
+    swapchain_present,
+    features_available,
+    device_limits,
+    mem_alloc_raw,
+    mem_suballoc,
+    mem_free_raw,
+    texture_size_and_align,
+    texture_create,
+    texture_destroy,
+    desc_heap_create,
+    desc_heap_destroy,
+    desc_heap_set_textures,
+    desc_heap_set_textures_rw,
+    desc_heap_set_samplers,
+    desc_heap_set_bvhs,
+    texture_view_descriptor,
+    texture_rw_view_descriptor,
+    sampler_descriptor,
+    shader_create,
+    shader_create_compute,
+    shader_destroy,
+    semaphore_create,
+    semaphore_get_value,
+    semaphore_wait,
+    semaphore_destroy,
+    queue_wait_idle,
+    queue_submit,
+    blas_size_and_align,
+    blas_create,
+    blas_build_scratch_buffer_size_and_align,
+    tlas_size_and_align,
+    tlas_create,
+    tlas_build_scratch_buffer_size_and_align,
+    bvh_root_ptr,
+    bvh_destroy,
+    commands_begin,
+    cmd_mem_copy_raw,
+    cmd_copy_to_texture,
+    cmd_copy_from_texture,
+    cmd_blit_texture,
+    cmd_set_desc_heap,
+    cmd_add_wait_semaphore,
+    cmd_add_signal_semaphore,
+    cmd_barrier,
+    cmd_set_shaders,
+    cmd_set_compute_shader,
+    cmd_set_depth_state,
+    cmd_set_raster_state,
+    cmd_set_blend_state,
+    cmd_set_viewport,
+    cmd_set_scissor,
+    cmd_dispatch,
+    cmd_dispatch_indirect_raw,
+    cmd_begin_render_pass,
+    cmd_end_render_pass,
+    cmd_draw,
+    cmd_draw_indexed_raw,
+    cmd_draw_indexed_indirect_raw,
+    cmd_draw_indexed_indirect_multi_raw,
+    cmd_build_blas,
+    cmd_build_tlas,
+    cmd_begin_debug_label,
+    cmd_end_debug_label,
+    cmd_insert_debug_label,
+    debug_record_begin,
+    debug_record_end,
+}

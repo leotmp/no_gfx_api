@@ -38,7 +38,7 @@ main :: proc()
     window_size_x := i32(Start_Window_Size_X)
     window_size_y := i32(Start_Window_Size_Y)
 
-    ok := gpu.init()
+    ok := gpu.init(debugging = true)
     ensure(ok)
     defer gpu.cleanup()
 
@@ -92,6 +92,10 @@ main :: proc()
     defer gpu.semaphore_destroy(frame_sem)
     for true
     {
+        if next_frame == 5 {
+            gpu.debug_record_begin()
+        }
+
         proceed := handle_window_events(window)
         if !proceed do break
 
@@ -142,6 +146,11 @@ main :: proc()
         gpu.queue_submit(.Main, { cmd_buf })
 
         gpu.swapchain_present(.Main, frame_sem, next_frame)
+
+        if next_frame == 5 {
+            gpu.debug_record_end()
+        }
+
         next_frame += 1
     }
 

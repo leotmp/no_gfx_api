@@ -36,10 +36,11 @@ Compute_Shader_Push_Constants :: struct #packed {
 @(private="file")
 Alloc_Handle :: distinct Handle
 
-@(private="file")
+@(private)
 Context :: struct
 {
     validation: bool,
+    debugging: bool,
     features: Features,
     instance: vk.Instance,
     debug_messenger: vk.DebugUtilsMessengerEXT,
@@ -202,14 +203,14 @@ Semaphore_Value :: struct
 
 // Initialization
 
-@(private="file")
+@(private)
 ctx: Context
 
 @(private="file")
 vk_logger: log.Logger
 
 @(require_results)
-_init :: proc(validation := true, loc := #caller_location) -> bool
+_init :: proc(validation := true, debugging := false, loc := #caller_location) -> bool
 {
     // Clear API specific arguments
     defer {
@@ -226,8 +227,11 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
 
     vk_logger = context.logger
     ctx.validation = validation
+    ctx.debugging = debugging
 
-    add_debug_layer()
+    if debugging {
+        add_debug_layer()
+    }
 
     // Create instance
     {
@@ -1128,7 +1132,7 @@ _swapchain_acquire_next :: proc(loc := #caller_location) -> Texture
 
     // Transition layout from swapchain
     {
-        cmd_buf := commands_begin(.Main)
+        cmd_buf := _commands_begin(.Main)
         vk_cmd_buf := vk_get_command_buffer(cmd_buf)
 
         transition := vk.ImageMemoryBarrier2 {
@@ -1152,7 +1156,7 @@ _swapchain_acquire_next :: proc(loc := #caller_location) -> Texture
             pImageMemoryBarriers = &transition,
         })
 
-        queue_submit(.Main, {cmd_buf})
+        _queue_submit(.Main, {cmd_buf})
     }
 
     return Texture {
@@ -1182,7 +1186,7 @@ _swapchain_present :: proc(queue: Queue, sem_wait: Semaphore, wait_value: u64, l
     // only supports binary semaphores.
     // wait on sem_wait on wait_value and signal ctx.binary_sem
     {
-        cmd_buf := commands_begin(queue)
+        cmd_buf := _commands_begin(queue)
         vk_cmd_buf := vk_get_command_buffer(cmd_buf)
 
         // Switch to optimal layout for presentation (this is mandatory)
@@ -1211,7 +1215,7 @@ _swapchain_present :: proc(queue: Queue, sem_wait: Semaphore, wait_value: u64, l
 
         cmd_add_wait_semaphore(cmd_buf, sem_wait, wait_value)
         cmd_add_signal_semaphore(cmd_buf, present_semaphore, 0)  // This is a binary semaphore, so the value is unused here.
-        queue_submit(queue, { cmd_buf })
+        _queue_submit(queue, { cmd_buf })
     }
 
     if sync.guard(&ctx.queue_lock)
@@ -1430,7 +1434,7 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
 
     // Transition layout from UNDEFINED to GENERAL
     {
-        cmd_buf := commands_begin(queue_to_use)
+        cmd_buf := _commands_begin(queue_to_use)
         vk_cmd_buf := vk_get_command_buffer(cmd_buf)
 
         transition := vk.ImageMemoryBarrier2 {
@@ -1455,7 +1459,7 @@ _texture_create :: proc(desc: Texture_Desc, storage: gpuptr, queue: Queue = .Mai
         })
 
         if signal_sem != {} do cmd_add_signal_semaphore(cmd_buf, signal_sem, signal_value)
-        queue_submit(queue_to_use, { cmd_buf })
+        _queue_submit(queue_to_use, { cmd_buf })
     }
 
     vk_set_debug_name(name, u64(image), .IMAGE)
@@ -3831,6 +3835,22 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         resolveMode = vk_resolve_mode,
         resolveImageView = resolve_view,
         resolveImageLayout = .GENERAL if has_resolve else {},
+    }
+}
+
+_debug_record_begin :: proc(loc := #caller_location)
+{
+    // Do nothing. Code is in the debug layer.
+    if !ctx.debugging {
+        log.error("Trying to start a debug capture, but \"debugging\" was not enabled when the no_gfx context was initialized. This will be a nop.", location = loc)
+    }
+}
+
+_debug_record_end :: proc(loc := #caller_location)
+{
+    // Do nothing. Code is in the debug layer.
+    if !ctx.debugging {
+        log.error("Trying to end a debug capture, but \"debugging\" was not enabled when the no_gfx context was initialized. This will be a nop.", location = loc)
     }
 }
 

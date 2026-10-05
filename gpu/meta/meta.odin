@@ -51,6 +51,8 @@ generate_code :: proc(source_path: string, dst_path: string) -> bool
     write_layer_struct(&sb, file)
     fmt.sbprintln(&sb, "")
     write_meta_procs(&sb, file)
+    fmt.sbprintln(&sb, "")
+    write_proc_id_enum(&sb, file)
 
     err_w := os.write_entire_file(dst_path, str.to_string(sb))
     ensure(err_w == nil)
@@ -128,7 +130,7 @@ write_meta_procs :: proc(sb: ^str.Builder, file: ast.File)
 
 write_layer_struct :: proc(sb: ^str.Builder, file: ast.File)
 {
-    fmt.sbprintln (sb, "// Each proc returns a bool which decides whether to proceed with the lib call or not.")
+    fmt.sbprintln (sb, "// Each proc returns a bool which decides whether to proceed with the next layers (and lib call) or not.")
     fmt.sbprintln (sb, "@(private)")
     fmt.sbprintfln(sb, "Layer :: struct //#all_or_none")
     fmt.sbprintln (sb, "{")
@@ -144,6 +146,25 @@ write_layer_struct :: proc(sb: ^str.Builder, file: ast.File)
         fmt.sbprintf(sb, "    %s: proc(", ident.name)
         write_proc_fields(sb, proc_type.params.list)
         fmt.sbprintfln(sb, ") -> bool,")
+    }
+    fmt.sbprintln(sb, "}")
+}
+
+write_proc_id_enum :: proc(sb: ^str.Builder, file: ast.File)
+{
+    fmt.sbprintln (sb, "@(private)")
+    fmt.sbprintfln(sb, "Lib_Proc_ID :: enum")
+    fmt.sbprintln (sb, "{")
+    for stmt in file.decls
+    {
+        decl := stmt.derived_stmt.(^ast.Value_Decl) or_continue
+        if decl.type == nil do continue
+        proc_type := decl.type.derived_expr.(^ast.Proc_Type) or_continue
+
+        if len(decl.names) <= 0 do continue
+        name := decl.names[0]
+        ident := name.derived_expr.(^ast.Ident) or_continue
+        fmt.sbprintfln(sb, "    %s,", ident.name)
     }
     fmt.sbprintln(sb, "}")
 }
