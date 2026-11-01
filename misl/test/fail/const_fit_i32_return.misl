@@ -1,0 +1,11 @@
+// Expect: constant value does not fit in 'i32'
+vec4 :: [4]f32
+foo :: proc() -> i32 {
+	return 4294967295
+}
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: [4]f32 | SV_Position) {
+	_ = vid
+	_ = foo()
+	out = vec4(0, 0, 0, 1)
+	return out
+}

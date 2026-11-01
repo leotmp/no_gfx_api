@@ -1,0 +1,43 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	when true {
+		x: i32 = 1
+	} else {
+		x: i32 = 2
+	}
+	// `when` does not create a scope — x is visible here
+	_ = x
+
+	when false {
+		y: i32 = 0
+	} else when true {
+		y: i32 = 7
+	}
+	_ = y
+
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color
+	return out
+}

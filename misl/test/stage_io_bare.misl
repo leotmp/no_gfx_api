@@ -1,0 +1,39 @@
+// Bound values as bare parameters and results, HLSL style, with tags restated on the fragment side.
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+NORMAL :: #inout(vec3, 0)
+DRAW_ID :: #inout(u32, 1)
+FOG :: #inout(f32, 2)
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (pos: vec4 | SV_Position, n: vec3 | NORMAL, #flat id: u32 | DRAW_ID, #noperspective fog: f32 | FOG) {
+	return vec4(0, 0, 0, 1), vec3(0, 1, 0), vid, 0.5
+}
+
+fs :: proc "fragment"(
+	n: vec3 | NORMAL,
+	#noperspective fog: f32 | FOG,
+	#flat id: u32 | DRAW_ID,
+	frag: vec4 | SV_Position,
+) -> vec4 | SV_Target {
+	return vec4(n.x, fog, f32(id), frag.x)
+}
+
+// Two targets sharing one declaration.
+fs_mrt :: proc "fragment"(n: vec3 | NORMAL) -> (a, b: vec4 | SV_Target) {
+	a = vec4(n.x, 0, 0, 1)
+	b = vec4(0, n.y, 0, 1)
+	return
+}
+
+bare_pipeline :: pipeline {
+	vertex = vs,
+	fragment = fs,
+	targets = {{format = .rgba_u8_norm}},
+}
+
+mrt_pipeline :: pipeline {
+	vertex = vs,
+	fragment = fs_mrt,
+	targets = {{format = .rgba_u8_norm}, {format = .rgba_u8_norm}},
+}

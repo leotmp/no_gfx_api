@@ -1,0 +1,43 @@
+import "core:morphological.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	tex: t32_2d,
+	samp: s32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	_ = morphological.marching_squares_case(0.2, 0.8, 0.1, 0.9, 0.5)
+	_ = morphological.hashed_alpha(0.5, vec2(1, 2), 8)
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	uv := vec2(0.5, 0.5)
+	res := vec2(64, 64)
+	_ = morphological.dilate(data.tex, data.samp, uv, res)
+	_ = morphological.erode(data.tex, data.samp, uv, res)
+	_ = morphological.jfa_step(data.tex, data.samp, uv, res, 8)
+	_ = morphological.lucas_kanade(data.tex, data.tex, data.samp, uv, res)
+	_ = morphological.mip_average(data.tex, data.samp, uv, res, 2)
+	out = data.color
+	return out
+}

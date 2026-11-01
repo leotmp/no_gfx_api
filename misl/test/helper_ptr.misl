@@ -1,0 +1,57 @@
+// Helpers may take/return ^T, [^]T, and []T.
+vec4 :: [4]f32
+
+Item :: struct #align(16) {
+	v: f32,
+}
+
+Data :: struct #align(16) {
+	items_mp: [^]Item,
+	items: []Item,
+	color: [4]f32,
+	count: i32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+color_of :: proc(data: ^Data) -> [4]f32 {
+	return data.color
+}
+
+first_v :: proc(p: [^]Item) -> f32 {
+	return p[0].v
+}
+
+slice_len :: proc(s: []Item) -> i64 {
+	return len(s)
+}
+
+mp_of :: proc(data: ^Data) -> [^]Item {
+	return data.items_mp
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vertex_id
+	_ = first_v(data.items_mp)
+	_ = slice_len(data.items)
+	_ = slice_len(data.items[:])
+	p := mp_of(data)
+	_ = p[0].v
+	c := color_of(data)
+	out.pos = vec4(c.x, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin.pos
+	out = color_of(data)
+	return out
+}

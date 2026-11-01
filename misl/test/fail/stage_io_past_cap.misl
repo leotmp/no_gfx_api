@@ -1,0 +1,2 @@
+// Expect: #inout location 31 is outside 0..31
+LAST :: #inout([2][4]f32, 31)

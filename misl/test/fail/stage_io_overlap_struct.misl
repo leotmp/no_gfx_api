@@ -1,0 +1,15 @@
+// Expect: overlaps another #inout of this struct at location 1
+A :: #inout([4]f32, 0)
+B :: #inout(matrix[2, 2]f32, 1)
+C :: #inout(f32, 1)
+Out :: struct {
+	pos: [4]f32 | SV_Position,
+	b: matrix[2, 2]f32 | B,
+	c: f32 | C,
+	a: [4]f32 | A,
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: Out) {
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

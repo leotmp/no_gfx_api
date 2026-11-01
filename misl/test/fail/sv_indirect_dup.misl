@@ -1,0 +1,20 @@
+// Duplicate SV_Indirect_Data on one entry
+My_Indirect :: struct {
+	seed: u32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	a: ^My_Indirect | SV_Indirect_Data,
+	b: ^My_Indirect | SV_Indirect_Data,
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = a
+	_ = b
+	_ = vid
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

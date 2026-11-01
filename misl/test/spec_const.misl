@@ -1,0 +1,132 @@
+N :: 3
+
+@(specialization_constant = 7)
+step: u32 = 4
+
+@(specialization_constant = 8)
+signed: i32 = -1
+
+@(specialization_constant = 9)
+scale: f32 = 1.5
+
+@(specialization_constant = 3)
+flag: b32
+
+@(specialization_constant = 11)
+flag_on: b32 = true
+
+@(specialization_constant = 12)
+zero_u: u32
+
+@(specialization_constant = 13)
+zero_i: i32
+
+@(specialization_constant = 14)
+zero_f: f32
+
+@(specialization_constant = 15)
+folded: u32 = 1 + 2
+
+@(specialization_constant = 16)
+from_const: u32 = N
+
+@(specialization_constant = 17)
+wg: u32 = 8
+
+@(specialization_constant = 18)
+other: u32 = 5
+
+@(specialization_constant = 19)
+wgx: u32 = 4
+
+id :: proc(x: u32) -> u32 {
+	return x
+}
+
+add_vs :: proc "vertex"() -> (out: [4]f32 | SV_Position) {
+	sum := step + N
+	diff := step - 1
+	prod := step * 2
+	lt := step < N
+	eq := step == 4
+	both := step + other
+	_ = sum
+	_ = diff
+	_ = prod
+	_ = lt
+	_ = eq
+	_ = both
+	_ = folded
+	_ = from_const
+	out = {0, 0, 0, 1}
+	return out
+}
+
+f32_vs :: proc "vertex"() -> (out: [4]f32 | SV_Position) {
+	s := scale + 0.5
+	_ = sin(s)
+	out = {s, 0, 0, 1}
+	return out
+}
+
+i32_vs :: proc "vertex"() -> (out: [4]f32 | SV_Position) {
+	lt := signed < -2
+	eq := signed == -1
+	_ = lt
+	_ = eq
+	out = {0, 0, 0, 1}
+	return out
+}
+
+flag_vs :: proc "vertex"() -> (out: [4]f32 | SV_Position) {
+	n: u32 = 0
+	if flag {
+		n = 11
+	} else {
+		n = 22
+	}
+	and := flag && true
+	stored: b32 = flag
+	on: b32 = flag_on
+	_ = n
+	_ = and
+	_ = stored
+	_ = on
+	_ = zero_u
+	_ = zero_i
+	_ = zero_f
+	out = {0, 0, 0, 1}
+	return out
+}
+
+index_vs :: proc "vertex"() -> (out: [4]f32 | SV_Position) {
+	arr: [4]f32
+	arr[step] = 1
+	_ = id(step)
+	out = {arr[0], 0, 0, 1}
+	return out
+}
+
+@(size = wg)
+size_cs :: proc "compute"(gsize: [3]u32 | SV_Group_Size) {
+	_ = gsize
+}
+
+@(size = {wgx, 8, 1})
+mix_cs :: proc "compute"() {}
+
+@(size = 8)
+lit_cs :: proc "compute"() {}
+
+switch_vs :: proc "vertex"() -> (out: [4]f32 | SV_Position) {
+	n: u32 = 0
+	switch step {
+	case 4:
+		n = 1
+	case:
+		n = 2
+	}
+	_ = n
+	out = {0, 0, 0, 1}
+	return out
+}

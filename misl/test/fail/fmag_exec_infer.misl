@@ -1,0 +1,22 @@
+// Expect: fmag.exec cannot infer result types
+import "core:fmag"
+
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	code: [][4]u32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	c := fmag.exec(data.code, 1)
+	_ = c
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

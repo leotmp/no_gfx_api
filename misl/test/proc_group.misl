@@ -1,0 +1,47 @@
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+foo_f32 :: proc(f: f32) -> f32 {
+	return f + 1
+}
+
+foo_i32 :: proc(f: i32) -> i32 {
+	return f + 2
+}
+
+foo :: proc {
+	foo_f32,
+	foo_i32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	a := foo(1)
+	b := foo(1.0)
+	c := foo(i32(3))
+	_ = a
+	_ = b
+	_ = c
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

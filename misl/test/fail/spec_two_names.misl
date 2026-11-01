@@ -1,0 +1,2 @@
+@(specialization_constant = 2)
+a, b: u32 = 1, 2

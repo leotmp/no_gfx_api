@@ -1,0 +1,22 @@
+@(specialization_constant = 2)
+a: b8
+
+@(specialization_constant = 3)
+b: b16
+
+@(specialization_constant = 4)
+c: u64
+
+@(specialization_constant = 5)
+d: f64
+
+@(specialization_constant = 6)
+e: [2]u32
+
+@(specialization_constant = 7)
+f: [4]f32
+
+S :: struct { x: u32 }
+
+@(specialization_constant = 8)
+g: S

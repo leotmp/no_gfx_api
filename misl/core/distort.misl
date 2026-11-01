@@ -1,0 +1,50 @@
+/*
+	Lens and image-space distortion.
+
+	Barrel / pincushion: Brown–Conrady radial distortion (photogrammetry
+	textbooks). Chromatic aberration: per-channel radial scale. Grain:
+	hash-driven film grain. Stretch: anisotropic UV scale. Displace:
+	offset UV by a sampled displacement field.
+*/
+
+import "core:hash.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+radial :: proc(uv: vec2, k: f32) -> vec2 {
+	p := uv * 2 - 1
+	r2 := dot(p, p)
+	p = p * (1 + k * r2)
+	return p * 0.5 + 0.5
+}
+
+barrel :: proc(uv: vec2, amount: f32) -> vec2 {
+	return radial(uv, amount)
+}
+
+pincushion :: proc(uv: vec2, amount: f32) -> vec2 {
+	return radial(uv, -amount)
+}
+
+chromatic_aberration :: proc(tex: t32_2d, samp: s32, uv: vec2, amount: f32) -> vec3 {
+	r := sample(tex, samp, radial(uv, amount)).x
+	g := sample(tex, samp, uv).y
+	b := sample(tex, samp, radial(uv, -amount)).z
+	return vec3(r, g, b)
+}
+
+grain :: proc(uv: vec2, amount: f32, t: f32) -> f32 {
+	return (hash.hash21(uv * 800 + vec2(t, t)) - 0.5) * 2 * amount
+}
+
+stretch :: proc(uv: vec2, scale: vec2) -> vec2 {
+	p := uv * 2 - 1
+	p = p * scale
+	return p * 0.5 + 0.5
+}
+
+displace :: proc(uv: vec2, field: vec2, amount: f32) -> vec2 {
+	return uv + (field * 2 - 1) * amount
+}

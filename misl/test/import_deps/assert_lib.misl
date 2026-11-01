@@ -1,0 +1,10 @@
+// Slice helper for assert_import.misl (not a root entry module).
+
+Data :: struct #align(16) {
+	xs: []f32,
+	color: [4]f32,
+}
+
+at :: proc(data: Data, i: i32) -> f32 {
+	return data.xs[i]
+}

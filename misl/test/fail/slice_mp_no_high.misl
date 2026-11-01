@@ -1,0 +1,22 @@
+// Bare mp[:] is illegal: neither an offset nor a length.
+Item :: struct #align(16) {
+	v: f32,
+}
+
+Data :: struct #align(16) {
+	items: [^]Item,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	s := data.items[:]
+	_ = s
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

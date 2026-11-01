@@ -1,0 +1,13 @@
+// SV_Indirect_Data is graphics-only (PC_Graphics slot 2).
+Args :: struct #align(16) {
+	seed: u32,
+}
+
+@(size = 1)
+cs :: proc "compute"(
+	args: ^Args | SV_Indirect_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = args.seed
+	_ = gid
+}

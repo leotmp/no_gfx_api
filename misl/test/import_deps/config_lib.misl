@@ -1,0 +1,2 @@
+// Config key declared only in an imported module.
+IMPORTED_FLAG :: #config(IMPORTED_FLAG, false)

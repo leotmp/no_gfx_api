@@ -1,0 +1,40 @@
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	#flat id: u32,
+}
+
+FS_In :: struct {
+	pos: [4]f32 | SV_Position,
+	id: u32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	out.pos = vec4(0, 0, 0, 1)
+	out.id = vertex_id
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: FS_In,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color
+	return out
+}
+
+bad :: pipeline {
+	vertex = vs,
+	fragment = fs,
+	targets = {
+		{ format = .rgba_u8_srgb, write_mask = .All },
+	},
+}

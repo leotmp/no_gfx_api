@@ -1,0 +1,7 @@
+// Expect: builtin 'printf' is not allowed in proc "fmag"
+import "core:debug"
+
+shade :: proc "fmag"(x: f32) -> f32 {
+	debug.printf("x=%v\n", x)
+	return x
+}

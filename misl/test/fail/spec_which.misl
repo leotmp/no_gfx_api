@@ -1,0 +1,6 @@
+@(specialization_constant = 2)
+flag: b32
+
+which flag {
+case true:
+}

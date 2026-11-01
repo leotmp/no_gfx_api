@@ -1,0 +1,54 @@
+// #inout locations mixed with positional fields, and a fragment that takes only bound fields.
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+NORMAL :: #inout(vec3, 0)
+TINT :: #inout(vec4, 3)
+TINT_ALIAS :: TINT
+
+Out :: struct {
+	pos:    vec4 | SV_Position,
+	uv:     vec2,             // positional: 1 (0 is NORMAL's)
+	normal: vec3 | NORMAL,    // 0
+	color:  vec4,             // positional: 2
+	tint:   vec4 | TINT,      // 3
+	extra:  vec2,             // positional: 4 (3 is TINT's)
+}
+
+// Only bound fields: any struct may carry them.
+Lit_In :: struct {
+	pos:    vec4 | SV_Position,
+	tint:   vec4 | TINT_ALIAS,
+	n:      vec3 | NORMAL,
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: Out) {
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(f32(vid), 0)
+	out.normal = vec3(0, 0, 1)
+	out.color = vec4(1, 1, 1, 1)
+	out.tint = vec4(1, 0, 0, 1)
+	out.extra = vec2(0, 1)
+	return out
+}
+
+fs :: proc "fragment"(fsin: Out) -> (out: vec4 | SV_Target) {
+	return fsin.color * fsin.tint + vec4(fsin.uv.x, fsin.extra.y, fsin.normal.z, 0)
+}
+
+fs_lit :: proc "fragment"(fsin: Lit_In) -> (out: vec4 | SV_Target) {
+	return fsin.tint * fsin.n.z
+}
+
+mixed_pipeline :: pipeline {
+	vertex = vs,
+	fragment = fs,
+	targets = {{format = .rgba_u8_norm}},
+}
+
+lit_pipeline :: pipeline {
+	vertex = vs,
+	fragment = fs_lit,
+	targets = {{format = .rgba_u8_norm}},
+}

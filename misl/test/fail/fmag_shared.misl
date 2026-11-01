@@ -1,0 +1,6 @@
+// Expect: '@shared' is only allowed inside a compute entry body
+shade :: proc "fmag"(x: f32) -> f32 {
+	@shared tile: f32
+	_ = tile
+	return x
+}

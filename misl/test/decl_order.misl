@@ -1,0 +1,50 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+// Entry uses helpers / types declared below (unordered `::`)
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	out.pos = helper_pos(SCALE)
+	out.uv = helper_uv()
+	_ = abs_i32(-3)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color
+	return out
+}
+
+// Constant used above
+SCALE :: 1.0
+
+// Type used in helpers below, after entries
+Helper_Pos :: [4]f32
+
+helper_pos :: proc(s: f32) -> Helper_Pos {
+	return Helper_Pos(s, s, 0, 1)
+}
+
+helper_uv :: proc() -> vec2 {
+	return vec2(0, 0)
+}
+
+// Acyclic helpers that still use unordered `::` (caller above callee)
+abs_i32 :: proc(n: i32) -> i32 {
+	if n < 0 do return -n
+	return n
+}

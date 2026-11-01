@@ -1,0 +1,43 @@
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Vertex :: struct {
+	pos: vec3,
+}
+
+Data :: struct {
+	verts: [^]Vertex,
+}
+
+// Layout matches Odin `using cmd: gpu.Draw_Indexed_Indirect_Command`.
+IndirectData :: struct {
+	index_count:    u32,
+	instance_count: u32,
+	first_index:    u32,
+	vertex_offset:  i32,
+	first_instance: u32,
+	color:          vec3,
+	pos:            vec3,
+	size:           f32,
+}
+
+VS_Out :: struct {
+	pos:   vec4 | SV_Position,
+	color: vec4,
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+	data: ^Data | SV_Data,
+	args: ^IndirectData | SV_Indirect_Data,
+) -> (out: VS_Out) {
+	out.pos = vec4(data.verts[vid].pos * args.size + args.pos, 1)
+	out.color = vec4(args.color, 1)
+	return out
+}
+
+fs :: proc "fragment"(input: VS_Out) -> (out: vec4 | SV_Target) {
+	out = input.color
+	return out
+}

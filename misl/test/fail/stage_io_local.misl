@@ -1,0 +1,5 @@
+// Expect: #inout must be declared at file scope
+f :: proc() -> i32 {
+	LOCAL :: #inout(f32, 0)
+	return 0
+}

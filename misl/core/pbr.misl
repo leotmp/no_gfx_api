@@ -1,0 +1,65 @@
+/*
+	PBR surface evaluation from BRDF terms (Filament / glTF style).
+	Does not invent a unique material system: roughness-metallic, optional
+	clear-coat, and a simple glass (refracted Lambert + GGX) stack.
+*/
+
+import "core:brdf.misl"
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Surface :: struct {
+	base_color: vec3,
+	metallic:   f32,
+	roughness:  f32,
+	reflectance: f32,
+}
+
+surface_make :: proc(base_color: vec3, metallic: f32, roughness: f32, reflectance: f32) -> Surface {
+	s: Surface
+	s.base_color = base_color
+	s.metallic = metallic
+	s.roughness = roughness
+	s.reflectance = reflectance
+	return s
+}
+
+evaluate_lit :: proc(s: Surface, n: vec3, v: vec3, l: vec3, light_color: vec3) -> vec3 {
+	h := normalize(v + l)
+	n_dot_v := max(dot(n, v), 1e-4)
+	n_dot_l := max(dot(n, l), 0)
+	l_dot_h := max(dot(l, h), 0)
+	f0 := lerp(vec3(s.reflectance, s.reflectance, s.reflectance), s.base_color, s.metallic)
+	diff_col := s.base_color * (1 - s.metallic)
+	diff := diff_col * brdf.burley(n_dot_v, n_dot_l, l_dot_h, s.roughness)
+	spec := brdf.specular_ggx(n, v, l, s.roughness, f0)
+	return (diff + spec) * light_color
+}
+
+evaluate_clearcoat :: proc(s: Surface, coat_rough: f32, n: vec3, v: vec3, l: vec3, light_color: vec3) -> vec3 {
+	base := evaluate_lit(s, n, v, l, light_color)
+	f0 := vec3(0.04, 0.04, 0.04)
+	coat := brdf.specular_ggx(n, v, l, coat_rough, f0)
+	fcc := brdf.fresnel_schlick(max(dot(n, v), 0), f0)
+	return base * (1 - fcc) + coat * light_color
+}
+
+evaluate_glass :: proc(s: Surface, n: vec3, v: vec3, l: vec3, light_color: vec3) -> vec3 {
+	f0 := vec3(s.reflectance, s.reflectance, s.reflectance)
+	spec := brdf.specular_ggx(n, v, l, s.roughness, f0)
+	trans := s.base_color * brdf.lambert() * max(dot(n, l), 0)
+	fcc := brdf.fresnel_schlick(max(dot(n, v), 0), f0)
+	return lerp(trans, spec, fcc) * light_color
+}
+
+ibl_approx :: proc(s: Surface, n: vec3, v: vec3, irradiance: vec3, radiance: vec3) -> vec3 {
+	n_dot_v := max(dot(n, v), 1e-4)
+	f0 := lerp(vec3(s.reflectance, s.reflectance, s.reflectance), s.base_color, s.metallic)
+	d := s.base_color * (1 - s.metallic) * irradiance
+	ab := brdf.env_brdf_approx(n_dot_v, s.roughness)
+	spec := radiance * (f0 * ab.x + ab.y)
+	return d + spec
+}

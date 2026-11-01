@@ -1,0 +1,68 @@
+// File-scope `when` / `else when` / `#config` — dead-arm helpers must not appear in GLSL or FMAG.
+USE_LIVE :: true
+when USE_LIVE {
+	live_when_file_helper :: proc(x: f32) -> f32 { return x + x }
+} else {
+	dead_when_file_helper :: proc(x: f32) -> f32 { return x + x }
+}
+
+when false {
+	dead_when_else_helper :: proc(x: f32) -> f32 { return x + x }
+} else when true {
+	live_when_else_helper :: proc(x: f32) -> f32 { return x + x }
+} else {
+	dead_when_final_helper :: proc(x: f32) -> f32 { return x + x }
+}
+
+WHEN_FILE_FLAG :: #config(WHEN_FILE_FLAG, true)
+when WHEN_FILE_FLAG {
+	live_when_config_helper :: proc(x: f32) -> f32 { return x + x }
+} else {
+	dead_when_config_helper :: proc(x: f32) -> f32 { return x + x }
+}
+
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	x := live_when_file_helper(1.0)
+	x = live_when_else_helper(x)
+	x = live_when_config_helper(x)
+	_ = x
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}
+
+shade :: proc "fmag"(
+	ndv: f32, ndl: f32, ldh: f32, vdh: f32,
+	albedo: [3]f32,
+	metallic: f32, roughness: f32,
+	D: f32, G: f32,
+	light: f32,
+) -> [3]f32 {
+	x := live_when_file_helper(light)
+	x = live_when_else_helper(x)
+	x = live_when_config_helper(x)
+	return albedo * x
+}

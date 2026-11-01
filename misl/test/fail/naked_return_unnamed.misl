@@ -1,0 +1,4 @@
+// Unnamed single result — naked return must fail
+bad :: proc() -> i32 {
+	return
+}

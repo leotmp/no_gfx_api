@@ -1,0 +1,672 @@
+import "core:color.misl"
+import "core:math.misl"
+import "core:debug"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat4 :: matrix[4, 4]f32
+
+PI :: 3.14159265
+TAU :: 6.2831853
+OMNI_HALF_ANGLE :: 3.0
+AMBIENT :: 0.2
+UNSEEN_GREY :: 0.45
+
+Sprite :: struct #align(16) {
+	pos: [2]f32,
+	size: [2]f32,
+	origin: [2]f32,
+	rotation: f32,
+	atlas_position: [2]f32,
+	atlas_size: [2]f32,
+	texture: t32_2d,
+	sampler: s32,
+	color: [4]f32,
+}
+
+Sprite_VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+	color: [4]f32,
+	texture: t32_2d,
+	sampler: s32,
+}
+
+Sprite_Shader_Data :: struct #align(16) {
+	sprites: [^]Sprite,
+	camera: mat4,
+}
+
+sprite_vs :: proc "vertex"(data: ^Sprite_Shader_Data | SV_Data, sprite_id: u32 | SV_Instance, vertex_id: u32 | SV_Vertex) -> (out: Sprite_VS_Out) {
+	sprite := data.sprites[sprite_id]
+	texture_size := cast(vec2)dim(sprite.texture)
+	atlas_uv := sprite.atlas_position / texture_size
+	atlas_uv_size := sprite.atlas_size / texture_size
+
+	corners := [4]vec2 {
+		vec2(0.0, 0.0),
+		vec2(sprite.size.x, 0.0),
+		vec2(0.0, sprite.size.y),
+		vec2(sprite.size.x, sprite.size.y),
+	}
+	local := corners[vertex_id] - sprite.size * sprite.origin
+	pos := sprite.pos + math.rotate2d(sprite.rotation) * local
+
+	texcoords := [4]vec2 {
+		vec2(atlas_uv.x, atlas_uv.y),
+		vec2(atlas_uv.x + atlas_uv_size.x, atlas_uv.y),
+		vec2(atlas_uv.x, atlas_uv.y + atlas_uv_size.y),
+		vec2(atlas_uv.x + atlas_uv_size.x, atlas_uv.y + atlas_uv_size.y),
+	}
+
+	out.pos = data.camera * vec4(pos, 0, 1)
+	out.uv = texcoords[vertex_id]
+	out.color = sprite.color
+	out.texture = sprite.texture
+	out.sampler = sprite.sampler
+	return out
+}
+
+// Note(Grok): Game look is gamma 2.2, not IEC sRGB. color.linear_from_srgb is
+// the piecewise IEC transfer and would change sprite lighting.
+linear_from_srgb :: proc(srgb_color: [3]f32) -> (linear_color: [3]f32) {
+	return pow(srgb_color, 2.2)
+}
+
+sprite_fs :: proc "fragment"(fragment_in: Sprite_VS_Out, data: ^Sprite_Shader_Data | SV_Data) -> (out: [4]f32 | SV_Target) {
+	_ = data
+	out = sample(fragment_in.texture, fragment_in.sampler, fragment_in.uv)
+	out.rgb = linear_from_srgb(out.rgb) * fragment_in.color.rgb
+	out.a = out.a * fragment_in.color.a
+	return out
+}
+
+Light :: struct #align(16) {
+	origin: [2]f32,
+	dir: [2]f32,
+	radius: f32,
+	radial_feather: f32,
+	half_angle: f32,
+	angle_feather: f32,
+	color: [3]f32,
+	intensity: f32,
+}
+
+Flare_Lamp :: struct #align(16) {
+	uv: [2]f32,
+	color: [3]f32,
+	intensity: f32,
+	look: f32,
+	bloom_radius: f32,
+}
+
+Shadow_Edge :: struct #align(16) {
+	start: [2]f32,
+	end: [2]f32,
+	penumbra_at_start: b32,
+	penumbra_at_end: b32,
+}
+
+// Note(Grok): Must match gfx.Light_Eval_Data.
+Light_Eval_Data :: struct #align(16) {
+	inverse_view_projection: mat4,
+	lights: [^]Light,
+	edges: [^]Shadow_Edge,
+	origin: [2]f32,
+	resolution: [2]f32,
+	edge_count: i32,
+	light_count: i32,
+	is_visibility: b32,
+	penumbra: f32,
+	visibility_cookie: b32,
+	shadow_inset: f32,
+}
+
+// Note(Grok): Must match gfx.Combine_Data.
+Combine_Data :: struct #align(16) {
+	scene: t32_2d,
+	scene_sampler: s32,
+	lamps: t32_2d,
+	lamps_sampler: s32,
+	vis: t32_2d,
+	vis_sampler: s32,
+	actors: t32_2d,
+	actors_sampler: s32,
+	resolution: [2]f32,
+	time: f32,
+	vignette: f32,
+	// Multiplies greyscale visited floor outside current vis. Unvisited stays black.
+	darkness: [3]f32,
+	// Multiplies a lamp's own color on that floor, including white.
+	lit_unseen: [3]f32,
+	crush: f32,
+	bloom: f32,
+	dust: f32,
+	actors_lit_without_vis: b32,
+	lights_in_vis: b32,
+	flare_lamps: [^]Flare_Lamp,
+	flare_count: i32,
+	bloom_radius: f32,
+	flare_ghosts: f32,
+	flare_streak: f32,
+	inverse_view_projection: mat4,
+	seen: t32_2d,
+	seen_sampler: s32,
+	seen_origin: [2]f32,
+	seen_extent: [2]f32,
+}
+
+Fullscreen_VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+fullscreen_vs :: proc "vertex"(vertex_id: u32 | SV_Vertex) -> (out: Fullscreen_VS_Out) {
+	positions := [3]vec2 {
+		vec2(-1.0, -1.0),
+		vec2(3.0, -1.0),
+		vec2(-1.0, 3.0),
+	}
+	p := positions[vertex_id]
+	out.pos = vec4(p, 0, 1)
+	return out
+}
+
+shortest_angle :: proc(a: f32, b: f32) -> (out: f32) {
+	diff := abs(a - b)
+	return abs(mod(diff + PI, TAU) - PI)
+}
+
+world_from_pixel :: proc(pixel: [2]f32, resolution: [2]f32, inverse_view_projection: mat4) -> (world: [2]f32) {
+	// Note(Grok): Vulkan NDC, no Y flip. CPU scissor uses the inverse of this (world_to_screen).
+	normalized_x := (pixel.x / resolution.x) * 2.0 - 1.0
+	normalized_y := (pixel.y / resolution.y) * 2.0 - 1.0
+	clip := vec4(normalized_x, normalized_y, 0.0, 1.0)
+	world_homogeneous := inverse_view_projection * clip
+	return world_homogeneous.xy / world_homogeneous.w
+}
+
+cross_2d :: proc(a: [2]f32, b: [2]f32) -> f32 {
+	return a.x * b.y - a.y * b.x
+}
+
+edge_hides :: proc(origin: [2]f32, start: [2]f32, end: [2]f32, world: [2]f32) -> b32 {
+	origin_to_start := start - origin
+	origin_to_end := end - origin
+	origin_to_pixel := world - origin
+	wedge_cross := cross_2d(origin_to_start, origin_to_end)
+	start_to_pixel_cross := cross_2d(origin_to_start, origin_to_pixel)
+	pixel_to_end_cross := cross_2d(origin_to_pixel, origin_to_end)
+	edge := end - start
+	if cross_2d(edge, world - start) * cross_2d(edge, origin - start) >= 0 {
+		return false
+	}
+	if wedge_cross >= 0 {
+		if start_to_pixel_cross >= 0 {
+			if pixel_to_end_cross >= 0 {
+				return true
+			}
+		}
+	} else {
+		if start_to_pixel_cross <= 0 {
+			if pixel_to_end_cross <= 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+hash_float :: proc(n: f32) -> f32 {
+	return fract(sin(n * 12.9898) * 437.585)
+}
+
+// Note(Grok): Bilinear value noise over IGN. noise.value_noise2 hashes with
+// Hoskins and quintic fade — different picture. Keep IGN + cubic.
+value_noise :: proc(p: [2]f32) -> f32 {
+	cell := floor(p)
+	fraction := fract(p)
+	smooth := fraction * fraction * (3.0 - 2.0 * fraction)
+	corner_00 := color.dither_ign(cell)
+	corner_10 := color.dither_ign(cell + vec2(1.0, 0.0))
+	corner_01 := color.dither_ign(cell + vec2(0.0, 1.0))
+	corner_11 := color.dither_ign(cell + vec2(1.0, 1.0))
+	noise := corner_00 + (corner_10 - corner_00) * smooth.x + (corner_01 - corner_00) * smooth.y + (corner_00 - corner_10 - corner_01 + corner_11) * smooth.x * smooth.y
+	return noise - 0.5
+}
+
+// Note(Grok): Inward falloff: `outer` is the cutoff. feather=0 is a hard
+// step — smoothstep(outer, outer, x) is undefined and looked like a smaller
+// soft disc in the dark.
+inward_edge :: proc(x: f32, outer: f32, feather: f32) -> f32 {
+	if outer <= 0.0 {
+		return 0.0
+	}
+	if x >= outer {
+		return 0.0
+	}
+	if feather <= 0.0001 {
+		return 1.0
+	}
+	inner := max(outer - feather, 0.0)
+	return 1.0 - smoothstep(inner, outer, x)
+}
+
+light_attenuation :: proc(light: Light, world: [2]f32, visibility_cookie: b32) -> f32 {
+	offset := world - light.origin
+	distance := mag(offset)
+	radial := inward_edge(distance, light.radius, light.radial_feather)
+	cone: f32 = 1.0
+	if light.half_angle < OMNI_HALF_ANGLE {
+		pixel_angle := atan2(offset.y, offset.x)
+		aim_angle := atan2(light.dir.y, light.dir.x)
+		cone_half_angle := light.half_angle
+		// Note(Grok): Vis spots only — ragged pie edge, still a visibility mask.
+		if visibility_cookie {
+			cone_half_angle = cone_half_angle + (hash_float(pixel_angle * 31.7) - 0.5) * 0.12
+		}
+		cone = inward_edge(shortest_angle(pixel_angle, aim_angle), cone_half_angle, light.angle_feather)
+	}
+	return radial * cone * light.intensity
+}
+
+distance_to_far_ray :: proc(p: [2]f32, origin: [2]f32, vertex: [2]f32) -> f32 {
+	to_vertex := vertex - origin
+	length_squared := dot(to_vertex, to_vertex)
+	if length_squared <= 0.0001 {
+		return mag(p - vertex)
+	}
+	along_ray := dot(p - origin, to_vertex) / length_squared
+	if along_ray < 1.0 {
+		return 100000000.0
+	}
+	return mag(p - (origin + to_vertex * along_ray))
+}
+
+// Note(Grok): How far past the caster the pixel is, along origin→pixel. t=0 at the
+// lamp, t=1 at the pixel; the edge hit is t_hit. Used to fade lamp self-shadow
+// so the wall rim stays lit.
+umbra_depth_along_ray :: proc(origin: [2]f32, world: [2]f32, start: [2]f32, end: [2]f32) -> f32 {
+	ray := world - origin
+	edge := end - start
+	den := cross_2d(ray, edge)
+	if abs(den) <= 0.0001 {
+		len := mag(edge)
+		if len <= 0.0001 {
+			return mag(world - start)
+		}
+		normal := vec2(-edge.y / len, edge.x / len)
+		return abs(dot(world - start, normal))
+	}
+	t_hit := cross_2d(start - origin, edge) / den
+	if t_hit >= 1.0 {
+		return 0.0
+	}
+	if t_hit <= 0.0 {
+		return mag(ray)
+	}
+	return mag(ray) * (1.0 - t_hit)
+}
+
+// Note(Grok): Per-origin analytic light. Skip edges outside the disc/cone.
+// Hard umbra inside any wedge. Soft penumbra only *outside* rays through the far
+// corners of back-facing edges (not side-face near corners — those look like spikes).
+// Lamps and vis may fade that umbra along the origin ray (shadow_inset) so wall rims stay lit.
+light_eval_fs :: proc "fragment"(fragment_in: Fullscreen_VS_Out, data: ^Light_Eval_Data | SV_Data) -> (out: [4]f32 | SV_Target) {
+	world := world_from_pixel(fragment_in.pos.xy, data.resolution, data.inverse_view_projection)
+	accumulated := vec3(0, 0, 0)
+	coverage := 0.0
+	for i := 0; i < data.light_count; i += 1 {
+		light := data.lights[i]
+		attenuation := light_attenuation(light, world, data.is_visibility && data.visibility_cookie)
+		if data.is_visibility {
+			// Note(Grok): vis.r = omni disc, vis.g = cone. Combine mixes
+			// ambient floor with the disc only; the cone lifts lamps.
+			if light.half_angle < OMNI_HALF_ANGLE {
+				accumulated.y += attenuation
+			} else {
+				accumulated.x += attenuation
+			}
+		} else {
+			accumulated += light.color * attenuation
+			if attenuation > coverage {
+				coverage = attenuation
+			}
+		}
+	}
+
+	has_light := accumulated.x + accumulated.y + accumulated.z > 0.0
+
+	shadow: f32 = 1.0
+	if has_light {
+		for i := 0; i < data.edge_count; i += 1 {
+			edge := data.edges[i]
+			if edge_hides(data.origin, edge.start, edge.end, world) {
+				if data.shadow_inset > 0.0001 {
+					depth := umbra_depth_along_ray(data.origin, world, edge.start, edge.end)
+					shadow = min(shadow, 1.0 - smoothstep(0.0, data.shadow_inset, depth))
+					if shadow <= 0.0 {
+						break
+					}
+				} else {
+					shadow = 0
+					break
+				}
+			} else if data.penumbra > 0.0001 {
+				penumbra_distance: f32 = 100000000.0
+				if edge.penumbra_at_start {
+					penumbra_distance = min(penumbra_distance, distance_to_far_ray(world, data.origin, edge.start))
+				}
+				if edge.penumbra_at_end {
+					penumbra_distance = min(penumbra_distance, distance_to_far_ray(world, data.origin, edge.end))
+				}
+				shadow = min(shadow, smoothstep(0.0, data.penumbra, penumbra_distance))
+			}
+		}
+	}
+
+	// Note(Grok): Vis stays a 0–1 mask. Lamps sum unclamped; alpha is the
+	// falloff (max across draws) so combine can weight the pool without
+	// treating the summed color as a 0–1 mask.
+	if data.is_visibility {
+		out.rgb = math.saturate3(accumulated) * shadow
+		out.a = 1
+	} else {
+		out.rgb = accumulated * shadow
+		out.a = math.saturate(coverage) * shadow
+	}
+	return out
+}
+
+// Note(Grok): Tight disc at the bulb. Old 8-tap bloom spread over the whole lit floor.
+origin_halo :: proc(delta_px: [2]f32, radius: f32) -> f32 {
+	if radius <= 0.0001 {
+		return 0.0
+	}
+	d := mag(delta_px)
+	core := 1.0 - smoothstep(0.0, radius * 0.28, d)
+	veil := 1.0 - smoothstep(0.0, radius, d)
+	return math.pow2(core) + math.pow2(veil) * 0.25
+}
+
+// Note(Grok): A few discs parked on the bulb, along the way toward screen
+// center. Spacing is in pixels so they do not fly apart when the lamp
+// slides across the frame.
+ghost_orbs :: proc(pixel: [2]f32, lamp_pixel: [2]f32, resolution: [2]f32, scale: f32) -> [3]f32 {
+	center := resolution * 0.5
+	to_center := center - lamp_pixel
+	axis_len := mag(to_center)
+	along := vec2(1.0, 0.0)
+	if axis_len > 0.5 {
+		along = to_center / axis_len
+	}
+	acc := vec3(0, 0, 0)
+	off := [4]f32{-22.0, -8.0, 12.0, 26.0}
+	rad := [4]f32{7.0, 5.0, 6.0, 8.0}
+	wt := [4]f32{0.28, 0.22, 0.20, 0.16}
+	for g := 0; g < 4; g += 1 {
+		gpos := lamp_pixel + along * (off[g] * scale)
+		d := pixel - gpos
+		radius := rad[g] * scale
+		r := 1.0 - smoothstep(radius * 0.2, radius, mag(d - along * 1.1))
+		green := 1.0 - smoothstep(radius * 0.2, radius, mag(d))
+		b := 1.0 - smoothstep(radius * 0.2, radius, mag(d + along * 1.1))
+		acc = acc + vec3(r, green, b) * wt[g]
+	}
+	return acc
+}
+
+// Note(Grok): Short tick through the bulb, not a screen-wide bar.
+anamorphic_streak :: proc(delta_px: [2]f32, scale: f32) -> [3]f32 {
+	ax := abs(delta_px.x)
+	along := math.gaussian(ax, 34.0 * scale)
+	line_g := 1.0 - smoothstep(0.0, 1.8 * scale, abs(delta_px.y))
+	line_r := 1.0 - smoothstep(0.0, 1.8 * scale, abs(delta_px.y + 0.6 * scale))
+	line_b := 1.0 - smoothstep(0.0, 1.8 * scale, abs(delta_px.y - 0.6 * scale))
+	return vec3(line_r * line_r, line_g * line_g, line_b * line_b) * along
+}
+
+combine_fs :: proc "fragment"(fragment_in: Fullscreen_VS_Out, data: ^Combine_Data | SV_Data) -> (out: [4]f32 | SV_Target) {
+	uv := fragment_in.pos.xy / data.resolution
+	albedo := sample(data.scene, data.scene_sampler, uv)
+	lamps := sample(data.lamps, data.lamps_sampler, uv)
+	lamp_color := lamps.rgb
+	lamp_amount := lamps.a
+	visibility_sample := sample(data.vis, data.vis_sampler, uv)
+	disc := visibility_sample.r
+	cone := visibility_sample.g
+	visibility := max(disc, cone)
+	if data.lights_in_vis {
+		lamp_color = lamp_color * visibility
+		lamp_amount = lamp_amount * visibility
+	}
+
+	optics := vec3(0, 0, 0)
+	pixel := fragment_in.pos.xy
+	for i := 0; i < data.flare_count; i += 1 {
+		lamp := data.flare_lamps[i]
+		lamp_pixel := lamp.uv * data.resolution
+		delta_px := pixel - lamp_pixel
+		tint := lamp.color * lamp.intensity
+		bloom_tint := tint
+		if data.lights_in_vis {
+			vis_at := sample(data.vis, data.vis_sampler, lamp.uv)
+			bloom_tint = tint * max(vis_at.r, vis_at.g)
+		}
+		halo := lamp.bloom_radius
+		if halo <= 0.0001 { halo = data.bloom_radius }
+		halo_scale := halo / max(data.bloom_radius, 0.001)
+		if data.bloom > 0.0001 {
+			optics = optics + bloom_tint * (data.bloom * origin_halo(delta_px, halo))
+		}
+		if data.flare_ghosts > 0.0001 {
+			optics = optics + tint * ghost_orbs(pixel, lamp_pixel, data.resolution, halo_scale) * (data.flare_ghosts * lamp.look)
+		}
+		if data.flare_streak > 0.0001 {
+			optics = optics + tint * anamorphic_streak(delta_px, halo_scale) * (data.flare_streak * lamp.look)
+		}
+	}
+
+	// Note(Grok): Vis is coverage, not a light. Disc mixes the floor as
+	// lamps light it (ambient in the dark) into FOW. Cone only lifts
+	// world lamps — looking into the dark must not paint a wedge.
+	// seen.r is distance to visited floor (0 inside, 1 past the edge). Never
+	// visited stays black. Visited floor outside current vis is tile luma
+	// times darkness. Actors are not in that color.
+	ambient_floor := albedo.rgb * AMBIENT
+	world := world_from_pixel(fragment_in.pos.xy, data.resolution, data.inverse_view_projection)
+	ext := data.seen_extent
+	if ext.x < 1.0 { ext.x = 1.0 }
+	if ext.y < 1.0 { ext.y = 1.0 }
+	seen_uv := (world - data.seen_origin) / ext
+	// seen.r is distance to visited floor: 0 inside, 1 past the edge band.
+	memory := 0.0
+	if seen_uv.x >= 0.0 && seen_uv.y >= 0.0 && seen_uv.x <= 1.0 && seen_uv.y <= 1.0 {
+		memory = 1.0 - smoothstep(0.0, 1.0, sample(data.seen, data.seen_sampler, seen_uv).r)
+	}
+	floor_luma := color.luma_rec601(albedo.rgb)
+	memory_floor := vec3(floor_luma, floor_luma, floor_luma) * data.darkness * memory
+	lamp_lit := albedo.rgb * lamp_color
+	lamp_luma := color.luma_rec601(lamp_color)
+	lamp_above_fog := max(lamp_lit - memory_floor, 0.0)
+	visibility_lamp_lift := visibility * lamp_above_fog
+	// Note(Grok): Outside vis, every lamp keeps a darker copy of its own color
+	// (falloff included), white included. darkness is the floor with no lamp.
+	// Unvisited floor (memory 0) stays black. lamp_amount is the falloff in
+	// lamps.a, not the summed color.
+	surface := lamp_lit * data.lit_unseen * memory
+	lamp_vis := 1.0 - (1.0 - disc) * (1.0 - cone)
+	dark_disc := memory_floor + disc * (ambient_floor - memory_floor)
+	lamp_view := surface + lamp_vis * (lamp_lit - surface) * memory
+	out.rgb = dark_disc * (1.0 - lamp_amount) + lamp_view * lamp_amount
+	unseen := memory_floor * (1.0 - lamp_amount) + surface * lamp_amount
+
+	// Note(Grok): Vision_Gated sprites on actors_rt. Default cover follows
+	// vis-lift (must be lamp-lit). actors_lit_without_vis uses lighting only.
+	actor := sample(data.actors, data.actors_sampler, uv)
+	actor_cover_lighting := visibility_lamp_lift
+	actor_visibility := visibility
+	if data.actors_lit_without_vis {
+		actor_cover_lighting = max(lamp_lit - memory_floor, 0.0)
+		actor_visibility = 1.0
+	}
+	actor_cover_amount := max(actor_cover_lighting.x, max(actor_cover_lighting.y, actor_cover_lighting.z))
+	actor_cover := actor.a * smoothstep(0.0, 0.02, actor_cover_amount)
+	actor_with_ambient := actor.rgb * max(lamp_color, AMBIENT)
+	actor_luma := color.luma_rec601(actor_with_ambient)
+	actor_unseen := vec3(actor_luma, actor_luma, actor_luma) * UNSEEN_GREY
+	actor_lit := actor.rgb * lamp_color
+	actor_color := actor_unseen + actor_visibility * max(actor_lit - actor_unseen, 0.0)
+	out.rgb = out.rgb * (1.0 - actor_cover) + actor_color * actor_cover
+	unseen = unseen * (1.0 - actor_cover) + actor_unseen * actor_cover
+
+	// Note(Grok): Halo / ghosts / streak from lamp origins. Additive, not vis-gated unless lights_in_vis.
+	// A bulb in a room you have not visited does not glow out of the black.
+	out.rgb = out.rgb + optics * memory
+
+	// Note(Grok): Stay out of vis feather. vis*noise there faded in/out and
+	// read as the disc blinking.
+	dust_offset := vec2(5.0, 13.0) + vec2(data.time * 1.85 * 0.35, data.time * 1.85 * 0.22)
+	dust_noise := value_noise(fragment_in.pos.xy + dust_offset)
+	dust_noise = dust_noise * 0.65 + value_noise((fragment_in.pos.xy + dust_offset) * 2.13 + vec2(17.3, 9.1)) * 0.35
+	dust_amount := dust_noise * data.dust * smoothstep(0.85, 1.0, visibility) * smoothstep(0.55, 0.7, lamp_luma)
+	out.rgb = out.rgb + vec3(dust_amount, dust_amount, dust_amount)
+
+	distance_from_center := mag(uv * 2.0 - 1.0)
+	vignette_factor := 1.0 - data.vignette * smoothstep(0.55, 1.45, distance_from_center)
+	unseen_after_vignette := unseen * vignette_factor
+	out.rgb = out.rgb * vignette_factor
+
+	// Note(Grok): Added lamps can push luma past 1. Scale that pixel back to
+	// luma 1 so a flare's chroma survives the clamp. A lone lamp at luma 1
+	// is unchanged. Crush still grades the result.
+	picture_luma := color.luma_rec601(out.rgb)
+	if picture_luma > 1.0 {
+		out.rgb = out.rgb * (1.0 / picture_luma)
+	}
+
+	// Note(Grok): Crush the vis lift only. A 0.5 pivot on the whole image
+	// drove the ambient grey (luma*0.2*0.45) through 0.
+	above_fog := max(out.rgb - unseen_after_vignette, 0.0)
+	out.rgb = unseen_after_vignette + above_fog * (1.0 + data.crush)
+	out.rgb = math.saturate3(out.rgb)
+	out.a = 1
+	return out
+}
+
+Skinned_Vert :: struct #align(16) {
+	pos: [4]f32,
+	uv: [2]f32,
+}
+
+Skinned_Shader_Data :: struct #align(16) {
+	verts: [^]Skinned_Vert,
+	camera: mat4,
+	texture: t32_2d,
+	sampler: s32,
+}
+
+Skinned_VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+	texture: t32_2d,
+	sampler: s32,
+}
+
+skinned_vs :: proc "vertex"(data: ^Skinned_Shader_Data | SV_Data, vertex_id: u32 | SV_Vertex) -> (out: Skinned_VS_Out) {
+	v := data.verts[vertex_id]
+	out.pos = data.camera * v.pos
+	out.uv = v.uv
+	out.texture = data.texture
+	out.sampler = data.sampler
+	return out
+}
+
+skinned_fs :: proc "fragment"(fragment_in: Skinned_VS_Out, data: ^Skinned_Shader_Data | SV_Data) -> (out: [4]f32 | SV_Target) {
+	_ = data
+	out = sample(fragment_in.texture, fragment_in.sampler, fragment_in.uv)
+	// Dress panels sit on the transparent block of the body atlas.
+	if out.a < 0.5 {
+		discard
+	}
+	out.rgb = linear_from_srgb(out.rgb)
+	out.a = 1
+	return out
+}
+
+skinned_pipeline :: pipeline {
+	topology = .Triangle_List,
+	depth_format = .depth_f32,
+	vertex = skinned_vs,
+	fragment = skinned_fs,
+	targets = {
+		{
+			format = .rgba_u8_srgb,
+			write_mask = .All,
+		},
+	},
+}
+
+sprite_pipeline :: pipeline {
+	topology = .Triangle_Strip,
+	vertex = sprite_vs,
+	fragment = sprite_fs,
+	targets = {
+		{
+			format = .rgba_u8_srgb,
+			write_mask = .All,
+			blend = {
+				color = { .Src_Alpha, .One_Minus_Src_Alpha, .Add },
+				alpha = { .One, .One_Minus_Src_Alpha, .Add },
+			},
+		},
+	},
+}
+
+light_eval_pipeline :: pipeline {
+	topology = .Triangle_List,
+	vertex = fullscreen_vs,
+	fragment = light_eval_fs,
+	targets = {
+		{
+			format = .rgba_u8_norm,
+			write_mask = .All,
+			blend = {
+				color = { .One, .One, .Max },
+				alpha = { .One, .Zero, .Add },
+			},
+		},
+	},
+}
+
+lamp_eval_pipeline :: pipeline {
+	topology = .Triangle_List,
+	vertex = fullscreen_vs,
+	fragment = light_eval_fs,
+	targets = {
+		{
+			format = .rgba_f16,
+			write_mask = .All,
+			blend = {
+				color = { .One, .One, .Add },
+				alpha = { .One, .One, .Max },
+			},
+		},
+	},
+}
+
+combine_pipeline :: pipeline {
+	topology = .Triangle_List,
+	vertex = fullscreen_vs,
+	fragment = combine_fs,
+	targets = {
+		{
+			format = .rgba_u8_srgb,
+			write_mask = .All,
+			blend = {
+				color = { .One, .Zero, .Add },
+				alpha = { .One, .Zero, .Add },
+			},
+		},
+	},
+}

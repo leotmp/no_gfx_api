@@ -1,0 +1,253 @@
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat2 :: matrix[2, 2]f32
+mat3 :: matrix[3, 3]f32
+mat4 :: matrix[4, 4]f32
+quat :: [4]f32
+
+PI :: 3.14159265358979323846
+TAU :: 6.28318530717958647692
+INV_PI :: 0.31830988618379067154
+INV_TAU :: 0.15915494309189533577
+PHI :: 1.61803398874989484820
+E :: 2.71828182845904523536
+DEG2RAD :: 0.01745329251994329577
+RAD2DEG :: 57.2957795130823208768
+
+saturate :: proc(x: f32) -> f32 {
+	return clamp(x, 0, 1)
+}
+
+saturate2 :: proc(x: vec2) -> vec2 {
+	return clamp(x, 0, 1)
+}
+
+saturate3 :: proc(x: vec3) -> vec3 {
+	return clamp(x, 0, 1)
+}
+
+saturate4 :: proc(x: vec4) -> vec4 {
+	return clamp(x, 0, 1)
+}
+
+map :: proc(x: f32, in_min: f32, in_max: f32, out_min: f32, out_max: f32) -> f32 {
+	return out_min + (out_max - out_min) * (x - in_min) / (in_max - in_min)
+}
+
+map2 :: proc(x: vec2, in_min: f32, in_max: f32, out_min: f32, out_max: f32) -> vec2 {
+	return vec2(
+		map(x.x, in_min, in_max, out_min, out_max),
+		map(x.y, in_min, in_max, out_min, out_max),
+	)
+}
+
+decimate :: proc(x: f32, levels: f32) -> f32 {
+	return floor(x * levels) / levels
+}
+
+length_sq :: proc(v: vec2) -> f32 {
+	return dot(v, v)
+}
+
+length_sq3 :: proc(v: vec3) -> f32 {
+	return dot(v, v)
+}
+
+length_sq4 :: proc(v: vec4) -> f32 {
+	return dot(v, v)
+}
+
+pow2 :: proc(x: f32) -> f32 {
+	return x * x
+}
+
+pow5 :: proc(x: f32) -> f32 {
+	x2 := x * x
+	return x2 * x2 * x
+}
+
+cubic :: proc(x: f32) -> f32 {
+	return x * x * (3 - 2 * x)
+}
+
+quintic :: proc(x: f32) -> f32 {
+	x2 := x * x
+	x3 := x2 * x
+	return x3 * (x * (x * 6 - 15) + 10)
+}
+
+smootherstep :: proc(edge0: f32, edge1: f32, x: f32) -> f32 {
+	t := saturate((x - edge0) / (edge1 - edge0))
+	return quintic(t)
+}
+
+gain :: proc(x: f32, k: f32) -> f32 {
+	a := 0.5 * pow(2 * x, k)
+	b := 1 - 0.5 * pow(2 * (1 - x), k)
+	return a if x < 0.5 else b
+}
+
+parabola :: proc(x: f32, k: f32) -> f32 {
+	return pow(4 * x * (1 - x), k)
+}
+
+gaussian :: proc(x: f32, sigma: f32) -> f32 {
+	return exp(-(x * x) / (2 * sigma * sigma))
+}
+
+bump :: proc(x: f32) -> f32 {
+	return saturate(1 - x * x)
+}
+
+high_pass :: proc(x: f32, cutoff: f32) -> f32 {
+	return max(x - cutoff, 0)
+}
+
+nyquist :: proc(sample_rate: f32) -> f32 {
+	return 0.5 * sample_rate
+}
+
+select_f32 :: proc(a: f32, b: f32, cond: b32) -> f32 {
+	return b if cond else a
+}
+
+within :: proc(x: f32, a: f32, b: f32) -> b32 {
+	return x >= a && x <= b
+}
+
+inside2 :: proc(p: vec2, mn: vec2, mx: vec2) -> b32 {
+	return p.x >= mn.x && p.x <= mx.x && p.y >= mn.y && p.y <= mx.y
+}
+
+// Filter width is explicit so this helper is legal in vertex as well as fragment.
+// In fragment, `fwidth(value)` is the usual screen-space width.
+aastep :: proc(threshold: f32, value: f32, width: f32) -> f32 {
+	w := max(width, 1e-5)
+	return smoothstep(threshold - w, threshold + w, value)
+}
+
+aamirror :: proc(x: f32) -> f32 {
+	f := fract(x)
+	return f if (i32(floor(x)) & 1) == 0 else 1 - f
+}
+
+radical_inverse_vdc :: proc(bits: u32) -> f32 {
+	b := bits
+	b = (b << 16) | (b >> 16)
+	b = ((b & 0x55555555) << 1) | ((b & 0xaaaaaaaa) >> 1)
+	b = ((b & 0x33333333) << 2) | ((b & 0xcccccccc) >> 2)
+	b = ((b & 0x0f0f0f0f) << 4) | ((b & 0xf0f0f0f0) >> 4)
+	b = ((b & 0x00ff00ff) << 8) | ((b & 0xff00ff00) >> 8)
+	return f32(b) * 2.3283064365386963e-10
+}
+
+hammersley :: proc(i: u32, n: u32) -> vec2 {
+	return vec2(f32(i) / f32(n), radical_inverse_vdc(i))
+}
+
+rotate2d :: proc(rads: f32) -> mat2 {
+	s := sin(rads)
+	c := cos(rads)
+	// GLSL column-major: col0=(c,s), col1=(-s,c) → [[c,-s],[s,c]]
+	return mat2{
+		c, s,
+		-s, c,
+	}
+}
+
+rotate3d_x :: proc(rads: f32) -> mat3 {
+	s := sin(rads)
+	c := cos(rads)
+	return mat3{
+		1, 0, 0,
+		0, c, s,
+		0, -s, c,
+	}
+}
+
+rotate3d_y :: proc(rads: f32) -> mat3 {
+	s := sin(rads)
+	c := cos(rads)
+	return mat3{
+		c, 0, -s,
+		0, 1, 0,
+		s, 0, c,
+	}
+}
+
+rotate3d_z :: proc(rads: f32) -> mat3 {
+	s := sin(rads)
+	c := cos(rads)
+	return mat3{
+		c, s, 0,
+		-s, c, 0,
+		0, 0, 1,
+	}
+}
+
+scale2d :: proc(s: vec2) -> mat2 {
+	return mat2{
+		s.x, 0,
+		0,   s.y,
+	}
+}
+
+translate4d :: proc(t: vec3) -> mat4 {
+	return mat4{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		t.x, t.y, t.z, 1,
+	}
+}
+
+quat_identity :: proc() -> quat {
+	return quat(0, 0, 0, 1)
+}
+
+quat_from_axis_angle :: proc(axis: vec3, rads: f32) -> quat {
+	n := normalize(axis)
+	h := rads * 0.5
+	s := sin(h)
+	return quat(n.x * s, n.y * s, n.z * s, cos(h))
+}
+
+quat_conjugate :: proc(q: quat) -> quat {
+	return quat(-q.x, -q.y, -q.z, q.w)
+}
+
+quat_mul :: proc(a: quat, b: quat) -> quat {
+	return quat(
+		a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+		a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+		a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+		a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+	)
+}
+
+quat_normalize :: proc(q: quat) -> quat {
+	return normalize(q)
+}
+
+quat_rotate :: proc(q: quat, v: vec3) -> vec3 {
+	u := vec3(q.x, q.y, q.z)
+	t := 2 * cross(u, v)
+	return v + q.w * t + cross(u, t)
+}
+
+pack_unorm :: proc(x: f32) -> u32 {
+	return u32(saturate(x) * 255 + 0.5)
+}
+
+unpack_unorm :: proc(x: u32) -> f32 {
+	return f32(x) / 255
+}
+
+pack_unorm2 :: proc(v: vec2) -> u32 {
+	return pack_unorm(v.x) | (pack_unorm(v.y) << 8)
+}
+
+unpack_unorm2 :: proc(p: u32) -> vec2 {
+	return vec2(f32(p & 255) / 255, f32((p >> 8) & 255) / 255)
+}

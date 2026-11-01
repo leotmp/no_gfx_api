@@ -1,0 +1,6 @@
+import a "import_deps/spec_lib.misl"
+import b "import_deps/spec_lib.misl"
+
+cs :: proc "compute"() {
+	_ = a.step + b.step
+}

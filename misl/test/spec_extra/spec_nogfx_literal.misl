@@ -1,0 +1,7 @@
+@(specialization_constant = 1)
+v: u32 = 1
+
+@(size = 8)
+cs :: proc "compute"() {
+	_ = v
+}

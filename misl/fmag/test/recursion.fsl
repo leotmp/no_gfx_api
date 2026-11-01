@@ -1,0 +1,9 @@
+fn a(x: f32) -> f32 {
+	return b(x)
+}
+fn b(x: f32) -> f32 {
+	return a(x)
+}
+fn main(x: f32) -> f32 {
+	return a(x)
+}

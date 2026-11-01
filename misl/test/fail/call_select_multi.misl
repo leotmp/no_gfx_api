@@ -1,0 +1,31 @@
+// Expect: multiple return values cannot be used in a single-value context
+vec4 :: [4]f32
+
+Pair :: struct {
+	val: f32,
+}
+
+Data :: struct #align(16) {
+	v: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+foo3 :: proc(x: f32) -> (a: [3]f32, b: Pair) {
+	p: Pair
+	p.val = x
+	return [3]f32{x, x, x}, p
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	_ = foo3(1.0).val
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

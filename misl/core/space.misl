@@ -1,0 +1,211 @@
+/*
+	UV, cameras, tiles, and depth helpers.
+
+	Look-at / ortho / perspective: standard graphics textbooks (gluLookAt /
+	OpenGL projection; Vulkan 0–1 depth linearize). Equirectangular
+	projection is the usual spherical map. Hex tiling follows Inigo Quilez
+	and Red Blob Games axial hex math. Parallax offset is the common
+	steep-parallax first step. TBN from tangent-space textbooks.
+*/
+
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat3 :: matrix[3, 3]f32
+mat4 :: matrix[4, 4]f32
+
+center :: proc(st: vec2) -> vec2 {
+	return st - vec2(0.5, 0.5)
+}
+
+uncenter :: proc(st: vec2) -> vec2 {
+	return st + vec2(0.5, 0.5)
+}
+
+flip_y :: proc(st: vec2) -> vec2 {
+	return vec2(st.x, 1 - st.y)
+}
+
+ratio :: proc(st: vec2, size: vec2) -> vec2 {
+	a := size.x / max(size.y, 1e-8)
+	p := center(st)
+	p.x *= a
+	return uncenter(p)
+}
+
+rotate_st :: proc(st: vec2, rads: f32) -> vec2 {
+	p := math.rotate2d(rads) * center(st)
+	return uncenter(p)
+}
+
+scale_st :: proc(st: vec2, s: vec2) -> vec2 {
+	return uncenter(center(st) * s)
+}
+
+translate_st :: proc(st: vec2, t: vec2) -> vec2 {
+	return st + t
+}
+
+polar_from_cart :: proc(st: vec2) -> vec2 {
+	p := center(st)
+	return vec2(mag(p), atan2(p.y, p.x))
+}
+
+cart_from_polar :: proc(polar: vec2) -> vec2 {
+	return uncenter(vec2(cos(polar.y), sin(polar.y)) * polar.x)
+}
+
+tile_sq :: proc(st: vec2, n: f32) -> vec2 {
+	return fract(st * n)
+}
+
+tile_mirror :: proc(st: vec2, n: f32) -> vec2 {
+	g := st * n
+	fx := math.aamirror(g.x)
+	fy := math.aamirror(g.y)
+	return vec2(fx, fy)
+}
+
+tile_checker :: proc(st: vec2, n: f32) -> f32 {
+	g := floor(st * n)
+	return mod(g.x + g.y, 2)
+}
+
+tile_brick :: proc(st: vec2, n: vec2) -> vec2 {
+	p := st * n
+	row := floor(p.y)
+	odd := mod(row, 2)
+	p.x += 0.5 * odd
+	return fract(p)
+}
+
+// Inigo Quilez hexagonal tiling (local coords of nearest hex).
+tile_hex :: proc(st: vec2) -> vec2 {
+	s := vec2(1, 1.73205080757)
+	p := st
+	a := fract(p / s) * s - s * 0.5
+	b := fract((p - s * 0.5) / s) * s - s * 0.5
+	return a if mag(a) < mag(b) else b
+}
+
+// Red Blob Games: pixel → axial hex (pointy-top, size 1).
+hex_axial :: proc(st: vec2) -> vec2 {
+	q := (sqrt(3) / 3) * st.x - (1.0 / 3.0) * st.y
+	r := (2.0 / 3.0) * st.y
+	return vec2(q, r)
+}
+
+tile_tri :: proc(st: vec2, n: f32) -> vec2 {
+	p := st * n
+	p.x += p.y * 0.5
+	return fract(p)
+}
+
+look_at :: proc(eye: vec3, center_pt: vec3, up: vec3) -> mat4 {
+	f := normalize(center_pt - eye)
+	s := normalize(cross(f, up))
+	u := cross(s, f)
+	// GLSL column-major gluLookAt / glm (M * v): translation in column 3.
+	return mat4{
+		s.x, u.x, -f.x, 0,
+		s.y, u.y, -f.y, 0,
+		s.z, u.z, -f.z, 0,
+		-dot(s, eye), -dot(u, eye), dot(f, eye), 1,
+	}
+}
+
+euler_xyz :: proc(rads: vec3) -> mat3 {
+	return math.rotate3d_z(rads.z) * math.rotate3d_y(rads.y) * math.rotate3d_x(rads.x)
+}
+
+ortho :: proc(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> mat4 {
+	sx := 2 / (r - l)
+	sy := 2 / (t - b)
+	sz := 1 / (n - f)
+	tx := -(r + l) / (r - l)
+	ty := -(t + b) / (t - b)
+	tz := n / (n - f)
+	return mat4{
+		sx, 0, 0, 0,
+		0, sy, 0, 0,
+		0, 0, sz, 0,
+		tx, ty, tz, 1,
+	}
+}
+
+// Vulkan clip space, depth 0..1, reversed-Z off.
+perspective :: proc(fovy: f32, aspect: f32, n: f32, f: f32) -> mat4 {
+	tan_half := tan(fovy * 0.5)
+	return mat4{
+		1 / (aspect * tan_half), 0, 0, 0,
+		0, 1 / tan_half, 0, 0,
+		0, 0, f / (n - f), -1,
+		0, 0, (n * f) / (n - f), 0,
+	}
+}
+
+linearize_depth :: proc(d: f32, n: f32, f: f32) -> f32 {
+	return n * f / (f - d * (f - n))
+}
+
+linearize_depth_gl :: proc(d: f32, n: f32, f: f32) -> f32 {
+	z := d * 2 - 1
+	return (2 * n * f) / (f + n - z * (f - n))
+}
+
+view_z :: proc(d: f32, n: f32, f: f32) -> f32 {
+	return linearize_depth(d, n, f)
+}
+
+xyz_from_equirect :: proc(uv: vec2) -> vec3 {
+	theta := uv.x * math.TAU
+	phi := uv.y * math.PI
+	s := sin(phi)
+	return vec3(s * cos(theta), cos(phi), s * sin(theta))
+}
+
+equirect_from_xyz :: proc(d: vec3) -> vec2 {
+	n := normalize(d)
+	return vec2(atan2(n.z, n.x) / math.TAU + 0.5, acos(clamp(n.y, -1, 1)) / math.PI)
+}
+
+tbn :: proc(n: vec3, t: vec3) -> mat3 {
+	nn := normalize(n)
+	tt := normalize(t - nn * dot(nn, t))
+	b := cross(nn, tt)
+	// GLSL columns: T, B, N (M * tangent_vec).
+	return mat3{
+		tt.x, tt.y, tt.z,
+		b.x, b.y, b.z,
+		nn.x, nn.y, nn.z,
+	}
+}
+
+parallax :: proc(uv: vec2, view_ts: vec3, height: f32, scale: f32) -> vec2 {
+	return uv - view_ts.xy * (height * scale)
+}
+
+sprite_uv :: proc(uv: vec2, cell: vec2, atlas_cells: vec2) -> vec2 {
+	cell_size := vec2(1, 1) / atlas_cells
+	return (cell + uv) * cell_size
+}
+
+kaleidoscope :: proc(st: vec2, sectors: f32) -> vec2 {
+	p := center(st)
+	a := atan2(p.y, p.x)
+	r := mag(p)
+	seg := math.TAU / max(sectors, 1)
+	a = abs(mod(a, seg) - seg * 0.5)
+	return uncenter(vec2(cos(a), sin(a)) * r)
+}
+
+// Texture-array bracketing (iq): indices of the two slices and the blend t.
+bracketing :: proc(x: f32, count: f32) -> vec3 {
+	u := clamp(x, 0, 1) * max(count - 1, 1)
+	i0 := floor(u)
+	t := fract(u)
+	i1 := min(i0 + 1, count - 1)
+	return vec3(i0, i1, t)
+}

@@ -1,0 +1,31 @@
+// Expect: has no field called 'n'
+vec4 :: [4]f32
+
+Base :: struct {
+	n: f32,
+}
+
+Child :: struct {
+	#subtype base: Base,
+	extra: f32,
+}
+
+Data :: struct #align(16) {
+	v: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	c: Child
+	_ = c.n
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

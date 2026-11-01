@@ -1,0 +1,2 @@
+// Shared #inout locations for stage_io_import.misl (not a root entry module).
+NORMAL :: #inout([3]f32, 5)

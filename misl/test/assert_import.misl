@@ -1,0 +1,30 @@
+import "core:debug"
+import "import_deps/assert_lib.misl"
+
+vec4 :: [4]f32
+
+Data :: assert_lib.Data
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	debug.assert(true, "ROOT_ASSERT")
+	_ = assert_lib.at(data^, 0)
+	_ = vertex_id
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin.pos
+	out = data.color
+	return out
+}

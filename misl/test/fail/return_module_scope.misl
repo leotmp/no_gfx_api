@@ -1,0 +1,2 @@
+// Module-level return must diagnose, not assert (LSP soft_fail).
+return 0

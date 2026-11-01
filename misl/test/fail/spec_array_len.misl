@@ -1,0 +1,4 @@
+@(specialization_constant = 2)
+n: u32 = 4
+
+A :: [n]f32{}

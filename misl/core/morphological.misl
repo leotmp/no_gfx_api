@@ -1,0 +1,122 @@
+/*
+	Morphological and related image ops.
+
+	Dilation / erosion: textbooks (max/min neighborhood). Jump flood:
+	one JFA step (full algorithm is multi-pass; see Rong & Tan). Marching
+	squares: case from 4 binary corners. Lucas–Kanade: 2x2 spatial
+	least-squares optical flow (Baker/Matthews). Hashed alpha: Wyman
+	I3D 2017. Mip pyramid: explicit lod via sample(..., lod).
+*/
+
+import "core:hash.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+dilate :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	m := vec3(0, 0, 0)
+	for y := -1; y <= 1; y += 1 {
+		for x := -1; x <= 1; x += 1 {
+			s := sample(tex, samp, uv + vec2(f32(x), f32(y)) / res).xyz
+			m = max(m, s)
+		}
+	}
+	return m
+}
+
+erode :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec3 {
+	m := vec3(1, 1, 1)
+	for y := -1; y <= 1; y += 1 {
+		for x := -1; x <= 1; x += 1 {
+			s := sample(tex, samp, uv + vec2(f32(x), f32(y)) / res).xyz
+			m = min(m, s)
+		}
+	}
+	return m
+}
+
+// MISL_COMPILER_FEATURE: full jump-flood (Rong & Tan) is multi-pass ping-pong
+// or compute. This is one JFA neighbor step for a graphics pass.
+jfa_step :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, stride: f32) -> vec2 {
+	best := sample(tex, samp, uv).xy
+	best_d := 1e8
+	for y := -1; y <= 1; y += 1 {
+		for x := -1; x <= 1; x += 1 {
+			suv := uv + vec2(f32(x), f32(y)) * stride / res
+			seed := sample(tex, samp, suv).xy
+			d := dot(seed - uv, seed - uv)
+			if d < best_d {
+				best_d = d
+				best = seed
+			}
+		}
+	}
+	return best
+}
+
+marching_squares_case :: proc(a: f32, b: f32, c: f32, d: f32, iso: f32) -> i32 {
+	code := 0
+	if a > iso {
+		code += 1
+	}
+	if b > iso {
+		code += 2
+	}
+	if c > iso {
+		code += 4
+	}
+	if d > iso {
+		code += 8
+	}
+	return code
+}
+
+// MISL_COMPILER_FEATURE: full Lucas–Kanade is typically a compute / pyramid
+// solver. This is one 3x3 spatial window in a fragment shader.
+lucas_kanade :: proc(tex0: t32_2d, tex1: t32_2d, samp: s32, uv: vec2, res: vec2) -> vec2 {
+	ixx := 0.0
+	ixy := 0.0
+	iyy := 0.0
+	ixt := 0.0
+	iyt := 0.0
+	for y := -1; y <= 1; y += 1 {
+		for x := -1; x <= 1; x += 1 {
+			o := vec2(f32(x), f32(y)) / res
+			c0 := sample(tex0, samp, uv + o).x
+			c1 := sample(tex1, samp, uv + o).x
+			dx := sample(tex0, samp, uv + o + vec2(1, 0) / res).x - sample(tex0, samp, uv + o - vec2(1, 0) / res).x
+			dy := sample(tex0, samp, uv + o + vec2(0, 1) / res).x - sample(tex0, samp, uv + o - vec2(0, 1) / res).x
+			dt := c1 - c0
+			ixx += dx * dx
+			ixy += dx * dy
+			iyy += dy * dy
+			ixt += dx * dt
+			iyt += dy * dt
+		}
+	}
+	det := ixx * iyy - ixy * ixy
+	if abs(det) < 1e-6 {
+		return vec2(0, 0)
+	}
+	return vec2(-(iyy * ixt - ixy * iyt), -(ixx * iyt - ixy * ixt)) / det
+}
+
+hashed_alpha :: proc(alpha: f32, p: vec2, scale: f32) -> b32 {
+	n := hash.hash21(floor(p * scale))
+	return alpha > n
+}
+
+mip_pyramid :: proc(tex: t32_2d, samp: s32, uv: vec2, lod: f32) -> vec3 {
+	return sample(tex, samp, uv, lod).xyz
+}
+
+mip_average :: proc(tex: t32_2d, samp: s32, uv: vec2, res: vec2, spread: f32) -> vec3 {
+	acc := vec3(0, 0, 0)
+	acc = acc + sample(tex, samp, uv).xyz
+	acc = acc + sample(tex, samp, uv + vec2(spread, 0) / res).xyz
+	acc = acc + sample(tex, samp, uv - vec2(spread, 0) / res).xyz
+	acc = acc + sample(tex, samp, uv + vec2(0, spread) / res).xyz
+	acc = acc + sample(tex, samp, uv - vec2(0, spread) / res).xyz
+	return acc / 5
+}

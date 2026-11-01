@@ -1,0 +1,31 @@
+// Expect: detected a non-lvalue expression on the left-hand side
+vec4 :: [4]f32
+
+Pair :: struct {
+	val: f32,
+}
+
+Data :: struct #align(16) {
+	v: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+foo :: proc() -> Pair {
+	out: Pair
+	out.val = 1
+	return out
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	foo().val = 1
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

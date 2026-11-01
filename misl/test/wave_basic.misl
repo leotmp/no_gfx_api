@@ -1,0 +1,51 @@
+import "core:wave"
+
+Data :: struct #align(16) {
+	x:   f32,
+	n:   i32,
+	acc: f32,
+	bits: u32,
+	mask: [4]u32,
+}
+
+@(size = 64)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+	x := data.x
+	n := data.n
+	id := wave.lane_id()
+	count := wave.lane_count()
+	first := wave.is_first()
+	any_p := wave.any(first)
+	_ = wave.any(true)
+	all_p := wave.all(first)
+	eq := wave.all_equal(x)
+	s := wave.sum(x)
+	p := wave.product(x)
+	mn := wave.min(x)
+	mx := wave.max(x)
+	ps := wave.prefix_sum(x)
+	pp := wave.prefix_product(x)
+	ba := wave.bit_and(n)
+	bo := wave.bit_or(n)
+	bx := wave.bit_xor(n)
+	sh := wave.read(x, 0)
+	sx := wave.shuffle_xor(x, 1)
+	su := wave.shuffle_up(x, 1)
+	sd := wave.shuffle_down(x, 1)
+	cs4 := wave.clustered_sum(x, 4)
+	r := wave.rotate(x, 1)
+	cr := wave.clustered_rotate(x, 1, 4)
+	bc := wave.bit_count(first)
+	pbc := wave.prefix_bit_count(first)
+	bf := wave.broadcast_first(x)
+	data.mask = wave.ballot(first)
+	data.bits = count + id + bc + pbc + u32(ba) + u32(bo) + u32(bx)
+	data.acc = s + p + mn + mx + ps + pp + sh + sx + su + sd + cs4 + r + cr + bf
+	if any_p && all_p && eq {
+		data.acc += 1
+	}
+}

@@ -1,0 +1,41 @@
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	x := math.map(0.5, 0, 1, 2, 4)
+	_ = math.smootherstep(0, 1, 0.3)
+	_ = math.hammersley(3, 16)
+	r := math.rotate2d(math.PI * 0.25)
+	_ = r
+	q := math.quat_from_axis_angle(vec3(0, 1, 0), 0.2)
+	_ = math.quat_rotate(q, vec3(1, 0, 0))
+	_ = math.aastep(0.5, x, 0.02)
+	_ = math.pack_unorm2(vec2(0.2, 0.8))
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

@@ -1,0 +1,13 @@
+// A vertex stage that imports the shared names itself (stage_io_import.misl).
+import io "stage_io_names.misl"
+
+Lib_Out :: struct {
+	pos:    [4]f32 | SV_Position,
+	normal: [3]f32 | io.NORMAL,
+}
+
+lib_vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: Lib_Out) {
+	out.pos = [4]f32{0, 0, 0, 1}
+	out.normal = [3]f32{f32(vid), 0, 0}
+	return out
+}

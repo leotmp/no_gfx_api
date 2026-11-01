@@ -1,0 +1,476 @@
+// =============================================================================
+// data/shader/test.misl — Misl compiler test suite
+//
+// This file is the target specification for oge/misl. Do not expect it to
+// compile end-to-end today. Each section is tagged:
+//
+//   [implemented]  — should pass parse + check + codegen (regression target)
+//   [partial]      — parse/check may work; codegen or edge cases incomplete
+//   [missing]      — parsed or planned; checker/codegen not done yet
+//
+// Work through sections in order when hardening the compiler. Uncomment or
+// isolate sections with mislc as features land.
+// =============================================================================
+
+
+// =============================================================================
+// 1. TYPE SYSTEM
+// =============================================================================
+
+// [implemented] Type aliases
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat2 :: matrix[2, 2]f32
+mat4 :: matrix[4, 4]f32
+
+// [partial] Module-scope constants (checker ok; global const CG missing)
+PI      :: 3.14159265
+TWO_PI  :: 6.2831853
+EPSILON :: 1.0e-10
+
+// [implemented] Enum — explicit backing type required
+Blend_Mode :: enum u32 {
+	Replace,
+	Add,
+	Multiply,
+}
+
+Flags :: enum u32 {
+	None    = 0,
+	Visible = 1,
+	Shadow  = 2,
+}
+
+// [missing] Bit set
+// Visibility :: bit_set[Flags; u32]
+
+// [implemented] Struct — alignment, multi-name fields, resource ids
+Vertex :: struct #align(16) {
+	pos, col: [4]f32,
+	uv: [2]f32,
+	flags: Flags,
+}
+
+Instance :: struct #align(16) {
+	transform: mat4,
+	texture: t32_2d,
+	sampler: s32,
+	blend: Blend_Mode,
+}
+
+// [implemented] Slice fields (GPU device pointer in oge/gpu)
+Scene_Data :: struct #align(16) {
+	vertices: []Vertex,
+	instances: []Instance,
+	camera: mat4,
+	resolution: [2]f32,
+}
+
+// [implemented] Shader varyings / semantics on struct fields
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	col: [4]f32,
+	uv: [2]f32,
+	instance_id: u32,
+}
+
+FS_Uniforms :: struct #align(16) {
+	atlas: t32_2d,
+	atlas_sampler: s32,
+	tint: [3]f32,
+}
+
+
+// =============================================================================
+// 2. PROCEDURES — single return, helpers
+// =============================================================================
+
+// [implemented] Single named result
+saturate :: proc(v: f32) -> (out: f32) {
+	return clamp(v, 0, 1)
+}
+
+linear_from_srgb :: proc(srgb: [3]f32) -> (linear: [3]f32) {
+	return pow(srgb, vec3(2.2))
+}
+
+// [implemented] Matrix constructor return
+rotate_z :: proc(rads: f32) -> (m: mat4) {
+	s := sin(rads)
+	c := cos(rads)
+	return mat4(
+		c,  s, 0, 0,
+		-s, c, 0, 0,
+		0,  0, 1, 0,
+		0,  0, 0, 1,
+	)
+}
+
+// [implemented] Vector swizzle-heavy proc (from main.misl)
+hsv_from_rgb :: proc(c: [3]f32) -> (hsv: [3]f32) {
+	K := vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0)
+	p := lerp(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g))
+	q := lerp(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r))
+	d := q.x - min(q.w, q.y)
+	e := EPSILON
+	return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x)
+}
+
+// [partial] Vanilla proc (non-shader) — definition ok; call sites in shader need CG
+transform_point :: proc(m: mat4, p: [2]f32) -> (out: [2]f32) {
+	v := m * vec4(p, 0, 1)
+	return v.xy
+}
+
+
+// =============================================================================
+// 3. MULTI-RETURN CALLING CONVENTION
+//    Misl:  proc() -> (r1: R1, r2: R2)
+//    GLSL:  R2 proc(..., out R1 r1)
+//    Last result = GLSL return; earlier results = out params.
+// =============================================================================
+
+// [partial] Multi-return definition (emit_proc ok; call sites incomplete)
+split_vec4 :: proc(v: vec4) -> (rgb: [3]f32, a: f32) {
+	return v.rgb, v.a
+}
+
+merge_vec4 :: proc(rgb: [3]f32, a: f32) -> (v: vec4) {
+	return vec4(rgb, a)
+}
+
+returns_two :: proc() -> (first: f32, second: f32) {
+	return 1.0, 2.0
+}
+
+returns_three :: proc(x: f32) -> (a: f32, b: f32, c: f32) {
+	return x, x * 2, x * 3
+}
+
+// [partial] Consumption contexts — checker unpacks tuple onto LHS; CG needs emit_call_expr
+test_multi_assign :: proc() -> (out: vec4) {
+	// single call, multiple names
+	x, y := returns_two()
+
+	// multi-return call + single-return call on same line
+	a, b, c, d := returns_three(1.0), merge_vec4(vec3(1), 1.0)
+
+	// blank identifier
+	r, _ := returns_two()
+
+	// assign form (not decl)
+	r = 0.0
+	s := 0.0
+	s, r = returns_two()
+
+	// use unpacked values
+	out = vec4(x + y + a + b + c + r + s, 0, 0, 1)
+	return out
+}
+
+// [partial] Multi-return used as helper inside expression — should stay invalid or lower to temps
+test_multi_in_expr :: proc(v: vec4) -> (out: vec4) {
+	// ERROR (expected): cannot use multi-return call as single-value subexpression
+	// bad := merge_vec4(split_vec4(v))
+	// For now, explicit unpack:
+	rgb, a := split_vec4(v)
+	out = merge_vec4(rgb, a)
+	return out
+}
+
+
+// =============================================================================
+// 4. BUILTINS
+//    Tag each group as features are added to misl_builtin + misl_glsl.
+// =============================================================================
+
+// [partial] Builtin exercise proc — expand as builtins land
+exercise_builtins :: proc(uv: vec2, tex: t32_2d, samp: s32) -> (out: vec4) {
+	// [implemented] texturing
+	col := sample(tex, samp, uv)
+	size := dim(tex)
+
+	// [implemented] scalar math
+	a := pow(col.r, 2.2)
+	b := sqrt(a)
+	c := abs(sin(b) + cos(b))
+	d := floor(c)
+	e := ceil(c)
+	f := fract(c)
+	g := sign(c)
+	h := mod(c, 0.5)
+	i := min(a, b)
+	j := max(a, b)
+	edge := 0.5
+	k := step(edge, a)
+	l := smoothstep(0.2, 0.8, a)
+	m := clamp(a, 0, 1)
+	n := lerp(a, b, 0.5)
+
+	// [implemented] vector math
+	v2 := vec2(uv)
+	v3 := vec3(a, b, c)
+	v4 := vec4(v3, 1)
+	len_v := mag(v2)
+	norm_v := normalize(v2)
+	dotted := dot(v2, uv)
+
+	// [partial] swizzle read
+	sw1 := v4.rgb
+	sw2 := v4.xyz
+	sw3 := v4.xxxx
+	sw4 := col.bgr
+
+	// [partial] cast / constructors
+	from_cast := cast(vec2)size
+	from_ctor := vec4(1, 2, 3, 4)
+
+	// [missing] remaining builtins — uncomment as implemented
+	// t := radians(1.0)
+	// u := degrees(1.0)
+	// tan_v := tan(a)
+	// asin_v := asin(a)
+	// acos_v := acos(a)
+	// atan_v := atan(a)
+	// atan2_v := atan2(a, b)
+	// dist_v := dist(v2, uv)
+	// cross_v := cross(vec3(1,0,0), vec3(0,1,0))
+	// refl := reflect(v3, vec3(0,0,1))
+	// refr := refract(v3, vec3(0,0,1), 1.5)
+	// loaded := load(tex, ivec2(0, 0))
+	// store(rw_id, ivec2(0, 0), col)
+	// printf("debug %f", a)
+
+	out = col
+	out.rgb = vec3(len_v + dotted + norm_v.x + k + l + m + n)
+	out.rg = from_cast
+	// out.a = f32(i + j + g + h + d + e + f) + sw1.r
+	return out
+}
+
+
+// =============================================================================
+// 5. EXPRESSIONS & OPERATORS
+// =============================================================================
+
+// [implemented] Binary / unary / comparison
+test_operators :: proc(a: f32, b: f32, v: vec3, m: mat4) -> (out: f32) {
+	x := a + b
+	x = a - b
+	x = a * b
+	x = a / b
+	x = a * 2.0
+	x = 2.0 * a
+	y := -a
+	ok := a < b
+	ok = a > b
+	ok = a <= b
+	ok = a >= b
+	ok = a == b
+	ok = a != b
+
+	// [implemented] matrix * vector
+	p := m * vec4(v, 1.0)
+	out = p.x + x
+	return out
+}
+
+// [partial] Swizzle assignment
+test_swizzle_assign :: proc(v: vec4) -> (out: vec4) {
+	v.rgb = vec3(1, 0, 0)
+	v.a = 1.0
+	out = v
+	return out
+}
+
+// [partial] Indexing — array, vector, slice
+test_indexing :: proc(data: Scene_Data, i: u32) -> (out: Vertex) {
+	// slice index
+	out = data.vertices[i]
+
+	// fixed array + local compound literal
+	quad := [4]vec2 {
+		vec2(0, 0),
+		vec2(1, 0),
+		vec2(0, 1),
+		vec2(1, 1),
+	}
+	p := quad[i]
+
+	// vector index
+	component := out.col[i]
+	return out
+}
+
+// [missing] Struct compound literal
+// test_struct_lit :: proc() -> (v: Vertex) {
+// 	v = Vertex{pos = vec4(0,0,0,1), col = vec4(1), uv = vec2(0), flags = .None}
+// 	return v
+// }
+
+
+// =============================================================================
+// 6. STATEMENTS
+// =============================================================================
+
+// [implemented] if / else if / else
+test_if :: proc(flags: Flags, x: f32) -> (out: f32) {
+	if flags == .Visible {
+		out = x
+	} else if flags == .Shadow {
+		out = x * 0.5
+	} else {
+		out = 0
+	}
+	return out
+}
+
+// [partial] if-with-init (checker ok; CG skips init)
+test_if_init :: proc(x: f32) -> (out: f32) {
+	if y := x * 2; y > 1.0 {
+		out = y
+	} else {
+		out = 0
+	}
+	return out
+}
+
+// [implemented] C-style for
+test_for_c :: proc(n: i32) -> (sum: i32) {
+	sum = 0
+	for i := 0; i < n; i += 1 {
+		sum += i
+	}
+	return sum
+}
+
+/*
+// [missing] Range-for
+test_for_range :: proc() -> (sum: i32) {
+	sum = 0
+	for i in 0..=10 {
+		sum += i
+	}
+	return sum
+}
+*/
+
+/*
+// [missing] switch / discard / break / continue
+test_switch :: proc(mode: Blend_Mode) -> (out: f32) {
+	switch mode {
+	case .Replace:
+		out = 1
+	case .Add:
+		out = 2
+	case:
+		discard
+	}
+	return out
+}
+*/
+
+// [missing] when
+// WHEN_DEBUG :: true
+// test_when :: proc() -> (out: f32) {
+// 	when WHEN_DEBUG {
+// 		out = 1
+// 	} else {
+// 		out = 0
+// 	}
+// 	return out
+// }
+
+// [partial] return — single value; multi-value return body
+test_return_multi :: proc() -> (a: f32, b: f32) {
+	return 1.0, 2.0
+}
+
+
+// =============================================================================
+// 7. SHADER ENTRIES — oge/gpu interface
+// =============================================================================
+
+// [implemented] Vertex stage — SV_Data, SV_Vertex, SV_Instance, SV_Position
+test_vs :: proc "vertex"(
+	data: Scene_Data | SV_Data,
+	instance_id: u32 | SV_Instance,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	inst := data.instances[instance_id]
+	vert := data.vertices[vertex_id]
+
+	local := [4]vec2 {
+		vec2(-1, -1),
+		vec2( 1, -1),
+		vec2(-1,  1),
+		vec2( 1,  1),
+	}[vertex_id]
+
+	p := transform_point(data.camera, vert.pos.xy + local)
+	out.pos = data.camera * vec4(p, 0, 1)
+	out.col = vert.col
+	out.uv = vert.uv
+	out.instance_id = instance_id
+	return out
+}
+
+// [implemented] Fragment stage — inter-stage struct + SV_Data + SV_Target
+test_fs :: proc "fragment"(
+	fsin: VS_Out,
+	uniforms: FS_Uniforms | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	screen_uv := fsin.pos.xy / vec2(1) // placeholder; real code uses resolution from SV_Data
+
+	out = sample(uniforms.atlas, uniforms.atlas_sampler, fsin.uv)
+	out.rgb *= uniforms.tint
+
+	// single-return call assign to local (tuple bug regression)
+	tmp := linear_from_srgb(out.rgb)
+	out.rgb = tmp
+
+	// multi-return unpack
+	r, g := returns_two()
+	out.rg += vec2(r, g) * 0.01
+
+	if fsin.instance_id > 0 {
+		out.rgb = hsv_from_rgb(out.rgb)
+	}
+
+	return out
+}
+
+// [implemented] Fragment-only entry (no VS input struct)
+test_light_fs :: proc "fragment"(data: Scene_Data | SV_Data) -> (out: [4]f32 | SV_Target) {
+	out = vec4(0.1, 0.1, 0.15, 1)
+	return out
+}
+
+// [missing] Compute stage — push constant layout differs from graphics
+// CS_Data :: struct #align(16) { value: f32 }
+// test_cs :: proc "compute"(data: CS_Data | SV_Data) -> (out: f32) {
+// 	return data.value
+// }
+
+// [partial] Alternate stage spellings
+test_vs_alt :: proc "vert"(
+	data: Scene_Data | SV_Data,
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	out.pos = vec4(0, 0, 0, 1)
+	out.col = vec4(1)
+	out.uv = vec2(0)
+	out.instance_id = 0
+	return out
+}
+
+
+// =============================================================================
+// 8. PLANNED SYNTAX (parser / README — not for current compiler)
+// =============================================================================
+
+// [missing] import "common.misl"
+// [missing] #+feature scalar-layout
+// [missing] #config(TEST_FLAG, true)
+// [missing] distinct t32_2d/s32/rw32_2d type checking (currently u32 aliases)

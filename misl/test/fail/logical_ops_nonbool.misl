@@ -1,0 +1,21 @@
+// Expect: invalid binary operation (i32 && i32)
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	n: i32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	x: i32 = 1
+	_ = x && data.n
+	_ = x
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

@@ -1,0 +1,22 @@
+// Expect: positional field 'uv' matches only in the vertex's own struct
+NORMAL :: #inout([3]f32, 0)
+Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+	normal: [3]f32 | NORMAL,
+}
+Mask_In :: struct {
+	pos: [4]f32 | SV_Position,
+	normal: [3]f32 | NORMAL,
+	uv: [2]f32,
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: Out) {
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}
+
+fs :: proc "fragment"(fsin: Mask_In) -> (out: [4]f32 | SV_Target) {
+	return [4]f32{fsin.uv.x, fsin.normal.y, 0, 1}
+}
+p :: pipeline { vertex = vs, fragment = fs, targets = {{format = .rgba_u8_norm}} }

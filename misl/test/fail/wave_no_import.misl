@@ -1,0 +1,8 @@
+// Expect: unknown identifier
+@(size = 64)
+cs :: proc "compute"(
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+	_ = wave.sum(1.0)
+}

@@ -1,0 +1,6 @@
+**
+!package.json
+!language-configuration.json
+!out/extension.js
+!syntaxes/**
+!server/**

@@ -1,0 +1,36 @@
+// Naked return with named results (helpers + stage entries).
+vec4 :: [4]f32
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+helper_named :: proc() -> (x: i32, y: i32) {
+	x = 1
+	y = 2
+	return
+}
+
+helper_void :: proc() {
+	return
+}
+
+vs :: proc "vertex"(
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	hx, hy := helper_named()
+	_ = hx + hy
+	helper_void()
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = [2]f32{0, 0}
+	return
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+) -> (col: [4]f32 | SV_Target) {
+	_ = fsin
+	col = vec4(1, 0, 0, 1)
+	return
+}

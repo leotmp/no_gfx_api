@@ -1,0 +1,83 @@
+/*
+	2D shape drawing from signed distances.
+
+	Distances: Inigo Quilez 2D SDF articles. Fill/stroke as smoothstep of
+	signed distance (explicit width; no fwidth). Digit glyphs: 7-segment
+	layout as commonly published. Arrows/axis: segment CSG.
+*/
+
+import "core:sdf.misl"
+import "core:math.misl"
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+fill :: proc(d: f32, width: f32) -> f32 {
+	return 1 - math.aastep(0, d, width)
+}
+
+stroke :: proc(d: f32, thickness: f32, width: f32) -> f32 {
+	return 1 - math.aastep(0, abs(d) - thickness, width)
+}
+
+circle :: proc(p: vec2, r: f32) -> f32 {
+	return sdf.sd_circle(p, r)
+}
+
+rect :: proc(p: vec2, b: vec2) -> f32 {
+	return sdf.sd_box2(p, b)
+}
+
+line :: proc(p: vec2, a: vec2, b: vec2) -> f32 {
+	return sdf.sd_segment2(p, a, b)
+}
+
+tri :: proc(p: vec2, r: f32) -> f32 {
+	return sdf.sd_equilateral_triangle(p, r)
+}
+
+hex :: proc(p: vec2, r: f32) -> f32 {
+	return sdf.sd_hexagon(p, r)
+}
+
+arrow :: proc(p: vec2, a: vec2, b: vec2, head: f32) -> f32 {
+	d := sdf.sd_segment2(p, a, b)
+	dir := normalize(b - a)
+	n := vec2(-dir.y, dir.x)
+	h1 := b - dir * head + n * head * 0.5
+	h2 := b - dir * head - n * head * 0.5
+	d = min(d, sdf.sd_segment2(p, b, h1))
+	d = min(d, sdf.sd_segment2(p, b, h2))
+	return d
+}
+
+axis2 :: proc(p: vec2, scale: f32) -> f32 {
+	d := arrow(p, vec2(0, 0), vec2(scale, 0), 0.08 * scale)
+	d = min(d, arrow(p, vec2(0, 0), vec2(0, scale), 0.08 * scale))
+	d = min(d, sdf.sd_circle(p, 0.02 * scale))
+	return d
+}
+
+seg :: proc(p: vec2, a: vec2, b: vec2, on: b32) -> f32 {
+	return sdf.sd_segment2(p, a, b) - 0.045 if on else 1e5
+}
+
+digit :: proc(p: vec2, n: i32) -> f32 {
+	q := p
+	a := n == 0 || n == 2 || n == 3 || n == 5 || n == 6 || n == 7 || n == 8 || n == 9
+	b := n == 0 || n == 1 || n == 2 || n == 3 || n == 4 || n == 7 || n == 8 || n == 9
+	c := n == 0 || n == 1 || n == 3 || n == 4 || n == 5 || n == 6 || n == 7 || n == 8 || n == 9
+	d := n == 0 || n == 2 || n == 3 || n == 5 || n == 6 || n == 8 || n == 9
+	e := n == 0 || n == 2 || n == 6 || n == 8
+	f := n == 0 || n == 4 || n == 5 || n == 6 || n == 8 || n == 9
+	g := n == 2 || n == 3 || n == 4 || n == 5 || n == 6 || n == 8 || n == 9
+	s := seg(q, vec2(-0.25, 0.5), vec2(0.25, 0.5), a)
+	s = min(s, seg(q, vec2(0.25, 0.5), vec2(0.25, 0.05), b))
+	s = min(s, seg(q, vec2(0.25, -0.05), vec2(0.25, -0.5), c))
+	s = min(s, seg(q, vec2(-0.25, -0.5), vec2(0.25, -0.5), d))
+	s = min(s, seg(q, vec2(-0.25, -0.05), vec2(-0.25, -0.5), e))
+	s = min(s, seg(q, vec2(-0.25, 0.5), vec2(-0.25, 0.05), f))
+	s = min(s, seg(q, vec2(-0.25, 0), vec2(0.25, 0), g))
+	return s
+}

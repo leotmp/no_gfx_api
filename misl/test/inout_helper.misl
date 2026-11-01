@@ -1,0 +1,64 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+}
+
+Obj :: struct {
+	a: f32,
+}
+
+bump :: proc(#ref v: f32) {
+	v += 1
+}
+
+forward_bump :: proc(#ref n: f32) {
+	bump(&n)
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	x: f32 = 0
+	bump(&x)
+	forward_bump(&x)
+	_ = x
+
+	o: Obj
+	o.a = 0
+	bump(&o.a)
+
+	arr: [5]f32
+	arr = {1, 2, 3, 4, 5}
+	bump(&arr[0])
+	for &e in arr {
+		bump(&e)
+	}
+
+	v := vec4(0, 0, 0, 0)
+	bump(&v.x)
+	bump(&(x))
+	bump((&x))
+
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	_ = vertex_id
+	_ = data
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color
+	_ = fsin
+	return out
+}

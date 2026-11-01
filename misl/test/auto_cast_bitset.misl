@@ -1,0 +1,40 @@
+vec4 :: [4]f32
+
+Flags :: enum u32 {
+	A,
+	B,
+	C,
+}
+
+Flag_Set :: bit_set[Flags; u32]
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	mask: Flag_Set,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	x: f32 = 1
+	y: i32 = auto_cast x
+	_ = y
+	_ = data.mask
+	i: i32
+
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color
+	return out
+}

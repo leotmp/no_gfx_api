@@ -1,0 +1,6 @@
+// Expect: a semantic is not a value
+NORMAL :: #inout([3]f32, 0)
+f :: proc() -> i32 {
+	x := NORMAL
+	return 0
+}

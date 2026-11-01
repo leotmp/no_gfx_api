@@ -1,0 +1,4 @@
+// Expect: interpolation tags stand only on a varying
+f :: proc(#flat x: u32) -> u32 {
+	return x
+}

@@ -1,0 +1,37 @@
+// #align layout: size/offsets must match host/GLSL std430 scalar packing.
+vec4 :: [4]f32
+
+Aligned :: struct #align(16) {
+	a: f32,   // offset 0
+	b: i32,   // offset 4
+	c: vec4,  // offset 16 (align 16)
+}
+
+Data :: struct #align(16) {
+	aligned: Aligned,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vid
+	_ = data.aligned.a
+	_ = data.aligned.b
+	_ = data.aligned.c
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.aligned.c
+	return out
+}

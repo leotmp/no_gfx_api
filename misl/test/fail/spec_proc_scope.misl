@@ -1,0 +1,7 @@
+vs :: proc "vertex"() -> (out: [4]f32 | SV_Position) {
+	@(specialization_constant = 2)
+	v: u32 = 1
+	_ = v
+	out = {0, 0, 0, 1}
+	return out
+}

@@ -1,0 +1,10 @@
+x :: #intrinsic("no.such.key")
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	_ = vid
+	_ = x
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

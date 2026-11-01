@@ -1,0 +1,91 @@
+{
+	"name": "misl-shader-lang",
+	"displayName": "MISL Shader Language Support",
+	"description": "Language support for MISL shaders",
+	"version": "0.0.1",
+	"publisher": "nvrlcky",
+	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "https://www.example.com/none"
+	},
+	"engines": {
+		"vscode": "^1.75.0"
+	},
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onLanguage:misl",
+		"onCommand:misl.createLspConfig",
+		"onCommand:misl.showFmag",
+		"onCommand:misl.showSpirv"
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "misl",
+				"aliases": ["MISL"],
+				"extensions": [".misl"],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "misl",
+				"scopeName": "source.misl",
+				"path": "./syntaxes/misl.tmLanguage.json"
+			},
+			{
+				"scopeName": "markdown.misl.codeblock",
+				"path": "./syntaxes/misl-codeblock.json",
+				"injectTo": ["text.html.markdown"],
+				"embeddedLanguages": {
+					"meta.embedded.block.misl": "misl"
+				}
+			}
+		],
+		"commands": [
+			{
+				"command": "misl.showFmag",
+				"title": "Show FMAG",
+				"category": "MISL"
+			},
+			{
+				"command": "misl.showSpirv",
+				"title": "Show SPIRV",
+				"category": "MISL"
+			},
+			{
+				"command": "misl.createLspConfig",
+				"title": "Create misl.lsp.json",
+				"category": "MISL"
+			}
+		],
+		"configuration": {
+			"title": "MISL",
+			"properties": {
+				"misl.serverPath": {
+					"type": "string",
+					"default": "",
+					"description": "Override path to the misl_lsp language server executable. Empty uses the bundled server. Prefer server_path in misl.lsp.json when present."
+				},
+				"misl.collections": {
+					"type": "object",
+					"default": {},
+					"description": "Named collection paths (name → path) used only when misl.lsp.json is absent. Prefer collections in misl.lsp.json."
+				}
+			}
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./ --noEmit && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node"
+	},
+	"dependencies": {
+		"vscode-languageclient": "^9.0.1"
+	},
+	"devDependencies": {
+		"@types/node": "^20.11.0",
+		"@types/vscode": "^1.75.0",
+		"esbuild": "^0.25.0",
+		"typescript": "^5.3.3"
+	}
+}

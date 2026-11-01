@@ -1,0 +1,10 @@
+// Expect: cluster size must be a compile-time constant
+import "core:wave"
+
+@(size = 64)
+cs :: proc "compute"(
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+	_ = wave.clustered_sum(1.0, gid.x)
+}

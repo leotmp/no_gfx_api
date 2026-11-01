@@ -1,0 +1,41 @@
+// Ray query language: bvh32 + Ray_Query ops (GLSL GL_EXT_ray_query).
+ivec2 :: [2]i32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	dst: rw32_2d,
+	tlas: bvh32,
+}
+
+@(size = {8, 8})
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	res := dim(data.dst)
+	if gid.x >= u32(res.x) || gid.y >= u32(res.y) do return
+
+	desc: Ray_Desc
+	desc.flags = {.Opaque}
+	desc.cull_mask = 0xFF
+	desc.t_min = 0.001
+	desc.t_max = 1000
+	desc.origin = vec3(0, 0, 0)
+	desc.dir = vec3(0, 0, 1)
+
+	rq := rayquery_init(desc, data.tlas)
+	_ = rayquery_proceed(rq)
+	hit := rayquery_result(rq)
+	cand := rayquery_candidate(rq)
+	rayquery_accept(rq)
+	_ = cand.kind
+	// Ray_Result world matrices are GLSL mat4x3 (same as NOSL / EXT).
+	o2w: matrix[3, 4]f32 = hit.object_to_world
+	w2o: matrix[3, 4]f32 = hit.world_to_object
+	_ = transpose(o2w) * vec3(0, 0, 1)
+	_ = transpose(w2o) * vec3(0, 0, 1)
+
+	col := vec4(f32(hit.kind), hit.t, f32(hit.instance_idx), 1)
+	store(data.dst, ivec2(i32(gid.x), i32(gid.y)), col)
+}

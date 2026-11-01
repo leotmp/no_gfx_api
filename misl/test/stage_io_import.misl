@@ -1,0 +1,13 @@
+// An #inout imported through two files matches itself: the vertex's io.NORMAL and the fragment's are one declaration.
+import io "import_deps/stage_io_names.misl"
+import lib "import_deps/stage_io_lib.misl"
+
+fs :: proc "fragment"(n: [3]f32 | io.NORMAL) -> (out: [4]f32 | SV_Target) {
+	return [4]f32{n.x, n.y, n.z, 1}
+}
+
+import_pipeline :: pipeline {
+	vertex = lib.lib_vs,
+	fragment = fs,
+	targets = {{format = .rgba_u8_norm}},
+}

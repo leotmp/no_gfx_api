@@ -1,0 +1,22 @@
+// Expect: 'using import' is not supported
+using import "import_deps/common.misl"
+
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	v: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

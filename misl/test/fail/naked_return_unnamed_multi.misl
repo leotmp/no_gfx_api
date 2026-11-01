@@ -1,0 +1,9 @@
+// Unnamed multi-result — naked return must fail
+// (fully unnamed `-> (i32, i32)` currently collides on empty names; use two distinct unnamed singles via separate procs)
+bad_a :: proc() -> i32 {
+	return
+}
+
+bad_b :: proc() -> f32 {
+	return
+}

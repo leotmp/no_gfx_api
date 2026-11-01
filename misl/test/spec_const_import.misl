@@ -1,0 +1,7 @@
+import "import_deps/spec_lib.misl"
+
+@(size = spec_lib.step)
+cs :: proc "compute"() {
+	x := spec_lib.step + 3
+	_ = x
+}
