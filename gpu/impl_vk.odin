@@ -3854,9 +3854,12 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         view = get_or_add_image_view(texture.handle, image_view_ci)
     }
 
+    vk_store_op, vk_resolve_mode := to_vk_store_op(attach.store_op)
+
     resolve_view: vk.ImageView
     if has_resolve
     {
+        vk_resolve_mode = {.AVERAGE}
         resolve_image_view_ci := vk.ImageViewCreateInfo {
             sType = .IMAGE_VIEW_CREATE_INFO,
             image = vk_resolve_image,
@@ -3872,8 +3875,6 @@ to_vk_render_attachment :: #force_inline proc(attach: Render_Attachment) -> vk.R
         }
         resolve_view = get_or_add_image_view(resolve_texture.handle, resolve_image_view_ci)
     }
-
-    vk_store_op, vk_resolve_mode := to_vk_store_op(attach.store_op)
 
     return {
         sType = .RENDERING_ATTACHMENT_INFO,
