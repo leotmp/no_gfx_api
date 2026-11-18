@@ -50,7 +50,16 @@ Texture_Format :: enum
     ASTC_4x4_RGBA_Unorm,
     ETC2_RGB8_Unorm, ETC2_RGBA8_Unorm,
     EAC_R11_Unorm, EAC_RG11_Unorm,
+    A2RGB10_Unorm, A2BGR10_Unorm,
 }
+Swapchain_Format :: enum
+{
+    SDR = 0,              // Values are expected to be sRGB.
+    SDR_Linear,           // Values are expected to be linear, shaders see "linear sRGB" on read.
+    HDR_Extended_Linear,  // Values are expected to be in "extended linear sRGB", and may be outside [0, 1].
+    HDR10_ST2084,         // Values are expected to be in BT.2020 ST2084 (PQ).
+}
+Swapchain_Formats :: bit_set[Swapchain_Format; u32]
 // Each side corresponds to a texture layer
 Cubemap_Side :: enum { PX = 0, NX = 1, PY = 2, NY = 3, PZ = 4, NZ = 5 }
 Usage :: enum { Sampled = 0, Storage, Transfer_Src, Color_Attachment, Depth_Stencil_Attachment }
@@ -301,13 +310,14 @@ init: proc(validation := true, loc := #caller_location) -> bool : _init
 cleanup: proc(loc := #caller_location) : _cleanup
 wait_idle: proc() : _wait_idle
 // Can be called for recreation. Automatically destroyed by cleanup()
-swapchain_create: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_flight: u32, present_mode: Present_Mode = {}) : _swapchain_create
+swapchain_create: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_flight: u32, format: Swapchain_Format = {}, present_mode: Present_Mode = {}) : _swapchain_create
 swapchain_resize: proc(size: [2]u32) : _swapchain_resize  // NOTE: Do not call this every frame! Only if the dimensions change.
 // Blocks CPU until at least one frame is available.
 // NOTE: This can return a nil texture because of OS quirks! Resize or recreate the texture if that happens.
 swapchain_acquire_next: proc(loc := #caller_location) -> Texture : _swapchain_acquire_next
 swapchain_present: proc(queue: Queue, sem_wait: Semaphore, wait_value: u64, loc := #caller_location) : _swapchain_present
 features_available: proc() -> Features : _features_available
+swapchain_formats_available: proc(surface: vk.SurfaceKHR) -> Swapchain_Formats : _swapchain_formats_available
 device_limits: proc() -> Device_Limits : _device_limits
 
 // Memory

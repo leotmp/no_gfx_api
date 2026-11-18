@@ -142,6 +142,8 @@ to_vk_texture_format :: proc(format: Texture_Format) -> vk.Format
         case .ETC2_RGBA8_Unorm: return .ETC2_R8G8B8A8_UNORM_BLOCK
         case .EAC_R11_Unorm: return .EAC_R11_UNORM_BLOCK
         case .EAC_RG11_Unorm: return .EAC_R11G11_UNORM_BLOCK
+        case .A2RGB10_Unorm: return .A2R10G10B10_UNORM_PACK32
+        case .A2BGR10_Unorm: return .A2B10G10R10_UNORM_PACK32
     }
     return {}
 }

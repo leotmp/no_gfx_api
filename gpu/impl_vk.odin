@@ -260,6 +260,8 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
         append(&optional_extensions, "VK_KHR_xlib_surface")
         append(&optional_extensions, vk.EXT_METAL_SURFACE_EXTENSION_NAME)
         append(&optional_extensions, vk.KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)
+        // Needed for HDR color spaces to appear in vkGetPhysicalDeviceSurfaceFormatsKHR.
+        append(&optional_extensions, vk.EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME)
 
         // Check that required_extensions are supported
         for req in required_extensions {
@@ -1033,7 +1035,7 @@ _wait_idle :: proc()
     if sync.guard(&ctx.queue_lock) do vk.DeviceWaitIdle(ctx.device)
 }
 
-_swapchain_create :: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_flight: u32, present_mode: Present_Mode = {})
+_swapchain_create :: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_flight: u32, format: Swapchain_Format = {}, present_mode: Present_Mode = {})
 {
     ctx.swapchain_is_stale = false
 
@@ -1046,6 +1048,7 @@ _swapchain_create :: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_f
         frames_in_flight = frames_in_flight,
         width = init_size.x,
         height = init_size.y,
+        format = format,
         present_mode = present_mode,
     }
     ctx.surface = surface
@@ -1156,7 +1159,7 @@ _swapchain_acquire_next :: proc(loc := #caller_location) -> Texture
     return Texture {
         type = .D2,
         dimensions = { ctx.swapchain_desc.width, ctx.swapchain_desc.height, 1 },
-        format = .BGRA8_Unorm,
+        format = ctx.swapchain.texture_format,
         mip_count = 1,
         sample_count = 1,
         layer_count = 1,
@@ -1237,6 +1240,59 @@ _swapchain_present :: proc(queue: Queue, sem_wait: Semaphore, wait_value: u64, l
 _features_available :: proc() -> Features
 {
     return ctx.features
+}
+
+_swapchain_formats_available :: proc(surface: vk.SurfaceKHR) -> Swapchain_Formats
+{
+    scratch, _ := acquire_scratch()
+
+    surface_format_count: u32
+    vk_check(vk.GetPhysicalDeviceSurfaceFormatsKHR(ctx.phys_device, surface, &surface_format_count, nil))
+    surface_formats := make([]vk.SurfaceFormatKHR, surface_format_count, allocator = scratch)
+    vk_check(vk.GetPhysicalDeviceSurfaceFormatsKHR(ctx.phys_device, surface, &surface_format_count, raw_data(surface_formats)))
+    surface_formats = surface_formats[:surface_format_count]
+
+    formats: Swapchain_Formats
+    for candidate in surface_formats {
+        formats += swapchain_formats_from_surface_format(candidate)
+    }
+
+    return formats
+}
+
+@(private="file")
+swapchain_formats_from_surface_format :: proc(surface_format: vk.SurfaceFormatKHR) -> Swapchain_Formats
+{
+    any_format := surface_format.format == .UNDEFINED
+
+    #partial switch surface_format.colorSpace
+    {
+        case .SRGB_NONLINEAR:
+        {
+            formats: Swapchain_Formats
+            if any_format || surface_format.format == .B8G8R8A8_UNORM || surface_format.format == .R8G8B8A8_UNORM || surface_format.format == .A8B8G8R8_UNORM_PACK32 {
+                formats += { .SDR }
+            }
+            if any_format || surface_format.format == .B8G8R8A8_SRGB || surface_format.format == .R8G8B8A8_SRGB || surface_format.format == .A8B8G8R8_SRGB_PACK32 {
+                formats += { .SDR_Linear }
+            }
+            return formats
+        }
+        case .EXTENDED_SRGB_LINEAR_EXT:
+        {
+            if any_format || surface_format.format == .R16G16B16A16_SFLOAT {
+                return { .HDR_Extended_Linear }
+            }
+        }
+        case .HDR10_ST2084_EXT:
+        {
+            if any_format || surface_format.format == .A2B10G10R10_UNORM_PACK32 || surface_format.format == .A2R10G10B10_UNORM_PACK32 {
+                return { .HDR10_ST2084 }
+            }
+        }
+    }
+
+    return {}
 }
 
 _device_limits :: proc() -> Device_Limits
@@ -3368,11 +3424,24 @@ create_swapchain :: proc(swapchain_desc: Swapchain_Desc, prev_swapchain: vk.Swap
     surface_format := surface_formats[0]
     for candidate in surface_formats
     {
-        if candidate == { .B8G8R8A8_UNORM, .SRGB_NONLINEAR }
-        {
+        if swapchain_desc.format in swapchain_formats_from_surface_format(candidate) {
             surface_format = candidate
             break
         }
+    }
+
+    #partial switch surface_format.format
+    {
+        case .B8G8R8A8_UNORM:           res.texture_format = .BGRA8_Unorm
+        case .R8G8B8A8_UNORM:           res.texture_format = .RGBA8_Unorm
+        case .A8B8G8R8_UNORM_PACK32:    res.texture_format = .ABGR8_Unorm
+        case .B8G8R8A8_SRGB:            res.texture_format = .BGRA8_SRGB
+        case .R8G8B8A8_SRGB:            res.texture_format = .RGBA8_SRGB
+        case .A8B8G8R8_SRGB_PACK32:     res.texture_format = .ABGR8_SRGB
+        case .R16G16B16A16_SFLOAT:      res.texture_format = .RGBA16_Float
+        case .A2R10G10B10_UNORM_PACK32: res.texture_format = .A2RGB10_Unorm
+        case .A2B10G10R10_UNORM_PACK32: res.texture_format = .A2BGR10_Unorm
+        case: fatal_error("Unsupported swapchain image format: %v", surface_format.format)
     }
 
     present_mode_count: u32
@@ -3475,6 +3544,7 @@ Swapchain :: struct
     texture_handles: []Texture_Handle,
     image_views: []vk.ImageView,
     present_semaphores: []Semaphore,
+    texture_format: Texture_Format,
 }
 
 @(private="file")
@@ -3482,6 +3552,7 @@ Swapchain_Desc :: struct
 {
     width, height: u32,
     frames_in_flight: u32,
+    format: Swapchain_Format,
     present_mode: Present_Mode,
 }
 
