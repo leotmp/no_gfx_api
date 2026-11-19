@@ -1,0 +1,21 @@
+// Expect: 'which' condition must be a constant
+Data :: struct #align(16) {
+	n: i32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	x: i32 = 0
+	which data.n {
+	case 1:
+		x = 1
+	case:
+		x = 0
+	}
+	_ = x
+	_ = vid
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

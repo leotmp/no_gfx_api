@@ -1,0 +1,6 @@
+// Expect: builtin 'sum' is not allowed in proc "fmag"
+import "core:wave"
+
+shade :: proc "fmag"(x: f32) -> f32 {
+	return wave.sum(x)
+}

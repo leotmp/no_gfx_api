@@ -1,0 +1,9 @@
+import "core:debug"
+
+// Regression: %%v / %#v slot counting used by checker + LSP signature help.
+vs :: proc "vertex"() {
+	debug.printf("plain")
+	debug.printf("one %v", 1)
+	debug.printf("two %v %#v", 1, 2)
+	debug.printf("escaped %% and %v", 3)
+}

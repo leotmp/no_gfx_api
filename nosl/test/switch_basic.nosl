@@ -1,0 +1,58 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Mode :: enum u32 {
+	A,
+	B,
+	C,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	mode: Mode,
+	n: i32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv: [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	x: i32 = 0
+	switch data.n {
+	case 0:
+		x = 1
+	case 1, 2:
+		x = 2
+		fallthrough
+	case 3:
+		x = 3
+	case:
+		x = 4
+	}
+	_ = x
+
+	#partial switch data.mode {
+	case .A:
+		x = 10
+	case .B:
+		x = 20
+	}
+	_ = x
+
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color
+	return out
+}

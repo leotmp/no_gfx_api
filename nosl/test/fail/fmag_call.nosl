@@ -1,0 +1,8 @@
+// Expect: cannot call shader entry
+other :: proc "fmag"(x: f32) -> f32 {
+	return x
+}
+
+shade :: proc "fmag"(x: f32) -> f32 {
+	return other(x)
+}

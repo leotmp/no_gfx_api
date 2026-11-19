@@ -1,0 +1,10 @@
+// Expect: matrix element type must be f32 or f64
+Bad :: matrix[4, 4]i32
+
+vs :: proc "vertex"(
+	vertex_id: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	_ = vertex_id
+	out = [4]f32{}
+	return out
+}

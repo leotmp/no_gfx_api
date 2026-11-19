@@ -1,0 +1,39 @@
+
+Data :: struct #align(16) {
+	v: [4]f32,
+	i: [4]i32,
+	u: [4]u32,
+	acc: f32,
+}
+
+@(size = 1)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+
+	// f32, widths 2/3/4. Scalar broadcast and vector/vector.
+	m2 := data.v.xy == 0
+	m3 := data.v.xyz != data.v.xyz
+	m4 := data.v < 1
+	if m2.x do data.acc += 1
+	if m3.y do data.acc += 1
+	if m4.w do data.acc += 1
+
+	if all(m2) do data.acc += 1
+	if any(m3) do data.acc += 1
+	if all(m4) && any(data.v.xyz > 0) do data.acc += 1
+
+	if all(data.v.xy <= data.v.xy) do data.acc += 1
+	if any(data.v.xyz >= 0) do data.acc += 1
+
+	// Signed and unsigned integer vectors.
+	if all(data.i.xyz == 0) do data.acc += 1
+	if any(data.i.xy < data.i.xy) do data.acc += 1
+	if all(data.u.xy != 0) do data.acc += 1
+	if any(data.u >= 1) do data.acc += 1
+
+	// A scalar compare is still one b32.
+	if data.v.x == 0 do data.acc += 1
+}

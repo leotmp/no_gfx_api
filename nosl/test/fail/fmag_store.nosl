@@ -1,0 +1,5 @@
+// Expect: unknown identifier 'store'
+shade :: proc "fmag"(x: f32) -> f32 {
+	store()
+	return x
+}

@@ -1,0 +1,14 @@
+// Expect: an #inout cannot stand inside a nested struct ('inner')
+NORMAL :: #inout([3]f32, 0)
+Inner :: struct {
+	normal: [3]f32 | NORMAL,
+}
+Out :: struct {
+	pos: [4]f32 | SV_Position,
+	inner: Inner,
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: Out) {
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

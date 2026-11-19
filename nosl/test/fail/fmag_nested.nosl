@@ -1,0 +1,7 @@
+// Expect: shader entry points cannot be nested
+wrap :: proc(x: f32) -> f32 {
+	inner :: proc "fmag"(y: f32) -> f32 {
+		return y
+	}
+	return x
+}

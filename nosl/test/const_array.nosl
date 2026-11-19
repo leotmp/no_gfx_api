@@ -1,0 +1,39 @@
+ARR :: [5]u32{1, 2, 3, 4, 5}
+
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	LOCAL :: [5]u32{9, 8, 7, 6, 5}
+	idx: i32 = 2
+	a := ARR[idx]
+	b := LOCAL[idx]
+	c := ARR[0]
+	out = data.color
+	out.x = f32(a + b + c)
+	return out
+}

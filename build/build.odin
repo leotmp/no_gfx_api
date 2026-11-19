@@ -36,8 +36,8 @@ COMMANDS := []Command {
 
 Example :: struct
 {
-    shaders_nosl: [dynamic]string,
     shaders_slang: [dynamic]string,
+	shaders_nosl: [dynamic]string,
     input_path: string,
     output_path: string,
 }
@@ -74,8 +74,8 @@ cmd_build_example_shaders_nosl :: proc(example: Example) -> bool
     for shader in example.shaders_nosl
     {
         dir, _ := os.split_path(shader)
-        out_flag := fmt.tprintf("-out:%v/%v.spv",  dir, os.stem(shader))
-        res &= run_task(with_exe_ext("./build/gpu_compiler"), shader, out_flag)
+        out_flag := fmt.tprintf("-out:%v", dir)
+        res &= run_task(with_exe_ext("./build/noslc"), shader, out_flag, "-target:spirv", "-target:asm")
     }
     return res
 }
@@ -150,7 +150,7 @@ cmd_check_tests :: proc() -> bool
 cmd_compiler :: proc() -> bool
 {
     res := true
-    res &= run_task("odin", "build", "gpu_compiler", "-debug", with_exe_ext("-out=build/gpu_compiler"))
+    res &= run_task("odin", "build", "nosl/tools/noslc", "-debug", with_exe_ext("-out=build/noslc"))
     return res
 }
 
@@ -176,12 +176,12 @@ cmd_run_compiler_tests :: proc() -> bool
     res := true
 
     dir := "tests"
-    shaders_nosl, shaders_slang := get_shaders_in_dir(dir)
+    _, shaders_nosl := get_shaders_in_dir(dir)
     for shader in shaders_nosl
     {
-        dir, _ := os.split_path(shader)
-        out_flag := fmt.tprintf("-out:%v/%v.spv",  dir, os.stem(shader))
-        compile_success := run_task(with_exe_ext("./build/gpu_compiler"), shader, out_flag, silent = true)
+        shader_dir, _ := os.split_path(shader)
+        out_flag := fmt.tprintf("-out:%v", shader_dir)
+        compile_success := run_task(with_exe_ext("./build/noslc"), shader, out_flag, "-target:spirv", "-quiet", silent = true)
         if compile_success {
             fmt.printfln("%v - Ok.", shader)
         } else {
@@ -282,13 +282,13 @@ add_examples :: proc(dir: string, output_prefix := "")
             if !contains_odin_files(info.fullpath) do continue
 
             // Look for shaders
-            shaders_nosl, shaders_slang := get_shaders_in_dir(info.fullpath)
+            shaders_slang, shaders_nosl := get_shaders_in_dir(info.fullpath)
 
             example := Example {
                 input_path = strings.clone(fmt.tprintf("%v/%v", dir, strings.clone(info.name))),
                 output_path = strings.concatenate({ output_prefix, strings.clone(info.name) }),
-                shaders_nosl = shaders_nosl,
                 shaders_slang = shaders_slang,
+				shaders_nosl = shaders_nosl,
             }
             append(&EXAMPLES, example)
         }
@@ -325,7 +325,7 @@ contains_odin_files :: proc(path: string) -> bool
     return false
 }
 
-get_shaders_in_dir :: proc(path: string) -> (shaders_nosl: [dynamic]string, shaders_slang: [dynamic]string)
+get_shaders_in_dir :: proc(path: string) -> (shaders_slang: [dynamic]string, shaders_nosl: [dynamic]string)
 {
     cur_example_dir, cur_example_err_o := os.open(path)
     defer os.close(cur_example_dir)
@@ -345,19 +345,19 @@ get_shaders_in_dir :: proc(path: string) -> (shaders_nosl: [dynamic]string, shad
             for shader_info in os.read_directory_iterator(&shaders_it)
             {
                 ext := os.ext(shader_info.name)
-                if ext == ".nosl"
-                {
-                    append(&shaders_nosl, strings.clone(shader_info.fullpath))
-                }
-                else if ext == ".slang"
+                if ext == ".slang"
                 {
                     append(&shaders_slang, strings.clone(shader_info.fullpath))
                 }
+				else if ext == ".nosl"
+				{
+					append(&shaders_nosl, strings.clone(shader_info.fullpath))
+				}
             }
         }
     }
 
-    return shaders_nosl, shaders_slang
+    return shaders_slang, shaders_nosl
 }
 
 cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := true, build_shaders_slang := false) -> bool
@@ -408,6 +408,7 @@ cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := tr
         if res && info.build_odin {
             res &= cmd_build_example(task.example)
         }
+
         if !res {
             intr.atomic_store(task.success, false)
         }

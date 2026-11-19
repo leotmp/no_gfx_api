@@ -1,0 +1,24 @@
+// Expected: checker error — mutual recursion
+vec4 :: [4]f32
+
+even :: proc(n: i32) -> b32 {
+	if n == 0 {
+		return true
+	}
+	return odd(n - 1)
+}
+
+odd :: proc(n: i32) -> b32 {
+	if n == 0 {
+		return false
+	}
+	return even(n - 1)
+}
+
+vs :: proc "vertex"(
+	vertex_id: u32 | SV_Vertex,
+) -> (out: vec4 | SV_Position) {
+	_ = even(3)
+	out = vec4(0, 0, 0, 1)
+	return out
+}

@@ -1,0 +1,4 @@
+// Expect: unknown identifier 'SV_Postion'
+Out :: struct {
+	pos: [4]f32 | SV_Postion,
+}

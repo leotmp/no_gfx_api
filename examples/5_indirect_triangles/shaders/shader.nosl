@@ -1,49 +1,47 @@
+COLOR :: #inout(f32x4, 0)
 
 Vertex :: struct
 {
-    pos: vec3,
+    pos: f32x3,
 }
 
 Data :: struct
 {
-    verts: []Vertex,
+    verts: [^]Vertex,
 }
 
-// IndirectData extends Draw_Indexed_Indirect_Command with user data fields
-// The struct layout matches the Odin struct that uses `using cmd: gpu.Draw_Indexed_Indirect_Command`
+// Layout matches Odin `using cmd: gpu.Draw_Indexed_Indirect_Command`.
 IndirectData :: struct
 {
-    index_count: uint,
-    instance_count: uint,
-    first_index: uint,
-    vertex_offset: int,
-    first_instance: uint,
-    color: vec3,
-    pos: vec3,
-    size: float,
+    index_count:    u32,
+    instance_count: u32,
+    first_index:    u32,
+    vertex_offset:  i32,
+    first_instance: u32,
+    color:          f32x3,
+    pos:            f32x3,
+    size:           f32,
 }
 
-Vert_Output :: struct
+VS_Out :: struct
 {
-    pos: vec4 @position,
-    color: vec4 @io(0),
+    pos:   f32x4 | SV_Position,
+    color: f32x4 | COLOR,
 }
 
-vert :: #vertex (vert_id: uint @vert_id, data: ^Data @data, indirect_data: ^IndirectData @indirect_data) -> Vert_Output
+vert :: proc "vertex"(
+    vid: u32 | SV_Vertex,
+    data: ^Data | SV_Data,
+    args: ^IndirectData | SV_Indirect_Data,
+) -> (out: VS_Out)
 {
-    out: Vert_Output;
-
-    // vertices are shared between all draws so we use `data` to access them
-    // Scale vertices by size and translate by position
-    out.pos = vec4(data.verts[vert_id].pos * indirect_data.size + indirect_data.pos, 1.0);
-
-    // color is per-draw so we use `indirect_data` to access it
-    out.color = vec4(indirect_data.color, 1.0);
-
-    return out;
+    out.pos = f32x4(data.verts[vid].pos * args.size + args.pos, 1)
+    out.color = f32x4(args.color, 1)
+    return out
 }
 
-frag :: #fragment (input: Vert_Output) -> vec4 @io(0)
+frag :: proc "fragment"(input: VS_Out) -> (out: f32x4 | SV_Target)
 {
-    return input.color;
+    out = input.color
+    return out
 }

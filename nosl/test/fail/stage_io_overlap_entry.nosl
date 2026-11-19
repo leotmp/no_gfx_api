@@ -1,0 +1,9 @@
+// Expect: 'normal' and 'n' both use location 0
+NORMAL :: #inout([3]f32, 0)
+Out :: struct {
+	pos: [4]f32 | SV_Position,
+	normal: [3]f32 | NORMAL,
+}
+fs :: proc "fragment"(fsin: Out, n: [3]f32 | NORMAL) -> (out: [4]f32 | SV_Target) {
+	return [4]f32{n.x, fsin.normal.y, 0, 1}
+}

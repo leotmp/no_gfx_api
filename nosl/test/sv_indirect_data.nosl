@@ -1,0 +1,58 @@
+// SV_Indirect_Data: typed push-constant slot 2 (any ^Struct).
+vec4 :: [4]f32
+
+Draw_Cmd :: struct {
+	vertex_count:   u32,
+	instance_count: u32,
+	first_vertex:   u32,
+	first_instance: u32,
+}
+
+My_Indirect :: struct #align(16) {
+	cmd:  Draw_Cmd,
+	seed: u32,
+	pad:  u32,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	args: ^My_Indirect | SV_Indirect_Data,
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vid
+	_ = data.color
+	_ = args.cmd.vertex_count
+	_ = args.seed
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+	args: ^My_Indirect | SV_Indirect_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	_ = args.seed
+	out = data.color
+	return out
+}
+
+// Indirect only (no SV_Data) — still emits full 3-slot PC block
+vs_indirect_only :: proc "vertex"(
+	args: ^My_Indirect | SV_Indirect_Data,
+	vid: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vid
+	_ = args.seed
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

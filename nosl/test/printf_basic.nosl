@@ -1,0 +1,85 @@
+import "core:debug"
+
+vec3 :: [3]f32
+vec4 :: [4]f32
+mat2 :: matrix[2, 2]f32
+
+Flag :: enum u32 {
+	A,
+	B,
+	C,
+}
+
+Flags :: bit_set[Flag; u32]
+
+Item :: struct #align(16) {
+	v: f32,
+	id: u32,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+	items: []Item,
+	ptr: [^]Item,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	x: f32 = 1.5
+	n: i32 = 3
+	b: b32 = true
+	debug.printfln("x=%v n=%v b=%v", x, n, b)
+
+	v := vec3(1, 2, 3)
+	debug.printfln("v=%v", v)
+	debug.printf("v=%#v\n", v)
+
+	arr: [3]i32
+	arr[0] = 1
+	arr[1] = 2
+	arr[2] = 3
+	debug.printf("arr=%v\n", arr)
+
+	m: mat2
+	debug.printf("m=%v\n", m)
+
+	st: Item
+	st.v = 9
+	st.id = 1
+	debug.printf("st=%v\n", st)
+	debug.printf("st=%#v\n", st)
+
+	e: Flag = .B
+	debug.printf("e=%v\n", e)
+
+	bs := Flags{.A, .C}
+	debug.printf("bs=%v\n", bs)
+	debug.printf("bs=%#v\n", bs)
+
+	debug.printf("slice=%v\n", data.items)
+	debug.printf("ptr=%v\n", data.ptr)
+	debug.printf("pct=%%\n")
+
+	tex: t32_2d = 7
+	samp: s32 = 3
+	rw: rw32_2d = 1
+	debug.printf("tex=%v samp=%v rw=%v\n", tex, samp, rw)
+
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin.pos
+	out = data.color
+	return out
+}

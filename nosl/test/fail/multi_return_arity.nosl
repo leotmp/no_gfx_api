@@ -1,0 +1,25 @@
+// Expect: multiple return values cannot be used in a single-value context
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	v: f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+split :: proc(x: f32) -> (a: f32, b: f32) {
+	return x, x
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	x: f32 = 0
+	x = split(1.0) // N=2 used as single value
+	_ = x
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}

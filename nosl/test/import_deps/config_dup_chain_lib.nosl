@@ -1,0 +1,2 @@
+// Helper for fail/config_dup_chain.nosl — not a root fail fixture.
+X :: #config(CHAIN_KEY, 1)

@@ -1,0 +1,6 @@
+import a "import_deps/spec_lib.nosl"
+import b "import_deps/spec_lib.nosl"
+
+cs :: proc "compute"() {
+	_ = a.step + b.step
+}

@@ -1,0 +1,7 @@
+// Compute entry with no SV_Data: no push-constant block.
+@(size = 8)
+cs :: proc "compute"(
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+}

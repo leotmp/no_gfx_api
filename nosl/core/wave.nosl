@@ -1,0 +1,45 @@
+// Predicates and boolean results are b32 / [N]b32.
+
+is_first :: #intrinsic("wave.is_first") // proc() -> b32
+lane_count :: #intrinsic("wave.lane_count") // proc() -> u32
+lane_id :: #intrinsic("wave.lane_id") // proc() -> u32
+
+any :: #intrinsic("wave.any") // proc(p: b32) -> b32
+all :: #intrinsic("wave.all") // proc(p: b32) -> b32
+ballot :: #intrinsic("wave.ballot") // proc(p: b32) -> [4]u32
+broadcast_first :: #intrinsic("wave.broadcast_first") // proc(x: T) -> T
+read :: #intrinsic("wave.read") // proc(x: T, lane: u32) -> T
+all_equal :: #intrinsic("wave.all_equal") // proc(x: T) -> b32
+bit_count :: #intrinsic("wave.bit_count") // proc(p: b32) -> u32
+
+sum :: #intrinsic("wave.sum") // proc(x: T) -> T
+product :: #intrinsic("wave.product") // proc(x: T) -> T
+min :: #intrinsic("wave.min") // proc(x: T) -> T
+max :: #intrinsic("wave.max") // proc(x: T) -> T
+bit_and :: #intrinsic("wave.bit_and") // proc(x: T) -> T
+bit_or :: #intrinsic("wave.bit_or") // proc(x: T) -> T
+bit_xor :: #intrinsic("wave.bit_xor") // proc(x: T) -> T
+
+prefix_sum :: #intrinsic("wave.prefix_sum") // proc(x: T) -> T
+prefix_product :: #intrinsic("wave.prefix_product") // proc(x: T) -> T
+prefix_bit_count :: #intrinsic("wave.prefix_bit_count") // proc(p: b32) -> u32
+
+quad_x :: #intrinsic("wave.quad_x") // proc(x: T) -> T
+quad_y :: #intrinsic("wave.quad_y") // proc(x: T) -> T
+quad_diag :: #intrinsic("wave.quad_diag") // proc(x: T) -> T
+quad_read :: #intrinsic("wave.quad_read") // proc(x: T, lane: u32) -> T
+
+shuffle_xor :: #intrinsic("wave.shuffle_xor") // proc(x: T, mask: u32) -> T
+shuffle_up :: #intrinsic("wave.shuffle_up") // proc(x: T, delta: u32) -> T
+shuffle_down :: #intrinsic("wave.shuffle_down") // proc(x: T, delta: u32) -> T
+
+clustered_sum :: #intrinsic("wave.clustered_sum") // proc(x: T, cluster: u32) -> T
+clustered_product :: #intrinsic("wave.clustered_product") // proc(x: T, cluster: u32) -> T
+clustered_min :: #intrinsic("wave.clustered_min") // proc(x: T, cluster: u32) -> T
+clustered_max :: #intrinsic("wave.clustered_max") // proc(x: T, cluster: u32) -> T
+clustered_bit_and :: #intrinsic("wave.clustered_bit_and") // proc(x: T, cluster: u32) -> T
+clustered_bit_or :: #intrinsic("wave.clustered_bit_or") // proc(x: T, cluster: u32) -> T
+clustered_bit_xor :: #intrinsic("wave.clustered_bit_xor") // proc(x: T, cluster: u32) -> T
+
+rotate :: #intrinsic("wave.rotate") // proc(x: T, delta: u32) -> T
+clustered_rotate :: #intrinsic("wave.clustered_rotate") // proc(x: T, delta: u32, cluster: u32) -> T

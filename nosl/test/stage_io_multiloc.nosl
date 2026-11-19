@@ -1,0 +1,33 @@
+// Matrices and arrays take one location per column or element, positional or bound.
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+BONES :: #inout(matrix[4, 4]f32, 4)
+
+Out :: struct {
+	pos:     vec4 | SV_Position,
+	weights: [2]vec4,                  // positional: 0, 1
+	tail:    vec3,                     // positional: 2
+	bones:   matrix[4, 4]f32 | BONES,  // 4..7
+	after:   f32,                      // positional: 3
+	last:    f32,                      // positional: 8
+}
+
+vs :: proc "vertex"(vid: u32 | SV_Vertex) -> (out: Out) {
+	out.pos = vec4(0, 0, 0, 1)
+	out.weights[1] = vec4(f32(vid), 0, 0, 0)
+	out.tail = vec3(1, 1, 1)
+	out.after = 1
+	out.last = 2
+	return out
+}
+
+fs :: proc "fragment"(fsin: Out) -> (out: vec4 | SV_Target) {
+	return fsin.weights[1] + vec4(fsin.tail.x, fsin.after, fsin.last, 0) + fsin.bones * vec4(1, 0, 0, 0)
+}
+
+multiloc_pipeline :: pipeline {
+	vertex = vs,
+	fragment = fs,
+	targets = {{format = .rgba_u8_norm}},
+}

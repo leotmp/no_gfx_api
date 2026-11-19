@@ -1,0 +1,5 @@
+@(specialization_constant = 2)
+flag: b32
+
+@(size = flag)
+cs :: proc "compute"() {}

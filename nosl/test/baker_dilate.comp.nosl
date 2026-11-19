@@ -1,0 +1,39 @@
+Data :: struct {
+	output: rw32_2d,
+	input:  rw32_2d,
+}
+
+@(size = {8, 8})
+main :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid3: [3]u32 | SV_Global_Thread,
+) {
+	gid := i32x2(i32(gid3.x), i32(gid3.y))
+	tex_size := min(dim(data.output), dim(data.input))
+	if any(gid < 0) || any(gid > tex_size) do return
+
+	src_color := load(data.input, gid)
+	if src_color.a > 0.5 {
+		store(data.output, gid, src_color)
+		return
+	}
+
+	sample_sum := f32x3(0)
+	sample_count: u32 = 0
+	for dy := -1; dy <= 1; dy += 1 {
+		for dx := -1; dx <= 1; dx += 1 {
+			neighbor_coord := clamp(gid + i32x2(dx, dy), i32x2(0, 0), tex_size - 1)
+			neighbor_color := load(data.input, neighbor_coord)
+			if neighbor_color.a > 0.5 {
+				sample_sum += neighbor_color.rgb
+				sample_count += 1
+			}
+		}
+	}
+
+	if sample_count > 0 {
+		store(data.output, gid, f32x4(sample_sum / f32(sample_count), 1))
+	} else {
+		store(data.output, gid, src_color)
+	}
+}

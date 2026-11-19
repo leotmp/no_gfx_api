@@ -1,0 +1,5 @@
+// Expect: #inout on a vertex parameter
+NORMAL :: #inout([3]f32, 0)
+vs :: proc "vertex"(n: [3]f32 | NORMAL) -> (pos: [4]f32 | SV_Position) {
+	return [4]f32{n.x, 0, 0, 1}
+}

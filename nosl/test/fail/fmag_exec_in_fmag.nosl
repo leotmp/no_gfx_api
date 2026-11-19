@@ -1,0 +1,6 @@
+// Expect: builtin 'exec' is not allowed in proc "fmag"
+import "core:fmag"
+
+shade :: proc "fmag"(x: f32) -> f32 {
+	return fmag.exec(x, x)
+}

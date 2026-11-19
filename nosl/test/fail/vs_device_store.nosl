@@ -1,0 +1,20 @@
+Particle :: struct #align(16) {
+	pos: [2]f32,
+}
+
+Data :: struct #align(16) {
+	particles: [^]Particle,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	data.particles[0].pos = [2]f32{1, 2}
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

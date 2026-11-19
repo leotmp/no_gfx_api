@@ -1,0 +1,6 @@
+// Expect: 'normal' is '[2]f32' but its #inout is '[3]f32'
+NORMAL :: #inout([3]f32, 0)
+Out :: struct {
+	pos: [4]f32 | SV_Position,
+	normal: [2]f32 | NORMAL,
+}

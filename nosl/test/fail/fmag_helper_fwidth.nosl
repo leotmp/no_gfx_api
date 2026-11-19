@@ -1,0 +1,8 @@
+// Expect: unknown identifier 'fwidth'
+width_of :: proc(x: f32) -> f32 {
+	return fwidth(x)
+}
+
+k :: proc "fmag"(a: f32) -> f32 {
+	return width_of(a)
+}

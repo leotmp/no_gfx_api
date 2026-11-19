@@ -1,0 +1,422 @@
+PI :: 3.14159265359
+
+Mesh :: struct {
+	pos:     [^]f32x3,
+	normal:  [^]f32x3,
+	uvs:     [^]f32x2,
+	indices: [^]u32,
+}
+
+Instance :: struct {
+	mesh_idx:   u32,
+	albedo_tex: t32_2d,
+}
+
+Lights :: struct {
+	dir_light_dir:      f32x3,
+	dir_light_angle:    f32,
+	dir_light_emission: f32x3,
+}
+
+Scene :: struct {
+	instances: [^]Instance,
+	meshes:    [^]Mesh,
+	lights:    Lights,
+	_pad:      u32, // alignment tail (struct align is 8)
+}
+
+Data :: struct {
+	output_texture_id: rw32_2d,
+	tlas:              bvh32,
+	linear_sampler:    s32,
+	scene:             Scene,
+	resolution:        f32x2,
+	accum_counter:     u32,
+	is_lightmap:       b32,
+	camera_to_world:   f32x4x4,
+	gbufs_id:          rw32_2d,
+	_pad:              u32, // alignment tail (struct align is 8)
+}
+
+Ray :: struct {
+	ori: f32x3,
+	dir: f32x3,
+}
+
+Hit_Info :: struct {
+	hit:          b32,
+	t:            f32,
+	normal:       f32x3,
+	mesh_idx:     u32,
+	instance_idx: u32,
+	tri_idx:      u32,
+	uv:           f32x2,
+}
+
+Material_Point :: struct {
+	color: f32x3,
+}
+
+hash_u32 :: proc(seed: u32) -> u32 {
+	x := seed
+	x = x ~ (x >> 17)
+	x = x * 0xed5ad4bb
+	x = x ~ (x >> 11)
+	x = x * 0xac4c1b51
+	x = x ~ (x >> 15)
+	x = x * 0x31848bab
+	x = x ~ (x >> 14)
+	return x
+}
+
+init_rng :: proc(#ref rng: u32, global_id: u32, accum_counter: u32) {
+	rng = hash_u32((global_id * 19349663) ~ (accum_counter * 83492791))
+}
+
+random_u32 :: proc(#ref rng: u32) -> u32 {
+	rng = rng * 747796405 + 2891336453
+	result := ((rng >> ((rng >> 28) + 4)) ~ rng) * 277803737
+	result = (result >> 22) ~ result
+	return result
+}
+
+random_f32 :: proc(#ref rng: u32) -> f32 {
+	rng = rng * 747796405 + 2891336453
+	result := ((rng >> ((rng >> 28) + 4)) ~ rng) * 277803737
+	result = (result >> 22) ~ result
+	return f32(result) / 4294967295
+}
+
+random_vec2 :: proc(#ref rng: u32) -> f32x2 {
+	rnd0 := random_f32(&rng)
+	rnd1 := random_f32(&rng)
+	return f32x2(rnd0, rnd1)
+}
+
+copysignf :: proc(magnitude: f32, sgn: f32) -> f32 {
+	return magnitude if sgn > 0 else -magnitude
+}
+
+basis_fromz :: proc(v: f32x3) -> f32x4x4 {
+	z := normalize(v)
+	sign := copysignf(1, z.z)
+	a := -1 / (sign + z.z)
+	b := z.x * z.y * a
+	x := f32x3(1 + sign * z.x * z.x * a, sign * b, -sign * z.x)
+	y := f32x3(b, sign + z.y * z.y * a, -z.y)
+	return f32x4x4(
+		x.x, x.y, x.z, 0,
+		y.x, y.y, y.z, 0,
+		z.x, z.y, z.z, 0,
+		0, 0, 0, 0,
+	)
+}
+
+sample_hemisphere_cos :: proc(normal: f32x3, ruv: f32x2) -> f32x3 {
+	z := sqrt(ruv.y)
+	r := sqrt(1 - z * z)
+	phi := 2 * PI * ruv.x
+	local_direction := f32x3(r * cos(phi), r * sin(phi), z)
+	return normalize(basis_fromz(normal) * f32x4(local_direction, 0)).xyz
+}
+
+sample_hemisphere_cos_pdf :: proc(normal: f32x3, direction: f32x3) -> f32 {
+	cosw := dot(normal, direction)
+	if cosw <= 0 do return 0
+	return cosw / PI
+}
+
+sample_matte :: proc(normal: f32x3, rn: f32x2) -> f32x3 {
+	return sample_hemisphere_cos(normal, rn)
+}
+
+eval_matte :: proc(color: f32x3, normal: f32x3, incoming: f32x3) -> f32x3 {
+	return color / PI * abs(dot(normal, incoming))
+}
+
+sample_matte_pdf :: proc(normal: f32x3, incoming: f32x3) -> f32 {
+	return sample_hemisphere_cos_pdf(normal, incoming)
+}
+
+is_finite :: proc(v: f32x3) -> b32 {
+	is_x := (u32_from_f32_bits(v.x) & 0x7F800000) != 0x7F800000
+	is_y := (u32_from_f32_bits(v.y) & 0x7F800000) != 0x7F800000
+	is_z := (u32_from_f32_bits(v.z) & 0x7F800000) != 0x7F800000
+	return is_x && is_y && is_z
+}
+
+all_zero :: proc(v: f32x3) -> b32 {
+	return all(v == 0)
+}
+
+ray_scene_intersection :: proc(ray: Ray, scene: Scene, tlas: bvh32) -> Hit_Info {
+	hit_info: Hit_Info
+	desc: Ray_Desc
+	desc.flags = {.Opaque}
+	desc.cull_mask = 0xFF
+	desc.t_min = 0.001
+	desc.t_max = 1000000000
+	desc.origin = ray.ori
+	desc.dir = ray.dir
+	rq := rayquery_init(desc, tlas)
+	_ = rayquery_proceed(rq)
+	hit := rayquery_result(rq)
+
+	if hit.kind != .Triangle {
+		hit_info.hit = false
+		return hit_info
+	}
+
+	instance := scene.instances[hit.instance_idx]
+	mesh := scene.meshes[instance.mesh_idx]
+	base_idx := hit.primitive_idx * 3
+	w := 1 - hit.barycentrics.x - hit.barycentrics.y
+	n0 := mesh.normal[mesh.indices[base_idx + 0]]
+	n1 := mesh.normal[mesh.indices[base_idx + 1]]
+	n2 := mesh.normal[mesh.indices[base_idx + 2]]
+	normal := normalize(n0 * w + n1 * hit.barycentrics.x + n2 * hit.barycentrics.y)
+	if hit.front_face do normal *= -1
+	world_normal := normalize(transpose(hit.world_to_object) * normal)
+
+	hit_info.hit = true
+	hit_info.t = hit.t
+	hit_info.normal = world_normal.xyz
+	hit_info.mesh_idx = instance.mesh_idx
+	hit_info.instance_idx = hit.instance_idx
+	hit_info.tri_idx = hit.primitive_idx
+	hit_info.uv = hit.barycentrics
+	return hit_info
+}
+
+ray_skip_alpha_stochastically :: proc(#ref rng: u32, start_ray: Ray, scene: Scene, tlas: bvh32) -> Hit_Info {
+	hit: Hit_Info
+	ray := start_ray
+	t := f32(0)
+	max_opacity_bounces := 100
+	for opacity_bounce := 0; opacity_bounce < max_opacity_bounces; opacity_bounce += 1 {
+		hit = ray_scene_intersection(ray, scene, tlas)
+		if !hit.hit do break
+		t += hit.t
+		alpha := get_alpha(scene, hit)
+		if alpha < 1 && random_f32(&rng) >= alpha {
+			ray.ori = ray.ori + ray.dir * hit.t
+		} else {
+			break
+		}
+	}
+	hit.t = t
+	return hit
+}
+
+// Alpha and albedo share one fetch at sampler index 0. A second sample() of that
+// constant index decorates the same SPIR-V id NonUniform twice, which spirv-val rejects.
+albedo_sample :: proc(scene: Scene, hit: Hit_Info) -> f32x4 {
+	instance := scene.instances[hit.instance_idx]
+	mesh := scene.meshes[hit.mesh_idx]
+	base_idx := hit.tri_idx * 3
+	uv0 := mesh.uvs[mesh.indices[base_idx + 0]]
+	uv1 := mesh.uvs[mesh.indices[base_idx + 1]]
+	uv2 := mesh.uvs[mesh.indices[base_idx + 2]]
+	w := 1 - hit.uv.x - hit.uv.y
+	texcoords := uv0 * w + uv1 * hit.uv.x + uv2 * hit.uv.y
+	// Compute has no fragment derivatives, so the lod is explicit.
+	return sample(instance.albedo_tex, 0, texcoords, 0)
+}
+
+get_alpha :: proc(scene: Scene, hit: Hit_Info) -> f32 {
+	return albedo_sample(scene, hit).a
+}
+
+get_material_point :: proc(scene: Scene, hit: Hit_Info) -> Material_Point {
+	mat_point: Material_Point
+	mat_point.color = albedo_sample(scene, hit).rgb
+	return mat_point
+}
+
+sun_disk_falloff :: proc(ray_dir: f32x3, sun_dir: f32x3, angular_radius: f32) -> f32 {
+	cos_theta := dot(ray_dir, sun_dir)
+	cos_inner := cos(angular_radius)
+	cos_outer := cos(angular_radius * 1.5)
+	return smoothstep(cos_outer, cos_inner, cos_theta)
+}
+
+sample_sun_direction :: proc(sun_dir: f32x3, angular_radius: f32, u: f32x2) -> f32x3 {
+	cos_theta_max := cos(angular_radius)
+	cos_theta := lerp(1, cos_theta_max, u.x)
+	sin_theta := sqrt(1 - cos_theta * cos_theta)
+	phi := 2 * PI * u.y
+
+	t: f32x3
+	b: f32x3
+	if abs(sun_dir.z) < 0.999 {
+		t = normalize(cross(sun_dir, f32x3(0, 0, 1)))
+	} else {
+		t = normalize(cross(sun_dir, f32x3(0, 1, 0)))
+	}
+	b = cross(sun_dir, t)
+	return t * (cos(phi) * sin_theta) + b * (sin(phi) * sin_theta) + sun_dir * cos_theta
+}
+
+eval_sun_pdf :: proc(dir: f32x3, sun_dir: f32x3, angular_radius: f32) -> f32 {
+	cos_theta := dot(dir, sun_dir)
+	cos_max := cos(angular_radius)
+	if cos_theta < cos_max do return 0
+	solid_angle := 2 * PI * (1 - cos_max)
+	return 1 / solid_angle
+}
+
+sample_lights :: proc(#ref rng: u32, lights: Lights, pos: f32x3, normal: f32x3, outgoing: f32x3) -> f32x3 {
+	_ = pos
+	_ = outgoing
+	light_dir := sample_sun_direction(-lights.dir_light_dir, lights.dir_light_angle, random_vec2(&rng))
+	if dot(light_dir, normal) < 0 do return f32x3(0)
+	return light_dir
+}
+
+sample_lights_pdf :: proc(lights: Lights, pos: f32x3, incoming: f32x3) -> f32 {
+	_ = pos
+	return eval_sun_pdf(incoming, -lights.dir_light_dir, lights.dir_light_angle)
+}
+
+sample_sky_emission :: proc(dir: f32x3, scene: Scene) -> f32x3 {
+	emission := sun_disk_falloff(dir, -scene.lights.dir_light_dir, scene.lights.dir_light_angle) * scene.lights.dir_light_emission
+	emission += f32x3(0.67, 0.76, 1.00)
+	return emission
+}
+
+clamp_radiance :: proc(radiance: f32x3) -> f32x3 {
+	res := radiance
+	if !is_finite(res) do res = f32x3(0)
+	max_radiance := f32(100)
+	if any(res > max_radiance) {
+		res *= max_radiance / max(res.x, max(res.y, res.z))
+	}
+	return res
+}
+
+pathtrace :: proc(#ref rng: u32, start_ray: Ray, scene: Scene, tlas: bvh32, sampler: s32) -> f32x3 {
+	_ = sampler
+	radiance := f32x3(0, 0, 0)
+	weight := f32x3(1, 1, 1)
+	ray := start_ray
+	max_bounces := 5
+
+	for bounce := 0; bounce <= max_bounces; bounce += 1 {
+		hit := ray_skip_alpha_stochastically(&rng, ray, scene, tlas)
+		if !hit.hit {
+			emission := sample_sky_emission(ray.dir, scene)
+			radiance += emission * weight
+			break
+		}
+
+		hit_pos := ray.ori + ray.dir * hit.t
+		mat_point := get_material_point(scene, hit)
+		outgoing := -ray.dir
+
+		light_prob := f32(0.5)
+		bsdf_prob := f32(0.5)
+		incoming: f32x3
+		if random_f32(&rng) < bsdf_prob {
+			// rnd0 is unused, but it advances the RNG the same way the NOSL does.
+			_ = random_f32(&rng)
+			rnd1 := random_vec2(&rng)
+			incoming = sample_matte(hit.normal, rnd1)
+		} else {
+			incoming = sample_lights(&rng, scene.lights, hit_pos, hit.normal, outgoing)
+		}
+		if all_zero(incoming) do break
+
+		prob := bsdf_prob * sample_matte_pdf(hit.normal, incoming) + light_prob * sample_lights_pdf(scene.lights, hit_pos, incoming)
+		weight *= eval_matte(mat_point.color, hit.normal, incoming) / prob
+
+		ray.ori = hit_pos
+		ray.dir = incoming
+
+		if all_zero(weight) || !is_finite(weight) do break
+
+		if bounce > 3 {
+			survive_prob := min(0.99, max(weight.x, max(weight.y, weight.z)))
+			if random_f32(&rng) >= survive_prob do break
+			weight = weight / survive_prob
+		}
+	}
+	return radiance
+}
+
+bake_texel :: proc(#ref rng: u32, world_pos: f32x3, world_normal: f32x3, scene: Scene, tlas: bvh32, sampler: s32) -> f32x3 {
+	N :: 1
+	accum := f32x3(0, 0, 0)
+	origin := world_pos
+	for i := 0; i < N; i += 1 {
+		light_prob := f32(0.5)
+		bsdf_prob := f32(0.5)
+		incoming: f32x3
+		if random_f32(&rng) < bsdf_prob {
+			incoming = sample_matte(world_normal, random_vec2(&rng))
+		} else {
+			incoming = sample_lights(&rng, scene.lights, origin, world_normal, world_normal)
+		}
+		if all_zero(incoming) do continue
+
+		prob := bsdf_prob * sample_matte_pdf(world_normal, incoming) + light_prob * sample_lights_pdf(scene.lights, origin, incoming)
+		cos_term := max(0, dot(world_normal, incoming))
+		mis_weight := cos_term / prob
+
+		ray: Ray
+		ray.ori = origin
+		ray.dir = incoming
+		accum += pathtrace(&rng, ray, scene, tlas, sampler) * mis_weight
+	}
+	return accum / f32(N)
+}
+
+@(size = {8, 8})
+main :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid3: [3]u32 | SV_Global_Thread,
+) {
+	gid := i32x2(i32(gid3.x), i32(gid3.y))
+	resolution := i32x2(i32(data.resolution.x), i32(data.resolution.y))
+	rng: u32
+	init_rng(&rng, u32(gid.y * resolution.x + gid.x), data.accum_counter)
+
+	color: f32x3
+	if data.is_lightmap {
+		if any(gid >= resolution) do return
+
+		pos_sample := load(data.gbufs_id + 0, gid)
+		normal_sample := load(data.gbufs_id + 1, gid)
+		if normal_sample.a < 0.1 {
+			store(data.output_texture_id, gid, f32x4(0, 0, 0, 0))
+			return
+		}
+
+		normal := normalize((normal_sample * 2 - 1).xyz)
+		color = clamp_radiance(bake_texel(&rng, pos_sample.xyz, normal, data.scene, data.tlas, data.linear_sampler))
+	} else {
+		uv := f32x2(f32(gid.x), f32(gid.y)) / f32x2(f32(resolution.x), f32(resolution.y))
+		coord := 2 * uv - 1
+		coord.y *= -1
+		coord = coord * tan((90 * PI / 180) / 2)
+		coord.y = coord.y * data.resolution.y / data.resolution.x
+
+		world_camera_pos := (data.camera_to_world * f32x4(0, 0, 0, 1)).xyz
+		camera_lookat := normalize(f32x3(coord, 1))
+		world_camera_lookat := normalize(data.camera_to_world * f32x4(camera_lookat, 0)).xyz
+
+		start_ray: Ray
+		start_ray.ori = world_camera_pos
+		start_ray.dir = world_camera_lookat
+		color = clamp_radiance(pathtrace(&rng, start_ray, data.scene, data.tlas, data.linear_sampler))
+	}
+
+	if all(gid < resolution) {
+		if data.accum_counter > 1 {
+			weight := 1 / f32(data.accum_counter)
+			prev_color := load(data.output_texture_id, gid).xyz
+			color = prev_color * (1 - weight) + color * weight
+			color = max(color, f32x3(0, 0, 0))
+		}
+		store(data.output_texture_id, gid, f32x4(color, 1))
+	}
+}

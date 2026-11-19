@@ -1,0 +1,12 @@
+// Expect: expected a boolean condition, got '[3]b32'
+// A vector compare is [3]b32, so it cannot be an if condition. Use all() or any().
+
+@(size = 1)
+cs :: proc "compute"(
+	gid: [3]u32 | SV_Global_Thread,
+) {
+	_ = gid
+	a: [3]f32 = {0, 1, 0}
+	b: [3]f32 = {0, 1, 0}
+	if a == b do return
+}

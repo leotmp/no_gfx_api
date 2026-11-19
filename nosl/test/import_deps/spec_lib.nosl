@@ -1,0 +1,2 @@
+@(specialization_constant = 4)
+step: u32 = 2
