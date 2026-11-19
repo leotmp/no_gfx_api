@@ -358,7 +358,7 @@ bvh_alloc_update_scratch_buffer :: proc { blas_alloc_update_scratch_buffer, tlas
 
 // Swapchain utils
 
-swapchain_create_from_sdl :: proc(window: ^sdl.Window, frames_in_flight: u32, present_mode: Present_Mode = {})
+swapchain_create_from_sdl :: proc(window: ^sdl.Window, frames_in_flight: u32, format: Swapchain_Format = {}, present_mode: Present_Mode = {})
 {
     vk_surface: vk.SurfaceKHR
     ok := sdl.Vulkan_CreateSurface(window, vk_get_instance(), nil, &vk_surface)
@@ -367,7 +367,15 @@ swapchain_create_from_sdl :: proc(window: ^sdl.Window, frames_in_flight: u32, pr
     window_size_x: i32
     window_size_y: i32
     sdl.GetWindowSize(window, &window_size_x, &window_size_y)
-    swapchain_create(vk_surface, { u32(max(0, window_size_x)), u32(max(0, window_size_y)) }, frames_in_flight, present_mode)
+    swapchain_create(vk_surface, { u32(max(0, window_size_x)), u32(max(0, window_size_y)) }, frames_in_flight, format, present_mode)
+}
+
+swapchain_formats_available_sdl :: proc(window: ^sdl.Window) -> Swapchain_Formats
+{
+    vk_surface: vk.SurfaceKHR
+    ok := sdl.Vulkan_CreateSurface(window, vk_get_instance(), nil, &vk_surface)
+    ensure(ok, "Could not create surface.")
+    return swapchain_formats_available(vk_surface)
 }
 
 // Texture utils
