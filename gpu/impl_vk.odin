@@ -2888,7 +2888,15 @@ _cmd_begin_render_pass :: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Info, 
         ok := true
         ok &= pool_check(&ctx.command_buffers, cmd_buf, "cmd_buf", loc)
         ok &= check_cmd_buf_must_be_graphics(cmd_buf, "cmd_buf", loc)
-        // TODO: Attachments checks
+        for attach, i in desc.color_attachments {
+            ok &= check_attachment_indexed(attach, "desc.color_attachments", i, loc)
+        }
+        if desc.depth_attachment != nil {
+            ok &= check_attachment(desc.depth_attachment.?, "desc.depth_attachment", loc)
+        }
+        if desc.stencil_attachment != nil {
+            ok &= check_attachment(desc.stencil_attachment.?, "desc.stencil_attachment", loc)
+        }
         if !ok do return
     }
 
@@ -4150,6 +4158,62 @@ check_texture_descriptor :: proc(desc: Texture_Descriptor, name: string, index: 
 
     if !pool_check_no_message(&ctx.textures, texture_descriptor_get_handle(desc)) {
         log.errorf("'%v[%v]' texture descriptor is stale, the underlying texture has been freed.", name, index, location = loc)
+        return false
+    }
+
+    return true
+}
+
+@(private="file")
+check_attachment_indexed :: proc(attach: Render_Attachment, name: string, index: int, loc: runtime.Source_Code_Location) -> bool
+{
+    if attach.texture != {} && !pool_check_no_message(&ctx.textures, attach.texture.handle) {
+        log.errorf("'%v[%v]' rendering attachment's texture is stale, the underlying texture has been freed.", name, index, location = loc)
+        return false
+    }
+
+    if attach.resolve_texture != {} && !pool_check_no_message(&ctx.textures, attach.resolve_texture.handle) {
+        log.errorf("'%v[%v]' rendering attachment's resolve texture is stale, the underlying texture has been freed.", name, index, location = loc)
+        return false
+    }
+
+    does_resolve := attach.store_op == .Resolve || attach.store_op == .Resolve_And_Store
+
+    if attach.resolve_texture != {} && !does_resolve {
+        log.error("'%v[%v]' render attachment has a valid resolve_texture set, but does not use it.", name, index, location = loc)
+        return true  // Proceed anyway, just don't do the resolve
+    }
+
+    if attach.resolve_texture == {} && does_resolve {
+        log.error("'%v[%v]' render attachment has store_op '%v', but does not have a valid resolve_texture set.", name, index, attach.store_op, location = loc)
+        return false
+    }
+
+    return true
+}
+
+@(private="file")
+check_attachment :: proc(attach: Render_Attachment, name: string, loc: runtime.Source_Code_Location) -> bool
+{
+    if attach.texture != {} && !pool_check_no_message(&ctx.textures, attach.texture.handle) {
+        log.errorf("'%v' rendering attachment's texture is stale, the underlying texture has been freed.", name, location = loc)
+        return false
+    }
+
+    if attach.resolve_texture != {} && !pool_check_no_message(&ctx.textures, attach.resolve_texture.handle) {
+        log.errorf("'%v' rendering attachment's resolve texture is stale, the underlying texture has been freed.", name, location = loc)
+        return false
+    }
+
+    does_resolve := attach.store_op == .Resolve || attach.store_op == .Resolve_And_Store
+
+    if attach.resolve_texture != {} && !does_resolve {
+        log.error("'%v' render attachment has a valid resolve_texture set, but does not use it.", name, location = loc)
+        return true  // Proceed anyway, just don't do the resolve
+    }
+
+    if attach.resolve_texture == {} && does_resolve {
+        log.error("'%v' render attachment has store_op '%v', but does not have a valid resolve_texture set.", name, attach.store_op, location = loc)
         return false
     }
 
