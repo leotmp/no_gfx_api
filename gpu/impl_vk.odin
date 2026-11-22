@@ -97,7 +97,7 @@ Thread_Local_Context :: struct
 Physical_Properties :: struct
 {
     bvh_props: vk.PhysicalDeviceAccelerationStructurePropertiesKHR,
-    props2: vk.PhysicalDeviceProperties2,
+    props: vk.PhysicalDeviceProperties,
 }
 
 @(private="file")
@@ -106,9 +106,11 @@ BVH_Impl_Info :: struct
     handle: vk.AccelerationStructureKHR,
     mem: rawptr,
     is_blas: bool,
+
+    hint: BVH_Hint,
+    caps: BVH_Capabilities,
     shapes: [dynamic]BVH_Shape_Info,  // Only used if BLAS.
-    blas_desc: BLAS_Info,
-    tlas_desc: TLAS_Info,
+    instance_count: u32,  // Only used if TLAS.
 }
 
 @(private="file")
@@ -434,7 +436,7 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     }
     vk.GetPhysicalDeviceProperties2(ctx.phys_device, &props2)
     ctx.physical_properties = {
-        accel_props, props2
+        accel_props, props2.properties
     }
 
     // Queues create info
@@ -1298,7 +1300,7 @@ swapchain_formats_from_surface_format :: proc(surface_format: vk.SurfaceFormatKH
 _device_limits :: proc() -> Device_Limits
 {
     return {
-        max_anisotropy = max(1.0, ctx.physical_properties.props2.properties.limits.maxSamplerAnisotropy),
+        max_anisotropy = max(1.0, ctx.physical_properties.props.limits.maxSamplerAnisotropy),
     }
 }
 
@@ -1658,7 +1660,7 @@ _sampler_descriptor :: proc(sampler_desc: Sampler_Info, loc := #caller_location)
     if sampler_desc.max_anisotropy != 0.0 {
         ensure(
             sampler_desc.max_anisotropy >= 1.0 &&
-            sampler_desc.max_anisotropy <= ctx.physical_properties.props2.properties.limits.maxSamplerAnisotropy,
+            sampler_desc.max_anisotropy <= ctx.physical_properties.props.limits.maxSamplerAnisotropy,
             "Sampler anisotropy out of range. Call gpu.device_limits() to get the supported maximum anisotropy.",
         )
     }
@@ -2176,8 +2178,9 @@ _blas_create :: proc(desc: BLAS_Info, storage: gpuptr, name := "", loc := #calle
         handle = bvh_handle,
         mem = storage.ptr,
         is_blas = true,
+        hint = desc.hint,
+        caps = desc.caps,
         shapes = cloned_shapes,
-        blas_desc = desc,
     }
     return pool_add(&ctx.bvhs, bvh_info, { created_at = loc, name = name })
 }
@@ -2229,7 +2232,9 @@ _tlas_create :: proc(desc: TLAS_Info, storage: gpuptr, name := "", loc := #calle
         handle = bvh_handle,
         mem = storage.ptr,
         is_blas = false,
-        tlas_desc = desc
+        hint = desc.hint,
+        caps = desc.caps,
+        instance_count = desc.instance_count
     }
     return pool_add(&ctx.bvhs, bvh_info, { created_at = loc, name = name })
 }
@@ -2275,6 +2280,11 @@ _bvh_destroy :: proc(bvh: BVH, loc := #caller_location)
     }
 
     bvh_info := pool_get(&ctx.bvhs, bvh)
+
+    if bvh_info.is_blas {
+        delete(bvh_info.shapes)
+    }
+
     vk.DestroyAccelerationStructureKHR(ctx.device, bvh_info.handle, nil)
     pool_remove(&ctx.bvhs, bvh)
 }
@@ -3212,7 +3222,7 @@ cmd_build_or_update_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_stor
     vk_cmd_buf := cmd_buf_info.handle
     bvh_info := pool_get(&ctx.bvhs, bvh)
 
-    if len(shapes) != len(bvh_info.blas_desc.shapes)
+    if len(shapes) != len(bvh_info.shapes)
     {
         log.error("Length used in the shapes argument and length used in the shapes supplied during the creation of this BVH don't match.")
         return
@@ -3232,7 +3242,12 @@ cmd_build_or_update_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_stor
 
     scratch, _ := acquire_scratch()
 
-    build_info := to_vk_blas_desc(bvh_info.blas_desc, arena = scratch)
+    blas_info := BLAS_Info {
+        hint = bvh_info.hint,
+        caps = bvh_info.caps,
+        shapes = bvh_info.shapes[:],
+    }
+    build_info := to_vk_blas_desc(blas_info, arena = scratch)
     build_info.mode = mode
     build_info.dstAccelerationStructure = bvh_info.handle
     if mode == .UPDATE {
@@ -3260,7 +3275,7 @@ cmd_build_or_update_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_stor
             {
                 geom.geometry.triangles.vertexData.deviceAddress = transmute(vk.DeviceAddress) s.verts
                 geom.geometry.triangles.indexData.deviceAddress = transmute(vk.DeviceAddress) s.indices
-                range_infos[i].primitiveCount = bvh_info.blas_desc.shapes[i].(BVH_Mesh_Info).tri_count
+                range_infos[i].primitiveCount = bvh_info.shapes[i].(BVH_Mesh_Info).tri_count
             }
             case BVH_AABBs:
             {
@@ -3308,7 +3323,12 @@ cmd_build_or_update_tlas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_stor
 
     scratch, _ := acquire_scratch()
 
-    build_info := to_vk_tlas_desc(bvh_info.tlas_desc, arena = scratch)
+    tlas_info := TLAS_Info {
+        hint = bvh_info.hint,
+        caps = bvh_info.caps,
+        instance_count = bvh_info.instance_count,
+    }
+    build_info := to_vk_tlas_desc(tlas_info, arena = scratch)
     build_info.mode = mode
     build_info.dstAccelerationStructure = bvh_info.handle
     if mode == .UPDATE {
@@ -3324,7 +3344,7 @@ cmd_build_or_update_tlas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_stor
     // We always build one at a time, and a TLAS always has only one geometry.
     range_info := []vk.AccelerationStructureBuildRangeInfoKHR {
         {
-            primitiveCount = bvh_info.tlas_desc.instance_count
+            primitiveCount = bvh_info.instance_count
         }
     }
     range_info_ptr := raw_data(range_info)
@@ -4139,7 +4159,7 @@ check_bvh_must_be_blas :: proc(bvh: BVH, name: string, loc: runtime.Source_Code_
 check_bvh_allows_update :: proc(bvh: BVH, name: string, loc: runtime.Source_Code_Location) -> bool
 {
     bvh_info := pool_get(&ctx.bvhs, bvh)
-    caps := bvh_info.blas_desc.caps if bvh_info.is_blas else bvh_info.tlas_desc.caps
+    caps := bvh_info.caps if bvh_info.is_blas else bvh_info.caps
     if .Update not_in caps {
         log.errorf("'%v' was not created with {{.Update}}; cannot update in-place.", name, location = loc)
         return false

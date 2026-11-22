@@ -177,7 +177,7 @@ frag :: #fragment (input: Vert_Output) -> vec4 @io(0)
 
 Importing **no_gfx** into your own project mostly just involves copying the `gpu/` directory, but to build this project you will need:
 
-- [Odin >= 2026-03](https://odin-lang.org/)
+- [Odin >= dev-2026-11a](https://odin-lang.org/)
 - [Vulkan SDK](https://vulkan.lunarg.com/) (not required, but recommended for low-level Vulkan validation)
 
 Binaries for dependencies are included.

@@ -329,8 +329,8 @@ build_sky_cubemap :: proc(upload_arena: ^gpu.Arena, cmd_buf: gpu.Command_Buffer)
             })
         }
 
-        staging := gpu.arena_alloc(upload_arena, u8, len(img.pixels.buf))
-        copy(staging.cpu, img.pixels.buf[:])
+        staging := gpu.arena_alloc(upload_arena, u8, len(img.pixels))
+        copy(staging.cpu, img.pixels[:])
         gpu.cmd_copy_to_texture(cmd_buf, texture, staging, region = { base_layer = u32(side) })
     }
     return texture
