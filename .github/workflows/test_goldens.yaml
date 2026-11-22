@@ -20,7 +20,7 @@ jobs:
       - name: Install Odin
         uses: laytan/setup-odin@v2
         with:
-          release: dev-2026-06
+          release: dev-2026-11a
 
       - name: Install Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1.6.0

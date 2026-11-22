@@ -697,7 +697,7 @@ load_scene_textures_from_gltf :: proc(
 			texture_idx: u32
             if Compress_Textures {
                 compressed := shared.bc3_compress_rgba8_mips(
-                    img.pixels.buf[:],
+                    img.pixels[:],
                     u32(img.width),
                     u32(img.height),
                 )
@@ -753,8 +753,8 @@ upload_texture :: proc(
 	img: ^image.Image,
 	upload_arena: ^gpu.Arena,
 ) -> gpu.Owned_Texture {
-	staging := gpu.arena_alloc_raw(upload_arena, len(img.pixels.buf), 1, 16)
-	runtime.mem_copy(staging.cpu, raw_data(img.pixels.buf), len(img.pixels.buf))
+	staging := gpu.arena_alloc_raw(upload_arena, len(img.pixels), 1, 16)
+	runtime.mem_copy(staging.cpu, raw_data(img.pixels), len(img.pixels))
 
 	sync.guard(&mutex)
 	upload_sem_value_old := upload_sem_val
@@ -784,7 +784,7 @@ upload_texture :: proc(
 
     if Compress_Textures {
 		compressed := shared.bc3_compress_rgba8_mips(
-			img.pixels.buf[:],
+			img.pixels[:],
 			u32(img.width),
 			u32(img.height),
 		)

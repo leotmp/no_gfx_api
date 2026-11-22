@@ -240,8 +240,8 @@ test_texture :: proc(target: Render_Target)
         ensure(err == nil, "Could not load texture.")
         defer image.destroy(img)
 
-        staging := gpu.arena_alloc_raw(upload_arena, u64(len(img.pixels.buf)), 1)
-        runtime.mem_copy(staging.cpu, raw_data(img.pixels.buf), len(img.pixels.buf))
+        staging := gpu.arena_alloc_raw(upload_arena, u64(len(img.pixels)), 1)
+        runtime.mem_copy(staging.cpu, raw_data(img.pixels), len(img.pixels))
 
         texture := gpu.texture_alloc_and_create({
             dimensions = { u32(img.width), u32(img.height), 1 },
@@ -412,8 +412,8 @@ test_texture_advanced :: proc(target: Render_Target)
                 })
             }
 
-            staging := gpu.arena_alloc(upload_arena, u8, len(img.pixels.buf))
-            copy(staging.cpu, img.pixels.buf[:])
+            staging := gpu.arena_alloc(upload_arena, u8, len(img.pixels))
+            copy(staging.cpu, img.pixels[:])
             gpu.cmd_copy_to_texture(cmd_buf, texture, staging, region = { base_layer = u32(side) })
         }
         return texture
@@ -1689,9 +1689,9 @@ compare_to_golden :: proc(target: Render_Target, path: string) -> bool
     for i := 0; i < len(readback.cpu); i += 4
     {
         j := i / 4 * 3
-        is_same &= readback.cpu[i+0] == golden.pixels.buf[j+0]
-        is_same &= readback.cpu[i+1] == golden.pixels.buf[j+1]
-        is_same &= readback.cpu[i+2] == golden.pixels.buf[j+2]
+        is_same &= readback.cpu[i+0] == golden.pixels[j+0]
+        is_same &= readback.cpu[i+1] == golden.pixels[j+1]
+        is_same &= readback.cpu[i+2] == golden.pixels[j+2]
     }
     return is_same
 }

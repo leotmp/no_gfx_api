@@ -221,8 +221,8 @@ load_texture :: proc(bytes: []byte, upload_arena: ^gpu.Arena, cmd_buf: gpu.Comma
     ensure(err == nil, "Could not load texture.")
     defer image.destroy(img)
 
-    staging := gpu.arena_alloc_raw(upload_arena, u64(len(img.pixels.buf)), 1)
-    runtime.mem_copy(staging.cpu, raw_data(img.pixels.buf), len(img.pixels.buf))
+    staging := gpu.arena_alloc_raw(upload_arena, u64(len(img.pixels)), 1)
+    runtime.mem_copy(staging.cpu, raw_data(img.pixels), len(img.pixels))
 
     texture := gpu.texture_alloc_and_create({
         dimensions = { u32(img.width), u32(img.height), 1 },
