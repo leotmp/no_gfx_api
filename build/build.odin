@@ -8,9 +8,10 @@ import "core:os"
 import "core:log"
 import "core:mem"
 import "core:strings"
-import "core:thread"
 import "core:sync"
-import intr "base:intrinsics"
+import "core:slice"
+import "core:sys/info"
+import "core:time"
 import fp "core:path/filepath"
 
 Command :: struct
@@ -61,67 +62,8 @@ cmd_build_all_with_slang :: proc() -> bool
     return res
 }
 
-cmd_build_example :: proc(example: Example) -> bool
-{
-    res := true
-    res &= run_task("odin", "build", example.input_path, "-debug", with_exe_ext(fmt.tprintf("-out=build/%v", example.output_path)))
-    return res
-}
-
-cmd_build_example_shaders_nosl :: proc(example: Example) -> bool
-{
-    res := true
-    for shader in example.shaders_nosl
-    {
-        dir, _ := os.split_path(shader)
-        out_flag := fmt.tprintf("-out:%v/%v.spv",  dir, os.stem(shader))
-        res &= run_task(with_exe_ext("./build/gpu_compiler"), shader, out_flag)
-    }
-    return res
-}
-
 Shader_Stage :: enum { Vertex, Fragment, Compute }
 Shader_Stages :: distinct bit_set[Shader_Stage]
-
-cmd_build_example_shaders_slang :: proc(example: Example) -> bool
-{
-    res := true
-    for shader in example.shaders_slang
-    {
-        dir, _ := os.split_path(shader)
-
-        stages := get_slang_stages(shader)
-        if .Vertex in stages
-        {
-            spv_path := fmt.tprintf("%v/%v.vert.spv", dir, os.stem(shader))
-            res &= run_task("slangc",
-                            "-target", "spirv",
-                            "-fvk-use-c-layout", "-fvk-use-scalar-layout", "-force-glsl-scalar-layout",
-                            "-validate-ir", "-no-mangle", "-entry", "vertexMain",
-                            "-stage", "vertex", shader, "-o", spv_path)
-        }
-        if .Fragment in stages
-        {
-            spv_path := fmt.tprintf("%v/%v.frag.spv", dir, os.stem(shader))
-            res &= run_task("slangc",
-                            "-target", "spirv",
-                            "-fvk-use-c-layout", "-fvk-use-scalar-layout", "-force-glsl-scalar-layout",
-                            "-validate-ir", "-no-mangle", "-entry", "fragmentMain",
-                            "-stage", "fragment", shader, "-o", spv_path)
-        }
-        if .Compute in stages
-        {
-            spv_path := fmt.tprintf("%v/%v.comp.spv", dir, os.stem(shader))
-            res &= run_task("slangc",
-                            "-target", "spirv",
-                            "-fvk-use-c-layout", "-fvk-use-scalar-layout", "-force-glsl-scalar-layout",
-                            "-validate-ir", "-no-mangle", "-entry", "computeMain",
-                            "-stage", "compute", shader, "-o", spv_path)
-        }
-    }
-
-    return res
-}
 
 cmd_vercheck :: proc() -> bool
 {
@@ -173,24 +115,29 @@ cmd_shaders_slang :: proc() -> bool
 cmd_run_compiler_tests :: proc() -> bool
 {
     cmd_compiler() or_return
-    res := true
 
-    dir := "tests"
-    shaders_nosl, shaders_slang := get_shaders_in_dir(dir)
+    shaders_nosl, shaders_slang := get_shaders_in_dir("tests")
+
+    group: Task_Group
+    defer delete_task_group(&group)
     for shader in shaders_nosl
     {
-        dir, _ := os.split_path(shader)
-        out_flag := fmt.tprintf("-out:%v/%v.spv",  dir, os.stem(shader))
-        compile_success := run_task(with_exe_ext("./build/gpu_compiler"), shader, out_flag, silent = true)
-        if compile_success {
+        shader_dir, _ := os.split_path(shader)
+        out_flag := fmt.tprintf("-out:%v/%v.spv", shader_dir, os.stem(shader))
+        add_task(&group, with_exe_ext("./build/gpu_compiler"), shader, out_flag, silent = true)
+    }
+
+    ok := run_tasks(&group)
+    for task in group.tasks
+    {
+        shader := task.args[1]
+        if task.exit_code == 0 {
             fmt.printfln("%v - Ok.", shader)
         } else {
             fmt.printfln("%v - Fail!", shader)
         }
-        res &= compile_success
     }
-
-    return res
+    return ok
 }
 
 cmd_tests_gen_local_goldens :: proc() -> bool
@@ -362,56 +309,77 @@ get_shaders_in_dir :: proc(path: string) -> (shaders_nosl: [dynamic]string, shad
 
 cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := true, build_shaders_slang := false) -> bool
 {
-    PARALLEL :: true
-
     res := true
 
-    Info :: struct {
-        build_odin: bool,
-        build_shaders_nosl: bool,
-        build_shaders_slang: bool,
-    }
-    info := Info { build_odin, build_shaders_nosl, build_shaders_slang }
-
-    Task :: struct {
-        example: Example,
-        success: ^bool,
-    }
-
-    tasks   := make([]Task,           len(EXAMPLES))
-    threads := make([]^thread.Thread, len(EXAMPLES))
-    defer delete(tasks)
-    defer delete(threads)
-    for example, i in EXAMPLES
+    if build_shaders_nosl || build_shaders_slang
     {
-        tasks[i] = { example, &res }
-        if PARALLEL {
-            threads[i] = thread.create_and_start_with_poly_data2(&tasks[i], &info, worker)
-        } else {
-            worker(&tasks[i], &info)
+        shaders: Task_Group
+        defer delete_task_group(&shaders)
+
+        for example in EXAMPLES
+        {
+            if build_shaders_nosl
+            {
+                for shader in example.shaders_nosl
+                {
+                    dir, _ := os.split_path(shader)
+                    out_flag := fmt.tprintf("-out:%v/%v.spv", dir, os.stem(shader))
+                    add_task(&shaders, with_exe_ext("./build/gpu_compiler"), shader, out_flag)
+                }
+            }
+
+            if build_shaders_slang
+            {
+                for shader in example.shaders_slang
+                {
+                    dir, _ := os.split_path(shader)
+                    stages := get_slang_stages(shader)
+                    if .Vertex in stages
+                    {
+                        spv_path := fmt.tprintf("%v/%v.vert.spv", dir, os.stem(shader))
+                        add_task(&shaders, "slangc",
+                                 "-target", "spirv",
+                                 "-fvk-use-c-layout", "-fvk-use-scalar-layout", "-force-glsl-scalar-layout",
+                                 "-validate-ir", "-no-mangle", "-entry", "vertexMain",
+                                 "-stage", "vertex", shader, "-o", spv_path)
+                    }
+                    if .Fragment in stages
+                    {
+                        spv_path := fmt.tprintf("%v/%v.frag.spv", dir, os.stem(shader))
+                        add_task(&shaders, "slangc",
+                                 "-target", "spirv",
+                                 "-fvk-use-c-layout", "-fvk-use-scalar-layout", "-force-glsl-scalar-layout",
+                                 "-validate-ir", "-no-mangle", "-entry", "fragmentMain",
+                                 "-stage", "fragment", shader, "-o", spv_path)
+                    }
+                    if .Compute in stages
+                    {
+                        spv_path := fmt.tprintf("%v/%v.comp.spv", dir, os.stem(shader))
+                        add_task(&shaders, "slangc",
+                                 "-target", "spirv",
+                                 "-fvk-use-c-layout", "-fvk-use-scalar-layout", "-force-glsl-scalar-layout",
+                                 "-validate-ir", "-no-mangle", "-entry", "computeMain",
+                                 "-stage", "compute", shader, "-o", spv_path)
+                    }
+                }
+            }
         }
+
+        res &= run_tasks(&shaders)
     }
 
-    if PARALLEL {
-        for t in threads { thread.join(t); thread.destroy(t) }
-    }
-
-    worker :: proc(task: ^Task, info: ^Info)
+    if build_odin
     {
-        res := true
-        if res && info.build_shaders_nosl {
-            res &= cmd_build_example_shaders_nosl(task.example)
+        builds: Task_Group
+        defer delete_task_group(&builds)
+        for example in EXAMPLES
+        {
+            out_flag := with_exe_ext(fmt.tprintf("-out=build/%v", example.output_path))
+            add_task(&builds, "odin", "build", example.input_path, "-debug", out_flag)
         }
-        if res && info.build_shaders_slang {
-            res &= cmd_build_example_shaders_slang(task.example)
-        }
-        if res && info.build_odin {
-            res &= cmd_build_example(task.example)
-        }
-        if !res {
-            intr.atomic_store(task.success, false)
-        }
+        res &= run_tasks(&builds)
     }
+
     return res
 }
 
@@ -423,23 +391,136 @@ exit_with_error :: proc(fmt: string, args: ..any)
 
 MUTEX: sync.Mutex
 
+// Print complete lines as they arrive. "pending" stores the current partial line
+stream_pipe :: proc(src: ^os.File, pending: ^[dynamic]byte, done: ^bool, to_stdout: bool) -> bool
+{
+    if done^ do return false
+
+    has_data, err := os.pipe_has_data(src)
+    n := 0
+    tmp: [4096]byte
+    if has_data || err == .Broken_Pipe {
+        n, err = os.read(src, tmp[:])
+    }
+
+    end := false
+    switch err
+    {
+        case nil:
+        {
+            if n <= 0 do return false
+        }
+        case .EOF, .Broken_Pipe:
+        {
+            end = true
+        }
+        case:
+        {
+            ensure(false, "Pipe read failed.")
+            return false
+        }
+    }
+
+    if n > 0 do append(pending, ..tmp[:n])
+
+    cut := 0
+    if end
+    {
+        cut = len(pending)
+    }
+    else
+    {
+        for i := len(pending) - 1; i >= 0; i -= 1
+        {
+            if pending[i] == '\n' {
+                cut = i + 1
+                break
+            }
+        }
+    }
+
+    if cut > 0
+    {
+        if sync.mutex_guard(&MUTEX)
+        {
+            if to_stdout {
+                fmt.print(string(pending[:cut]))
+                os.flush(os.stdout)
+            } else {
+                fmt.eprint(string(pending[:cut]))
+                os.flush(os.stderr)
+            }
+        }
+
+        if cut < len(pending)
+        {
+            tail := slice.clone(pending[cut:])
+            resize(pending, 0)
+            append(pending, ..tail)
+            delete(tail)
+        }
+        else
+        {
+            resize(pending, 0)
+        }
+    }
+
+    if end do done^ = true
+    return true
+}
+
 run_task :: proc(args: ..string, silent := false) -> bool
 {
     if !silent do print_cmd(args)
 
-    state, stdout, stderr, err := os.process_exec({ command = args }, allocator = context.temp_allocator)
-    if err != nil {
-        log.errorf("Failed to run command %v: %v.", args, err)
-    }
-    if sync.mutex_guard(&MUTEX)
+    stdout_r, stdout_w, err_stdout := os.pipe()
+    ensure(err_stdout == nil)
+    stderr_r, stderr_w, err_stderr := os.pipe()
+    ensure(err_stderr == nil)
+
+    process, err_start := os.process_start({
+        command = args,
+        stdout = stdout_w,
+        stderr = stderr_w,
+    })
+    ensure(err_start == nil)
+
+    os.close(stdout_w)
+    os.close(stderr_w)
+
+    defer os.close(stdout_r)
+    defer os.close(stderr_r)
+
+    // Partial lines
+    stdout_rest, stderr_rest: [dynamic]byte
+    defer delete(stdout_rest)
+    defer delete(stderr_rest)
+
+    stdout_done, stderr_done, exited: bool
+    exit_code: int
+    for !exited || !stdout_done || !stderr_done
     {
-        fmt.print(string(stdout))
-        fmt.eprint(string(stderr))
-        os.flush(os.stdout)
-        os.flush(os.stderr)
+        progress := false
+        progress |= stream_pipe(stdout_r, &stdout_rest, &stdout_done, true)
+        progress |= stream_pipe(stderr_r, &stderr_rest, &stderr_done, false)
+
+        if !exited
+        {
+            state, err_wait := os.process_wait(process, 0)
+            if err_wait == nil {
+                exited = true
+                exit_code = state.exit_code
+                progress = true
+            } else if err_wait != .Timeout {
+                log.errorf("Failed to run command %v: %v.", args, err_wait)
+                return false
+            }
+        }
+
+        if !progress do time.sleep(10 * time.Millisecond)
     }
 
-    return state.exit_code == 0
+    return exit_code == 0
 }
 
 print_cmd :: proc(args: []string)
@@ -502,4 +583,136 @@ get_slang_stages :: proc(path: string) -> Shader_Stages
     if strings.contains(content_str, "[shader(\"fragment\")]") do res += { .Fragment }
     if strings.contains(content_str, "[shader(\"compute\")]")  do res += { .Compute }
     return res
+}
+
+// Task running API
+Task :: struct
+{
+    args: [dynamic]string,
+    silent: bool,
+    exit_code: int,
+}
+
+Task_Group :: struct
+{
+    tasks: [dynamic]Task
+}
+
+delete_task_group :: proc(group: ^Task_Group)
+{
+    for task in group.tasks {
+        delete(task.args)
+    }
+    delete(group.tasks)
+}
+
+add_task :: proc(group: ^Task_Group, args: ..string, silent := false)
+{
+    append(&group.tasks, Task {
+        args = slice.clone_to_dynamic(args[:]),
+        silent = silent
+    })
+}
+
+run_tasks :: proc(group: ^Task_Group) -> bool
+{
+    all_ok := true
+
+    Process_State :: struct {
+        process: os.Process,
+        task_idx: int,
+        stdout_r, stderr_r: ^os.File,
+        stdout_rest, stderr_rest: [dynamic]byte,
+        stdout_done, stderr_done: bool,
+        exited: bool,
+        finished: bool,
+    }
+
+    _, num_cores, ok_cores := info.cpu_core_count()
+    ensure(ok_cores)
+
+    for i in 0..< ((len(group.tasks) - 1) / num_cores) + 1
+    {
+        processes: [dynamic]Process_State
+        defer
+        {
+            for &process in processes
+            {
+                if process.stdout_r != nil do os.close(process.stdout_r)
+                if process.stderr_r != nil do os.close(process.stderr_r)
+                delete(process.stdout_rest)
+                delete(process.stderr_rest)
+            }
+            delete(processes)
+        }
+
+        // Launch processes
+        for j in 0..<num_cores
+        {
+            task_idx := i * num_cores + j
+            if task_idx >= len(group.tasks) do break
+
+            task := group.tasks[task_idx]
+            if !task.silent do print_cmd(task.args[:])
+
+            stdout_r, stdout_w, err_out := os.pipe()
+            ensure(err_out == nil)
+            stderr_r, stderr_w, err_err := os.pipe()
+            ensure(err_err == nil)
+
+            process, err_start := os.process_start({
+                command = task.args[:],
+                stdout = stdout_w,
+                stderr = stderr_w,
+            })
+            ensure(err_start == nil)
+
+            os.close(stdout_w)
+            os.close(stderr_w)
+
+            append(&processes, Process_State {
+                process = process,
+                task_idx = task_idx,
+                stdout_r = stdout_r,
+                stderr_r = stderr_r,
+            })
+        }
+
+        // Wait on processes and stream stderr and stdout
+        num_remaining := len(processes)
+        for num_remaining > 0
+        {
+            progress := false
+            for &process in processes
+            {
+                if process.finished do continue
+
+                progress |= stream_pipe(process.stdout_r, &process.stdout_rest, &process.stdout_done, true)
+                progress |= stream_pipe(process.stderr_r, &process.stderr_rest, &process.stderr_done, false)
+
+                if !process.exited
+                {
+                    state, err_wait := os.process_wait(process.process, 0)
+                    if err_wait == nil {
+                        process.exited = true
+                        group.tasks[process.task_idx].exit_code = state.exit_code
+                        if state.exit_code != 0 do all_ok = false
+                        progress = true
+                    } else {
+                        ensure(err_wait == .Timeout)
+                    }
+                }
+
+                if process.exited && process.stdout_done && process.stderr_done
+                {
+                    process.finished = true
+                    num_remaining -= 1
+                }
+            }
+
+            if !progress do time.sleep(10 * time.Millisecond)
+        }
+    }
+
+    return all_ok
 }
