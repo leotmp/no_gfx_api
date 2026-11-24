@@ -39,6 +39,8 @@ Alloc_Handle :: distinct Handle
 @(private="file")
 Context :: struct
 {
+    logger: log.Logger,
+
     validation: bool,
     features: Features,
     instance: vk.Instance,
@@ -208,7 +210,7 @@ Semaphore_Value :: struct
 ctx: Context
 
 @(private="file")
-vk_logger: log.Logger
+logger: log.Logger
 
 @(require_results)
 _init :: proc(validation := true, loc := #caller_location) -> bool
@@ -226,8 +228,11 @@ _init :: proc(validation := true, loc := #caller_location) -> bool
     // Load vulkan function pointers
     vk.load_proc_addresses_global(cast(rawptr) get_instance_proc_address)
 
-    vk_logger = context.logger
+    logger = log.create_console_logger()
+    if ctx.logger == {} do ctx.logger = logger
     ctx.validation = validation
+
+    context.logger = ctx.logger
 
     // Create instance
     {
@@ -914,6 +919,9 @@ get_tls :: proc() -> ^Thread_Local_Context
 _cleanup :: proc(loc := #caller_location)
 {
     scratch, _ := acquire_scratch()
+    context.logger = ctx.logger
+
+    log.destroy_console_logger(logger)
 
     {
         // Cleanup all TLS contexts
@@ -1032,13 +1040,21 @@ _cleanup :: proc(loc := #caller_location)
     }
 }
 
+_set_logger :: proc(logger: log.Logger)
+{
+    context.logger = ctx.logger
+    ctx.logger = logger
+}
+
 _wait_idle :: proc()
 {
+    context.logger = ctx.logger
     if sync.guard(&ctx.queue_lock) do vk.DeviceWaitIdle(ctx.device)
 }
 
 _swapchain_create :: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_flight: u32, format: Swapchain_Format = {}, present_mode: Present_Mode = {})
 {
+    context.logger = ctx.logger
     ctx.swapchain_is_stale = false
 
     if ctx.swapchain.handle != {} {
@@ -1072,6 +1088,7 @@ _swapchain_create :: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_f
 
 _swapchain_resize :: proc(size: [2]u32)
 {
+    context.logger = ctx.logger
     ctx.swapchain_is_stale = false
 
     old_handle := ctx.swapchain.handle
@@ -1107,6 +1124,8 @@ _swapchain_resize :: proc(size: [2]u32)
 
 _swapchain_acquire_next :: proc(loc := #caller_location) -> Texture
 {
+    context.logger = ctx.logger
+
     if ctx.swapchain_is_stale {
         log.warn("Swapchain is stale!", location = loc)
         return {}
@@ -1171,6 +1190,8 @@ _swapchain_acquire_next :: proc(loc := #caller_location) -> Texture
 
 _swapchain_present :: proc(queue: Queue, sem_wait: Semaphore, wait_value: u64, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.swapchain_is_stale {
         log.warn("Swapchain is stale!", location = loc)
     }
@@ -1247,6 +1268,7 @@ _features_available :: proc() -> Features
 _swapchain_formats_available :: proc(surface: vk.SurfaceKHR) -> Swapchain_Formats
 {
     scratch, _ := acquire_scratch()
+    context.logger = ctx.logger
 
     surface_format_count: u32
     vk_check(vk.GetPhysicalDeviceSurfaceFormatsKHR(ctx.phys_device, surface, &surface_format_count, nil))
@@ -1308,6 +1330,8 @@ _device_limits :: proc() -> Device_Limits
 
 _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64, mem_type := Memory.Default, loc := #caller_location) -> ptr
 {
+    context.logger = ctx.logger
+
     bytes := el_size * el_count
     if bytes == 0 do return {}
 
@@ -1391,6 +1415,8 @@ _mem_alloc_raw :: proc(#any_int el_size, #any_int el_count, #any_int align: i64,
 
 _mem_suballoc :: proc(addr: ptr, offset, el_size, el_count: i64, loc := #caller_location) -> ptr
 {
+    context.logger = ctx.logger
+
     bytes := el_size * el_count
 
     if ctx.validation
@@ -1420,6 +1446,8 @@ _mem_suballoc :: proc(addr: ptr, offset, el_size, el_count: i64, loc := #caller_
 
 _mem_free_raw :: proc(addr: gpuptr, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     alloc_impl := transmute(Alloc_Impl_Info) addr._impl
     alloc := alloc_impl.handle
 
@@ -1443,6 +1471,8 @@ _mem_free_raw :: proc(addr: gpuptr, loc := #caller_location)
 // Textures
 _texture_size_and_align :: proc(desc: Texture_Info, loc := #caller_location) -> (size: u64, align: u64)
 {
+    context.logger = ctx.logger
+
     desc_clean := texture_desc_cleanup(desc)
 
     image_ci := to_vk_image_create_info(desc_clean)
@@ -1464,6 +1494,8 @@ _texture_size_and_align :: proc(desc: Texture_Info, loc := #caller_location) -> 
 
 _texture_create :: proc(desc: Texture_Info, storage: gpuptr, queue: Queue = .Main, signal_sem: Semaphore = {}, signal_value: u64 = 0, name := "", loc := #caller_location) -> Texture
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1530,6 +1562,8 @@ _texture_create :: proc(desc: Texture_Info, storage: gpuptr, queue: Queue = .Mai
 
 _texture_destroy :: proc(texture: Texture, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1593,6 +1627,8 @@ get_or_add_sampler :: proc(info: vk.SamplerCreateInfo) -> vk.Sampler
 
 _texture_descriptor :: proc(texture: Texture, view_desc: Texture_View_Info, loc := #caller_location) -> Texture_Descriptor
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1625,6 +1661,8 @@ _texture_descriptor :: proc(texture: Texture, view_desc: Texture_View_Info, loc 
 
 _texture_rw_descriptor :: proc(texture: Texture, view_desc: Texture_View_Info, loc := #caller_location) -> Texture_Descriptor
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1657,6 +1695,8 @@ _texture_rw_descriptor :: proc(texture: Texture, view_desc: Texture_View_Info, l
 
 _sampler_descriptor :: proc(sampler_desc: Sampler_Info, loc := #caller_location) -> Sampler_Descriptor
 {
+    context.logger = ctx.logger
+
     if sampler_desc.max_anisotropy != 0.0 {
         ensure(
             sampler_desc.max_anisotropy >= 1.0 &&
@@ -1692,6 +1732,8 @@ _desc_heap_create :: proc(texture_count: u32 = 65536,
                           bvh_count: u32 = 16,
                           name := "", loc := #caller_location) -> Descriptor_Heap
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1752,6 +1794,8 @@ _desc_heap_create :: proc(texture_count: u32 = 65536,
 
 _desc_heap_destroy :: proc(heap: Descriptor_Heap, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1773,6 +1817,8 @@ _desc_heap_destroy :: proc(heap: Descriptor_Heap, loc := #caller_location)
 
 _desc_heap_set_textures :: proc(heap: Descriptor_Heap, start_idx: u32, textures: []Texture_Descriptor, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1810,6 +1856,8 @@ _desc_heap_set_textures :: proc(heap: Descriptor_Heap, start_idx: u32, textures:
 
 _desc_heap_set_textures_rw :: proc(heap: Descriptor_Heap, start_idx: u32, textures: []Texture_Descriptor, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1844,6 +1892,8 @@ _desc_heap_set_textures_rw :: proc(heap: Descriptor_Heap, start_idx: u32, textur
 
 _desc_heap_set_samplers :: proc(heap: Descriptor_Heap, start_idx: u32, samplers: []Sampler_Descriptor, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1878,6 +1928,8 @@ _desc_heap_set_samplers :: proc(heap: Descriptor_Heap, start_idx: u32, samplers:
 
 _desc_heap_set_bvhs :: proc(heap: Descriptor_Heap, start_idx: u32, bvhs: []BVH, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -1914,6 +1966,8 @@ _desc_heap_set_bvhs :: proc(heap: Descriptor_Heap, start_idx: u32, bvhs: []BVH, 
 @(private="file")
 _shader_create_internal :: proc(code: []u32, is_compute: bool, vk_stage: vk.ShaderStageFlags, entry_point_name := "main", group_size_x: u32 = 1, group_size_y: u32 = 1, group_size_z: u32 = 1, name: string, spec_constants: []Spec_Constant, loc: runtime.Source_Code_Location) -> Shader
 {
+    context.logger = ctx.logger
+
     scratch, _ := acquire_scratch()
 
     push_constant_ranges: []vk.PushConstantRange
@@ -2044,18 +2098,22 @@ _shader_create_internal :: proc(code: []u32, is_compute: bool, vk_stage: vk.Shad
 
 _shader_create :: proc(code: []u32, type: Shader_Type_Graphics, entry := "main", name := "", spec_constants: []Spec_Constant = {}, loc := #caller_location) -> Shader
 {
+    context.logger = ctx.logger
     vk_stage := to_vk_shader_stage(type)
     return _shader_create_internal(code, false, vk_stage, entry, name = name, spec_constants = spec_constants, loc = loc)
 }
 
 _shader_create_compute :: proc(code: []u32, group_size_x: u32, group_size_y: u32 = 1, group_size_z: u32 = 1, entry := "main", name := "", spec_constants: []Spec_Constant = {}, loc := #caller_location) -> Shader
 {
+    context.logger = ctx.logger
     // TODO: Add validation for spec constants conflicting with backend allocated spec constants for workgroup size.
     return _shader_create_internal(code, true, { .COMPUTE }, entry, group_size_x, group_size_y, group_size_z, name = name, spec_constants = spec_constants, loc = loc)
 }
 
 _shader_destroy :: proc(shader: Shader, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2073,6 +2131,8 @@ _shader_destroy :: proc(shader: Shader, loc := #caller_location)
 // Semaphores
 _semaphore_create :: proc(init_value: u64 = 0, name := "", loc := #caller_location) -> Semaphore
 {
+    context.logger = ctx.logger
+
     next: rawptr
     next = &vk.SemaphoreTypeCreateInfo {
         sType = .SEMAPHORE_TYPE_CREATE_INFO,
@@ -2094,6 +2154,8 @@ _semaphore_create :: proc(init_value: u64 = 0, name := "", loc := #caller_locati
 
 _semaphore_get_value :: proc(sem: Semaphore, loc := #caller_location) -> u64
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2109,6 +2171,8 @@ _semaphore_get_value :: proc(sem: Semaphore, loc := #caller_location) -> u64
 
 _semaphore_wait :: proc(sem: Semaphore, wait_value: u64, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2129,6 +2193,8 @@ _semaphore_wait :: proc(sem: Semaphore, wait_value: u64, loc := #caller_location
 
 _semaphore_destroy :: proc(sem: Semaphore, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2149,6 +2215,8 @@ _blas_size_and_align :: proc(desc: BLAS_Info, loc := #caller_location) -> (size:
 
 _blas_create :: proc(desc: BLAS_Info, storage: gpuptr, name := "", loc := #caller_location) -> BVH
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2192,6 +2260,8 @@ _blas_build_scratch_buffer_size_and_align :: proc(desc: BLAS_Info, loc := #calle
 
 _blas_update_scratch_buffer_size_and_align :: proc(desc: BLAS_Info, loc := #caller_location) -> (size: u64, align: u64)
 {
+    context.logger = ctx.logger
+
     if ctx.validation && .Update not_in desc.caps {
         log.errorf("BLAS_Info must include {{.Update}} to query update scratch size.", location = loc)
         return 0, 1
@@ -2206,6 +2276,8 @@ _tlas_size_and_align :: proc(desc: TLAS_Info, loc := #caller_location) -> (size:
 
 _tlas_create :: proc(desc: TLAS_Info, storage: gpuptr, name := "", loc := #caller_location) -> BVH
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2246,6 +2318,8 @@ _tlas_build_scratch_buffer_size_and_align :: proc(desc: TLAS_Info, loc := #calle
 
 _tlas_update_scratch_buffer_size_and_align :: proc(desc: TLAS_Info, loc := #caller_location) -> (size: u64, align: u64)
 {
+    context.logger = ctx.logger
+
     if ctx.validation && .Update not_in desc.caps {
         log.errorf("TLAS_Info must include {{.Update}} to query update scratch size.", location = loc)
         return 0, 1
@@ -2255,6 +2329,8 @@ _tlas_update_scratch_buffer_size_and_align :: proc(desc: TLAS_Info, loc := #call
 
 _bvh_root_ptr :: proc(bvh: BVH, loc := #caller_location) -> rawptr
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2272,6 +2348,8 @@ _bvh_root_ptr :: proc(bvh: BVH, loc := #caller_location) -> rawptr
 
 _bvh_destroy :: proc(bvh: BVH, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2333,6 +2411,8 @@ _queue_wait_idle :: proc(queue: Queue)
 
 _commands_begin :: proc(queue: Queue, loc := #caller_location) -> Command_Buffer
 {
+    context.logger = ctx.logger
+
     cmd_buf := vk_acquire_cmd_buf(queue)
     cmd_buf_info := pool_get(&ctx.command_buffers, cmd_buf)
 
@@ -2348,6 +2428,8 @@ _commands_begin :: proc(queue: Queue, loc := #caller_location) -> Command_Buffer
 
 _queue_submit :: proc(queue: Queue, cmd_bufs: []Command_Buffer, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2385,6 +2467,8 @@ _queue_submit :: proc(queue: Queue, cmd_bufs: []Command_Buffer, loc := #caller_l
 
 _cmd_mem_copy_raw :: proc(cmd_buf: Command_Buffer, dst, src: gpuptr, #any_int bytes: i64, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2432,6 +2516,8 @@ _cmd_mem_copy_raw :: proc(cmd_buf: Command_Buffer, dst, src: gpuptr, #any_int by
 
 _cmd_copy_to_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr, region: Texture_Region = {}, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2478,6 +2564,8 @@ _cmd_copy_to_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, src: gpuptr,
 
 _cmd_copy_from_texture :: proc(cmd_buf: Command_Buffer, dst: gpuptr, src: Texture, region: Texture_Region = {}, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2523,6 +2611,8 @@ _cmd_copy_from_texture :: proc(cmd_buf: Command_Buffer, dst: gpuptr, src: Textur
 
 _cmd_blit_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, dst_rect: Blit_Rect, src: Texture, src_rect: Blit_Rect, filter: Filter, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2578,6 +2668,8 @@ _cmd_blit_texture :: proc(cmd_buf: Command_Buffer, dst: Texture, dst_rect: Blit_
 
 _cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, heap: Descriptor_Heap, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2603,6 +2695,8 @@ _cmd_set_desc_heap :: proc(cmd_buf: Command_Buffer, heap: Descriptor_Heap, loc :
 
 _cmd_add_wait_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_value: u64, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2618,6 +2712,8 @@ _cmd_add_wait_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, wait_va
 
 _cmd_add_signal_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, signal_value: u64, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2633,6 +2729,8 @@ _cmd_add_signal_semaphore :: proc(cmd_buf: Command_Buffer, sem: Semaphore, signa
 
 _cmd_barrier :: proc(cmd_buf: Command_Buffer, before: Stage, after: Stage, hazards: Hazard_Flags = {}, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2694,6 +2792,8 @@ _cmd_barrier :: proc(cmd_buf: Command_Buffer, before: Stage, after: Stage, hazar
 
 _cmd_set_shaders :: proc(cmd_buf: Command_Buffer, vert_shader: Shader, frag_shader: Shader, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2719,6 +2819,8 @@ _cmd_set_shaders :: proc(cmd_buf: Command_Buffer, vert_shader: Shader, frag_shad
 
 _cmd_set_depth_state :: proc(cmd_buf: Command_Buffer, state: Depth_State, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2742,6 +2844,8 @@ _cmd_set_depth_state :: proc(cmd_buf: Command_Buffer, state: Depth_State, loc :=
 
 _cmd_set_raster_state :: proc(cmd_buf: Command_Buffer, state: Raster_State, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2759,6 +2863,8 @@ _cmd_set_raster_state :: proc(cmd_buf: Command_Buffer, state: Raster_State, loc 
 
 _cmd_set_blend_state :: proc(cmd_buf: Command_Buffer, state: Blend_State, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2787,6 +2893,8 @@ _cmd_set_blend_state :: proc(cmd_buf: Command_Buffer, state: Blend_State, loc :=
 
 _cmd_set_viewport :: proc(cmd_buf: Command_Buffer, viewport: Viewport, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2805,6 +2913,8 @@ _cmd_set_viewport :: proc(cmd_buf: Command_Buffer, viewport: Viewport, loc := #c
 
 _cmd_set_scissor :: proc(cmd_buf: Command_Buffer, scissor: Rect_2D, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2819,6 +2929,8 @@ _cmd_set_scissor :: proc(cmd_buf: Command_Buffer, scissor: Rect_2D, loc := #call
 
 _cmd_set_compute_shader :: proc(cmd_buf: Command_Buffer, compute_shader: Shader, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2843,6 +2955,8 @@ _cmd_set_compute_shader :: proc(cmd_buf: Command_Buffer, compute_shader: Shader,
 
 _cmd_dispatch :: proc(cmd_buf: Command_Buffer, compute_data: gpuptr, num_groups_x: u32, num_groups_y: u32 = 1, num_groups_z: u32 = 1, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2866,6 +2980,8 @@ _cmd_dispatch :: proc(cmd_buf: Command_Buffer, compute_data: gpuptr, num_groups_
 
 _cmd_dispatch_indirect_raw :: proc(cmd_buf: Command_Buffer, compute_data, arguments: gpuptr, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -2893,6 +3009,8 @@ _cmd_dispatch_indirect_raw :: proc(cmd_buf: Command_Buffer, compute_data, argume
 
 _cmd_begin_render_pass :: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Info, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3046,6 +3164,8 @@ _cmd_begin_render_pass :: proc(cmd_buf: Command_Buffer, desc: Render_Pass_Info, 
 
 _cmd_end_render_pass :: proc(cmd_buf: Command_Buffer, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3061,6 +3181,8 @@ _cmd_end_render_pass :: proc(cmd_buf: Command_Buffer, loc := #caller_location)
 _cmd_draw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data: gpuptr,
                   vertex_count: u32, instance_count: u32 = 1, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3086,6 +3208,7 @@ _cmd_draw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data: gpuptr,
 _cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
                               index_format: Index_Format, index_count: u32, instance_count: u32 = 1, loc := #caller_location)
 {
+    context.logger = ctx.logger
 
     if ctx.validation
     {
@@ -3117,6 +3240,8 @@ _cmd_draw_indexed_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_dat
 
 _cmd_draw_indexed_indirect_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr, index_format: Index_Format, indirect_arguments: gpuptr, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3148,6 +3273,8 @@ _cmd_draw_indexed_indirect_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fra
 _cmd_draw_indexed_indirect_multi_raw :: proc(cmd_buf: Command_Buffer, vertex_data, fragment_data, indices: gpuptr,
                                              index_format: Index_Format, indirect_arguments: gpuptr, stride: u32, draw_count: gpuptr, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3157,7 +3284,7 @@ _cmd_draw_indexed_indirect_multi_raw :: proc(cmd_buf: Command_Buffer, vertex_dat
         ok &= check_ptr_allow_nil(indices, "indices", loc)
         ok &= check_ptr(indirect_arguments, "indirect_arguments", loc)
         ok &= check_ptr(draw_count, "draw_count", loc)
-        ok &= supports_indirect_multi_draw(loc)
+        ok &= check_supports_indirect_multi_draw(loc)
         if !ok do return
     }
 
@@ -3194,11 +3321,13 @@ _cmd_draw_indexed_indirect_multi_raw :: proc(cmd_buf: Command_Buffer, vertex_dat
 
 _cmd_build_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_storage: gpuptr, shapes: []BVH_Shape, loc := #caller_location)
 {
+    context.logger = ctx.logger
     cmd_build_or_update_blas(cmd_buf, bvh, scratch_storage, shapes, .BUILD, loc)
 }
 
 _cmd_update_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_storage: gpuptr, shapes: []BVH_Shape, loc := #caller_location)
 {
+    context.logger = ctx.logger
     cmd_build_or_update_blas(cmd_buf, bvh, scratch_storage, shapes, .UPDATE, loc)
 }
 
@@ -3292,11 +3421,13 @@ cmd_build_or_update_blas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_stor
 
 _cmd_build_tlas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_storage, instances: gpuptr, loc := #caller_location)
 {
+    context.logger = ctx.logger
     cmd_build_or_update_tlas(cmd_buf, bvh, scratch_storage, instances, .BUILD, loc)
 }
 
 _cmd_update_tlas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_storage, instances: gpuptr, loc := #caller_location)
 {
+    context.logger = ctx.logger
     cmd_build_or_update_tlas(cmd_buf, bvh, scratch_storage, instances, .UPDATE, loc)
 }
 
@@ -3353,6 +3484,8 @@ cmd_build_or_update_tlas :: proc(cmd_buf: Command_Buffer, bvh: BVH, scratch_stor
 
 _cmd_begin_debug_label :: proc(cmd_buf: Command_Buffer, name: string, color: [4]f32, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3373,6 +3506,8 @@ _cmd_begin_debug_label :: proc(cmd_buf: Command_Buffer, name: string, color: [4]
 
 _cmd_end_debug_label :: proc(cmd_buf: Command_Buffer, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3386,6 +3521,8 @@ _cmd_end_debug_label :: proc(cmd_buf: Command_Buffer, loc := #caller_location)
 
 _cmd_insert_debug_label :: proc(cmd_buf: Command_Buffer, name: string, color: [4]f32, loc := #caller_location)
 {
+    context.logger = ctx.logger
+
     if ctx.validation
     {
         ok := true
@@ -3419,7 +3556,7 @@ vk_debug_callback :: proc "system" (severity: vk.DebugUtilsMessageSeverityFlagsE
                                     user_data: rawptr) -> b32
 {
     context = runtime.default_context()
-    context.logger = vk_logger
+    context.logger = ctx.logger
 
     level: log.Level
     if .ERROR in severity        do level = .Error
@@ -3848,6 +3985,7 @@ _vk_get_queue_family :: proc(queue: Queue) -> u32
 
 _vk_get_command_buffer :: proc(cmd_buf: Command_Buffer) -> vk.CommandBuffer
 {
+    context.logger = ctx.logger
     cmd_buf := pool_get(&ctx.command_buffers, cmd_buf)
     return cmd_buf.handle
 }
@@ -3859,12 +3997,14 @@ _vk_get_swapchain_image_count :: proc() -> u32
 
 _vk_get_image :: proc(texture: Texture) -> vk.Image
 {
+    context.logger = ctx.logger
     image := pool_get(&ctx.textures, texture.handle)
     return image.handle
 }
 
 _vk_get_buffer :: proc(addr: gpuptr) -> (vk.Buffer, u32)
 {
+    context.logger = ctx.logger
     buf, offset, ok := get_buf_offset_from_gpu_ptr(addr)
     ensure(ok)
     return buf, offset
@@ -3872,11 +4012,14 @@ _vk_get_buffer :: proc(addr: gpuptr) -> (vk.Buffer, u32)
 
 _vk_get_semaphore :: proc(semaphore: Semaphore) -> vk.Semaphore
 {
+    context.logger = ctx.logger
     return pool_get(&ctx.semaphores, semaphore)
 }
 
 _vk_wrap_image :: proc(image: vk.Image, desc: Texture_Info, name := "", loc := #caller_location) -> Texture
 {
+    context.logger = ctx.logger
+
     desc_clean := texture_desc_cleanup(desc)
 
     if ctx.validation {
@@ -3913,6 +4056,7 @@ _vk_add_device_extension :: proc(extension: cstring)
 
 _vk_move_semaphore :: proc(semaphore: vk.Semaphore, loc := #caller_location) -> Semaphore
 {
+    context.logger = ctx.logger
     return pool_add(&ctx.semaphores, semaphore, { name = "", created_at = loc })
 }
 
@@ -4241,6 +4385,18 @@ check_attachment :: proc(attach: Render_Attachment, name: string, loc: runtime.S
 }
 
 @(private="file")
+check_supports_indirect_multi_draw :: proc(loc: runtime.Source_Code_Location) -> bool
+{
+    if .Draw_Indirect_Multi not_in ctx.features
+    {
+        log.errorf("'cmd_draw_indexed_indirect_multi*' is not supported on this device.", location = loc)
+        return false
+    }
+
+    return true
+}
+
+@(private="file")
 texture_descriptor_get_handle :: #force_inline proc(desc: Texture_Descriptor) -> Texture_Handle
 {
     return transmute(Texture_Handle) (cast([2]u64)desc)[0]
@@ -4265,16 +4421,4 @@ vk_set_debug_name :: proc(name: string, handle: u64, type: vk.ObjectType)
         objectHandle = handle,
         pObjectName = name_cstr,
     })
-}
-
-@(private="file")
-supports_indirect_multi_draw :: proc(loc: runtime.Source_Code_Location) -> bool
-{
-    if .Draw_Indirect_Multi not_in ctx.features
-    {
-        log.errorf("'cmd_draw_indexed_indirect_multi*' is not supported on this device.", location = loc)
-        return false
-    }
-
-    return true
 }

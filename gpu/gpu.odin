@@ -1,6 +1,7 @@
 
 package gpu
 
+import "core:log"
 import vk "vendor:vulkan"
 
 // This API follows the ZII (Zero Is Initialization) principle. Initializing to 0
@@ -308,6 +309,7 @@ Spec_Constant :: struct
 // Initialization and interaction with the OS.
 init: proc(validation := true, loc := #caller_location) -> bool : _init
 cleanup: proc(loc := #caller_location) : _cleanup
+set_logger: proc(logger: log.Logger) : _set_logger
 wait_idle: proc() : _wait_idle
 // Can be called for recreation. Automatically destroyed by cleanup()
 swapchain_create: proc(surface: vk.SurfaceKHR, init_size: [2]u32, frames_in_flight: u32, format: Swapchain_Format = {}, present_mode: Present_Mode = {}) : _swapchain_create
