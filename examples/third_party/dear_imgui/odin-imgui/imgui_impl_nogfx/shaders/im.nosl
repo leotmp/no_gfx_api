@@ -1,55 +1,56 @@
+COLOR :: #inout(f32x4, 0)
+UV :: #inout(f32x2, 1)
 
 Im_Draw_Vert :: struct
 {
-    pos: vec2,
-    uv: vec2,
-    col: uint,
+    pos: f32x2,
+    uv:  f32x2,
+    col: u32,
 }
 
 Vert_Data :: struct
 {
-    verts: []Im_Draw_Vert,
-    vert_offset: uint,
-    scale: vec2,
-    translate: vec2,
+    verts: [^]Im_Draw_Vert,
+    vert_offset: u32,
+    scale: f32x2,
+    translate: f32x2,
 }
 
-Vert_Output :: struct
+VS_Out :: struct
 {
-    pos: vec4 @position,
-    color: vec4 @io(0),
-    uv: vec2 @io(1),
+    pos:   f32x4 | SV_Position,
+    color: f32x4 | COLOR,
+    uv:    f32x2 | UV,
 }
 
-vert :: #vertex (data: ^Vert_Data @data, vert_id: uint @vert_id) -> Vert_Output
+uint_to_rgba8 :: proc(v: u32) -> f32x4
 {
-    vert_id_global := vert_id + data.vert_offset;
-    vert := data.verts[vert_id_global];
-
-    out: Vert_Output;
-    out.color = uint_to_rgba8(vert.col);
-    out.pos = vec4(vert.pos * data.scale + data.translate, 0, 1);
-    out.uv = vert.uv;
-    return out;
+    return f32x4(
+        f32(v & 0xFF),
+        f32((v >> 8) & 0xFF),
+        f32((v >> 16) & 0xFF),
+        f32((v >> 24) & 0xFF),
+    ) / 255.0
 }
 
-uint_to_rgba8 :: (v: uint) -> vec4
+vert :: proc "vertex"(data: ^Vert_Data | SV_Data, vert_id: u32 | SV_Vertex) -> (out: VS_Out)
 {
-    return vec4(
-        float(v & 0xFF),
-        float((v >> 8)  & 0xFF),
-        float((v >> 16) & 0xFF),
-        float((v >> 24) & 0xFF),
-    ) / 255.0;
+    id := vert_id + data.vert_offset
+    v := data.verts[id]
+    out.color = uint_to_rgba8(v.col)
+    out.pos = f32x4(v.pos * data.scale + data.translate, 0, 1)
+    out.uv = v.uv
+    return out
 }
 
 Frag_Data :: struct
 {
-    tex_id: texture_id,
-    sampler_id: sampler_id,
+    tex_id: t32_2d,
+    sampler_id: s32,
 }
 
-frag :: #fragment (data: ^Frag_Data @data, input: Vert_Output) -> vec4 @io(0)
+frag :: proc "fragment"(input: VS_Out, data: ^Frag_Data | SV_Data) -> (out: f32x4 | SV_Target)
 {
-    return input.color * texture_sample(data.tex_id, data.sampler_id, input.uv.xy);
+    out = input.color * sample(data.tex_id, data.sampler_id, input.uv)
+    return out
 }
