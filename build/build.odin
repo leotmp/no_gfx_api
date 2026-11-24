@@ -116,15 +116,15 @@ cmd_run_compiler_tests :: proc() -> bool
 {
     cmd_compiler() or_return
 
-    shaders_nosl, shaders_slang := get_shaders_in_dir("tests")
+    _, shaders_nosl := get_shaders_in_dir("tests")
 
     group: Task_Group
     defer delete_task_group(&group)
     for shader in shaders_nosl
     {
         shader_dir, _ := os.split_path(shader)
-        out_flag := fmt.tprintf("-out:%v/%v.spv", shader_dir, os.stem(shader))
-        add_task(&group, with_exe_ext("./build/gpu_compiler"), shader, out_flag, silent = true)
+        out_flag := fmt.tprintf("-out:%v", shader_dir)
+        add_task(&group, with_exe_ext("./build/noslc"), shader, out_flag, "-target:spirv", "-target:asm")
     }
 
     ok := run_tasks(&group)
@@ -323,8 +323,8 @@ cmd_build_examples_parallel :: proc(build_odin := true, build_shaders_nosl := tr
                 for shader in example.shaders_nosl
                 {
                     dir, _ := os.split_path(shader)
-                    out_flag := fmt.tprintf("-out:%v/%v.spv", dir, os.stem(shader))
-                    add_task(&shaders, with_exe_ext("./build/gpu_compiler"), shader, out_flag)
+                    out_flag := fmt.tprintf("-out:%v", dir)
+                    add_task(&shaders, with_exe_ext("./build/noslc"), shader, out_flag, "-target:spirv", "-target:asm")
                 }
             }
 
