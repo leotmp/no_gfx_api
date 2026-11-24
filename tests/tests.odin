@@ -75,7 +75,7 @@ main :: proc()
 
     test_logger := create_test_logger()
     defer destroy_test_logger(test_logger)
-    context.logger = test_logger
+    gpu.set_logger(test_logger)
 
     ok := gpu.init()
     ensure(ok)
@@ -974,14 +974,11 @@ test_comparison_sampler :: proc(target: Render_Target)
     arena := gpu.arena_create()
     defer gpu.arena_destroy(&arena)
 
-    old_logger := context.logger
-    context.logger = {}
     scene, _, gltf_data := shared.load_scene_gltf(Sponza_Scene, 0)
     defer {
         shared.destroy_scene(&scene)
         gltf2.unload(gltf_data)
     }
-    context.logger = old_logger
 
     meshes_gpu: [dynamic]Mesh_GPU
     defer {

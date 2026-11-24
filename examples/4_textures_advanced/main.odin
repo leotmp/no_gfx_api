@@ -29,10 +29,6 @@ main :: proc()
 
     shared.sdl_init()
 
-    console_logger := log.create_console_logger()
-    defer log.destroy_console_logger(console_logger)
-    context.logger = console_logger
-
     ts_freq := sdl.GetPerformanceFrequency()
     max_delta_time: f32 = 1.0 / 10.0  // 10fps
 
