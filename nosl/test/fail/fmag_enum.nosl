@@ -1,0 +1,9 @@
+// Expect: proc "fmag" parameters must be f32 or [2/3/4]f32
+E :: enum u32 {
+	A,
+}
+
+shade :: proc "fmag"(e: E) -> f32 {
+	_ = e
+	return 0
+}

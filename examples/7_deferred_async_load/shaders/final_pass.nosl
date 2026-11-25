@@ -1,60 +1,50 @@
+UV :: #inout(f32x2, 0)
 
 Vertex :: struct
 {
-    pos: vec3,
-    uv: vec2,
+    pos: f32x3,
+    uv:  f32x2,
 }
 
 Vert_Data :: struct
 {
-    verts: []Vertex,
+    verts: [^]Vertex,
 }
 
-Vert_Output :: struct
+VS_Out :: struct
 {
-    pos: vec4 @position,
-    uv: vec2 @io(0),
+    pos: f32x4 | SV_Position,
+    uv:  f32x2 | UV,
 }
 
-vert :: #vertex (vert_id: uint @vert_id, data: ^Vert_Data @data) -> Vert_Output
+vert :: proc "vertex"(vid: u32 | SV_Vertex, data: ^Vert_Data | SV_Data) -> (out: VS_Out)
 {
-    out: Vert_Output;
-    out.pos = vec4(data.verts[vert_id].pos.xyz, 1.0);
-    out.uv = data.verts[vert_id].uv;
-    return out;
+    v := data.verts[vid]
+    out.pos = f32x4(v.pos, 1)
+    out.uv = v.uv
+    return out
 }
 
 Frag_Data :: struct
 {
-    gbuffer_albedo: texture_id,
-    gbuffer_albedo_sampler: sampler_id,
-    gbuffer_normal: texture_id,
-    gbuffer_normal_sampler: sampler_id,
-    gbuffer_metallic_roughness: texture_id,
-    gbuffer_metallic_roughness_sampler: sampler_id,
-    selected_texture_type: int,
+    gbuffer_albedo:                     t32_2d,
+    gbuffer_albedo_sampler:             s32,
+    gbuffer_normal:                     t32_2d,
+    gbuffer_normal_sampler:             s32,
+    gbuffer_metallic_roughness:         t32_2d,
+    gbuffer_metallic_roughness_sampler: s32,
+    selected_texture_type:              i32,
 }
 
-frag :: #fragment (input: Vert_Output, data: ^Frag_Data @data) -> vec4 @io(0)
+frag :: proc "fragment"(input: VS_Out, data: ^Frag_Data | SV_Data) -> (out: f32x4 | SV_Target)
 {
-    // Implementing the final PBR pass is left as an exercise to the reader.
-
-    // Switch between G-buffer textures based on selected_texture_type
-    // 0 = Albedo, 1 = Normal, 2 = Metallic_Roughness
-    uv := input.uv;
-    result: vec4;
+    uv := input.uv
     if data.selected_texture_type == 0 {
-        // Sample albedo from G-buffer
-        result = texture_sample(data.gbuffer_albedo, data.gbuffer_albedo_sampler, uv);
+        out = sample(data.gbuffer_albedo, data.gbuffer_albedo_sampler, uv)
+    } else if data.selected_texture_type == 1 {
+        out = sample(data.gbuffer_normal, data.gbuffer_normal_sampler, uv)
     } else {
-        if data.selected_texture_type == 1 {
-            // Sample normal from G-buffer
-            result = texture_sample(data.gbuffer_normal, data.gbuffer_normal_sampler, uv);
-        } else {
-            // Sample metallic-roughness from G-buffer
-            result = texture_sample(data.gbuffer_metallic_roughness, data.gbuffer_metallic_roughness_sampler, uv);
-        }
+        out = sample(data.gbuffer_metallic_roughness, data.gbuffer_metallic_roughness_sampler, uv)
     }
-
-    return result;
+    return out
 }

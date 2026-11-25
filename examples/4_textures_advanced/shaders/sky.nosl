@@ -1,39 +1,40 @@
+DIR :: #inout(f32x3, 0)
 
 Vert_Data :: struct
 {
-    positions: []vec3,
-    world_to_view: mat4,
-    view_to_proj: mat4,
+    positions:     [^]f32x3,
+    world_to_view: f32x4x4,
+    view_to_proj:  f32x4x4,
 }
 
-Vert_Output :: struct
+VS_Out :: struct
 {
-    pos: vec4 @position,
-    dir: vec3 @io(0),
+    pos: f32x4 | SV_Position,
+    dir: f32x3 | DIR,
 }
 
-vert :: #vertex (vert_id: uint @vert_id, data: ^Vert_Data @data) -> Vert_Output
+vert :: proc "vertex"(vid: u32 | SV_Vertex, data: ^Vert_Data | SV_Data) -> (out: VS_Out)
 {
-    clip_pos := vec4(data.positions[vert_id].xyz, 1);
-    clip_pos = vec4(mat3(data.world_to_view) * clip_pos.xyz, 1);
-    clip_pos = data.view_to_proj * clip_pos;
-    clip_pos.y = -clip_pos.y;
+    p := data.positions[vid]
+    clip_pos := f32x4((data.world_to_view * f32x4(p, 0)).xyz, 1)
+    clip_pos = data.view_to_proj * clip_pos
+    clip_pos.y = -clip_pos.y
 
-    out: Vert_Output;
-    out.pos = clip_pos;
-    out.dir = normalize(data.positions[vert_id].xyz);
-    return out;
+    out.pos = clip_pos
+    out.dir = normalize(p)
+    return out
 }
 
 Frag_Data :: struct
 {
-    sky_texture: texture_id,
-    sky_sampler: sampler_id,
+    sky_texture: t32_cube,
+    sky_sampler: s32,
 }
 
-frag :: #fragment (input: Vert_Output, data: ^Frag_Data @data) -> vec4 @io(0)
+frag :: proc "fragment"(input: VS_Out, data: ^Frag_Data | SV_Data) -> (out: f32x4 | SV_Target)
 {
-    frag_dir := normalize(input.dir);
-    sky_color := texture_sample_cube(data.sky_texture, data.sky_sampler, frag_dir).rgb;
-    return vec4(sky_color, 1.0);
+    frag_dir := normalize(input.dir)
+    sky_color := sample(data.sky_texture, data.sky_sampler, frag_dir).xyz
+    out = f32x4(sky_color, 1)
+    return out
 }

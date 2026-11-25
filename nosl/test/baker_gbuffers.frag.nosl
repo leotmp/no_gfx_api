@@ -1,0 +1,23 @@
+WORLD_POS :: #inout(f32x3, 0)
+WORLD_NORMAL :: #inout(f32x3, 1)
+UV :: #inout(f32x2, 2)
+
+GBuf :: struct {
+	world_pos:    f32x4 | SV_Target,
+	world_normal: f32x4 | SV_Target,
+}
+
+main :: proc "fragment"(
+	world_pos: f32x3 | WORLD_POS,
+	world_normal: f32x3 | WORLD_NORMAL,
+	uv: f32x2 | UV,
+) -> (out: GBuf) {
+	_ = uv
+	d_uv := max(abs(dFdx(world_pos)), abs(dFdy(world_pos)))
+	texel_world_size := max(d_uv.x, max(d_uv.y, d_uv.z)) * sqrt(2)
+	_ = texel_world_size
+
+	out.world_pos = f32x4(world_pos, 1)
+	out.world_normal = f32x4(normalize(world_normal) * 0.5 + 0.5, 1)
+	return out
+}

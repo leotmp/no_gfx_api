@@ -1,0 +1,275 @@
+/*
+	Signed distance primitives and CSG.
+
+	2D/3D distances and operators: Inigo Quilez SDF articles
+	(https://iquilezles.org/articles/distfunctions/). Round/onion/repeat/
+	elongate/extrude/revolve as published there. hg_sdf (Mercury, MIT)
+	for additional 2D helpers where noted.
+
+	Mandelbulb: White / Nylander iteration. Julia: quadratic z^2+c in 2D.
+	Koch: iterated fold as commonly published for 2D snowflake SDFs.
+*/
+
+vec2 :: [2]f32
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+op_union :: proc(a: f32, b: f32) -> f32 {
+	return min(a, b)
+}
+
+op_subtraction :: proc(a: f32, b: f32) -> f32 {
+	return max(-a, b)
+}
+
+op_intersection :: proc(a: f32, b: f32) -> f32 {
+	return max(a, b)
+}
+
+op_smooth_union :: proc(a: f32, b: f32, k: f32) -> f32 {
+	h := clamp(0.5 + 0.5 * (b - a) / k, 0, 1)
+	return lerp(b, a, h) - k * h * (1 - h)
+}
+
+op_smooth_subtraction :: proc(a: f32, b: f32, k: f32) -> f32 {
+	h := clamp(0.5 - 0.5 * (b + a) / k, 0, 1)
+	return lerp(b, -a, h) + k * h * (1 - h)
+}
+
+op_smooth_intersection :: proc(a: f32, b: f32, k: f32) -> f32 {
+	h := clamp(0.5 - 0.5 * (b - a) / k, 0, 1)
+	return lerp(b, a, h) + k * h * (1 - h)
+}
+
+op_round :: proc(d: f32, r: f32) -> f32 {
+	return d - r
+}
+
+op_onion :: proc(d: f32, thickness: f32) -> f32 {
+	return abs(d) - thickness
+}
+
+op_repeat2 :: proc(p: vec2, c: vec2) -> vec2 {
+	return p - c * round(p / c)
+}
+
+op_repeat3 :: proc(p: vec3, c: vec3) -> vec3 {
+	return p - c * round(p / c)
+}
+
+op_elongate2 :: proc(p: vec2, h: vec2) -> vec2 {
+	return p - clamp(p, -h, h)
+}
+
+op_elongate3 :: proc(p: vec3, h: vec3) -> vec3 {
+	return p - clamp(p, -h, h)
+}
+
+op_extrude :: proc(d2: f32, p_z: f32, h: f32) -> f32 {
+	w := vec2(d2, abs(p_z) - h)
+	return min(max(w.x, w.y), 0) + mag(max(w, 0))
+}
+
+op_revolve :: proc(p: vec3, offset: f32) -> vec2 {
+	return vec2(mag(vec2(p.x, p.z)) - offset, p.y)
+}
+
+sd_circle :: proc(p: vec2, r: f32) -> f32 {
+	return mag(p) - r
+}
+
+sd_box2 :: proc(p: vec2, b: vec2) -> f32 {
+	d := abs(p) - b
+	return mag(max(d, 0)) + min(max(d.x, d.y), 0)
+}
+
+sd_rounded_box2 :: proc(p: vec2, b: vec2, r: f32) -> f32 {
+	return sd_box2(p, b) - r
+}
+
+sd_segment2 :: proc(p: vec2, a: vec2, b: vec2) -> f32 {
+	pa := p - a
+	ba := b - a
+	h := clamp(dot(pa, ba) / dot(ba, ba), 0, 1)
+	return mag(pa - ba * h)
+}
+
+sd_capsule2 :: proc(p: vec2, a: vec2, b: vec2, r: f32) -> f32 {
+	return sd_segment2(p, a, b) - r
+}
+
+sd_hexagon :: proc(p: vec2, r: f32) -> f32 {
+	k := vec3(-0.866025404, 0.5, 0.577350269)
+	q := abs(p)
+	q = q - 2 * min(dot(vec2(k.x, k.y), q), 0) * vec2(k.x, k.y)
+	q = q - vec2(clamp(q.x, -k.z * r, k.z * r), r)
+	return mag(q) * sign(q.y)
+}
+
+sd_equilateral_triangle :: proc(p: vec2, r: f32) -> f32 {
+	k := sqrt(3)
+	q := vec2(abs(p.x), p.y)
+	q = q - 2 * max(q.x * 0.5 + q.y * 0.5 * k, 0) / (1 + k * k) * vec2(1, k)
+	q.x = q.x - r
+	return -mag(q) * sign(q.y)
+}
+
+sd_star5 :: proc(p: vec2, r: f32, rf: f32) -> f32 {
+	k1 := vec2(0.809016994375, -0.587785252292)
+	k2 := vec2(-k1.x, k1.y)
+	q := vec2(abs(p.x), p.y)
+	q = q - 2 * max(dot(k1, q), 0) * k1
+	q = q - 2 * max(dot(k2, q), 0) * k2
+	q = vec2(abs(q.x), q.y - r)
+	ba := vec2(-k1.y, k1.x) * rf - vec2(0, 1)
+	h := clamp(dot(q, ba) / dot(ba, ba), 0, r)
+	return mag(q - ba * h) * sign(q.y * ba.x - q.x * ba.y)
+}
+
+sd_heart :: proc(p: vec2) -> f32 {
+	q := vec2(abs(p.x), p.y)
+	if q.y + q.x > 1 {
+		return sqrt(dot(q - vec2(0.25, 0.75), q - vec2(0.25, 0.75))) - sqrt(2.0) / 4.0
+	}
+	d1 := mag(q - vec2(0, 1))
+	a := 0.5 * max(q.x + q.y, 0)
+	d2 := mag(q - vec2(a, a))
+	return min(d1, d2) * sign(q.x - q.y)
+}
+
+sd_sphere :: proc(p: vec3, r: f32) -> f32 {
+	return mag(p) - r
+}
+
+sd_box3 :: proc(p: vec3, b: vec3) -> f32 {
+	d := abs(p) - b
+	return mag(max(d, 0)) + min(max(d.x, max(d.y, d.z)), 0)
+}
+
+sd_rounded_box3 :: proc(p: vec3, b: vec3, r: f32) -> f32 {
+	return sd_box3(p, b) - r
+}
+
+sd_box_frame :: proc(p: vec3, b: vec3, e: f32) -> f32 {
+	q0 := abs(p) - b
+	q := abs(q0 + e) - e
+	return min(min(
+		mag(max(vec3(q0.x, q.y, q.z), 0)) + min(max(q0.x, max(q.y, q.z)), 0),
+		mag(max(vec3(q.x, q0.y, q.z), 0)) + min(max(q.x, max(q0.y, q.z)), 0)),
+		mag(max(vec3(q.x, q.y, q0.z), 0)) + min(max(q.x, max(q.y, q0.z)), 0))
+}
+
+sd_torus :: proc(p: vec3, t: vec2) -> f32 {
+	q := vec2(mag(vec2(p.x, p.z)) - t.x, p.y)
+	return mag(q) - t.y
+}
+
+sd_capsule3 :: proc(p: vec3, a: vec3, b: vec3, r: f32) -> f32 {
+	pa := p - a
+	ba := b - a
+	h := clamp(dot(pa, ba) / dot(ba, ba), 0, 1)
+	return mag(pa - ba * h) - r
+}
+
+sd_cylinder :: proc(p: vec3, h: f32, r: f32) -> f32 {
+	d := abs(vec2(mag(vec2(p.x, p.z)), p.y)) - vec2(r, h)
+	return min(max(d.x, d.y), 0) + mag(max(d, 0))
+}
+
+sd_cone :: proc(p: vec3, c: vec2) -> f32 {
+	q := vec2(mag(vec2(p.x, p.z)), -p.y)
+	d := mag(q - c * max(dot(q, c), 0))
+	return d if q.x * c.y - q.y * c.x >= 0 else -d
+}
+
+sd_capped_cone :: proc(p: vec3, h: f32, r1: f32, r2: f32) -> f32 {
+	q := vec2(mag(vec2(p.x, p.z)), p.y)
+	k1 := vec2(r2, h)
+	k2 := vec2(r2 - r1, 2 * h)
+	ca := vec2(q.x - min(q.x, r1 if q.y < 0 else r2), abs(q.y) - h)
+	cb := q - k1 + k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0, 1)
+	s := -1.0 if cb.x < 0 && ca.y < 0 else 1.0
+	return s * sqrt(min(dot(ca, ca), dot(cb, cb)))
+}
+
+sd_hex_prism :: proc(p: vec3, h: vec2) -> f32 {
+	k := vec3(-0.8660254, 0.5, 0.57735)
+	q := abs(p)
+	t := min(dot(vec2(k.x, k.y), vec2(q.x, q.z)), 0)
+	q = vec3(q.x + 2 * t * k.x, q.y, q.z + 2 * t * k.y)
+	d := vec2(
+		mag(vec2(q.x, q.z) - vec2(clamp(q.x, -k.z * h.x, k.z * h.x), h.x)) * sign(q.z - h.x),
+		q.y - h.y,
+	)
+	return min(max(d.x, d.y), 0) + mag(max(d, 0))
+}
+
+sd_octahedron :: proc(p: vec3, s: f32) -> f32 {
+	q := abs(p)
+	return (q.x + q.y + q.z - s) * 0.57735027
+}
+
+sd_ellipsoid :: proc(p: vec3, r: vec3) -> f32 {
+	k0 := mag(p / r)
+	k1 := mag(p / (r * r))
+	return k0 * (k0 - 1) / k1
+}
+
+mandelbulb :: proc(p: vec3, power: f32, iterations: i32) -> f32 {
+	z := p
+	dr := 1.0
+	r := 0.0
+	for i := 0; i < iterations; i += 1 {
+		r = mag(z)
+		if r > 2 {
+			break
+		}
+		theta := acos(clamp(z.z / r, -1, 1))
+		phi := atan2(z.y, z.x)
+		dr = pow(r, power - 1) * power * dr + 1
+		zr := pow(r, power)
+		theta = theta * power
+		phi = phi * power
+		z = zr * vec3(sin(theta) * cos(phi), sin(phi) * sin(theta), cos(theta))
+		z = z + p
+	}
+	return 0.5 * log(r) * r / dr
+}
+
+julia2 :: proc(p: vec2, c: vec2, iterations: i32) -> f32 {
+	z := p
+	dz := vec2(1, 0)
+	for i := 0; i < iterations; i += 1 {
+		dz = 2 * vec2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x)
+		z = vec2(z.x * z.x - z.y * z.y, 2 * z.x * z.y) + c
+		if dot(z, z) > 16 {
+			break
+		}
+	}
+	return 0.5 * mag(z) * log(mag(z)) / mag(dz)
+}
+
+koch2 :: proc(p: vec2, iterations: i32) -> f32 {
+	q := p
+	d := mag(q)
+	for i := 0; i < iterations; i += 1 {
+		q = abs(q)
+		q = q - 0.5
+		if q.x + q.y > 0 {
+			s := q.x
+			q.x = -q.y
+			q.y = s
+		}
+		q = q * 3
+		d = min(d, mag(q) / pow(3, f32(i + 1)))
+	}
+	return d - 0.02
+}
+
+map_scene3 :: proc(p: vec3) -> f32 {
+	d := sd_sphere(p, 0.35)
+	d = op_union(d, sd_box3(p - vec3(0.8, 0, 0), vec3(0.25, 0.25, 0.25)))
+	d = op_union(d, sd_torus(p - vec3(-0.8, 0, 0), vec2(0.28, 0.08)))
+	d = op_union(d, sd_capsule3(p - vec3(0, 0.7, 0), vec3(0, -0.2, 0), vec3(0, 0.2, 0), 0.12))
+	return d
+}

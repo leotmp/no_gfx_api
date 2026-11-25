@@ -1,0 +1,49 @@
+add_n :: proc($n: i32) -> i32 {
+	return n + 1
+}
+
+flag_n :: proc($b: b32) -> i32 {
+	return b ? 1 : 0
+}
+
+scale_n :: proc($s: f32) -> f32 {
+	return s * 2
+}
+
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	out.pos = vec4(0, 0, 0, 1)
+	out.uv = vec2(0, 0)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	a := add_n(3)
+	b := add_n(7)
+	c := add_n(3)
+	d := flag_n(true)
+	e := scale_n(1.5)
+	out = data.color
+	out.x = f32(a + b + c + d) + e
+	return out
+}

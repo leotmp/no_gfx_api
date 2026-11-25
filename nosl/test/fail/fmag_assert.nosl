@@ -1,0 +1,7 @@
+// Expect: builtin 'assert' is not allowed in proc "fmag"
+import "core:debug"
+
+shade :: proc "fmag"(x: f32) -> f32 {
+	debug.assert(true, "fmag")
+	return x
+}

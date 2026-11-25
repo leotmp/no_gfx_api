@@ -1,36 +1,38 @@
+UV :: #inout(f32x2, 0)
 
 Vertex :: struct
 {
-    pos: vec3,
-    uv: vec2,
+    pos: f32x3,
+    uv:  f32x2,
 }
 
 Vert_Data :: struct
 {
-    verts: []Vertex,
+    verts: [^]Vertex,
 }
 
-Vert_Output :: struct
+VS_Out :: struct
 {
-    pos: vec4 @position,
-    uv: vec2 @io(0),
+    pos: f32x4 | SV_Position,
+    uv:  f32x2 | UV,
 }
 
-vert :: #vertex (vert_id: uint @vert_id, data: ^Vert_Data @data) -> Vert_Output
+vert :: proc "vertex"(vid: u32 | SV_Vertex, data: ^Vert_Data | SV_Data) -> (out: VS_Out)
 {
-    out: Vert_Output;
-    out.pos = vec4(data.verts[vert_id].pos.xyz, 1.0);
-    out.uv = data.verts[vert_id].uv;
-    return out;
+    v := data.verts[vid]
+    out.pos = f32x4(v.pos, 1)
+    out.uv = v.uv
+    return out
 }
 
 Frag_Data :: struct
 {
-    texture: texture_id,
-    sampler: sampler_id,
+    tex:  t32_2d,
+    samp: s32,
 }
 
-frag :: #fragment (input: Vert_Output, data: ^Frag_Data @data) -> vec4 @io(0)
+frag :: proc "fragment"(input: VS_Out, data: ^Frag_Data | SV_Data) -> (out: f32x4 | SV_Target)
 {
-    return texture_sample(data.texture, data.sampler, input.uv);
+    out = sample(data.tex, data.samp, input.uv)
+    return out
 }

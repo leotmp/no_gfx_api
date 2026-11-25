@@ -1,0 +1,4 @@
+// Expect: default parameter values are not supported
+shade :: proc "fmag"(x: f32 = 1) -> f32 {
+	return x
+}

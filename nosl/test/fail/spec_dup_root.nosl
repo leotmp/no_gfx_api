@@ -1,0 +1,4 @@
+import "../import_deps/spec_lib.nosl"
+
+@(specialization_constant = 4)
+mine: u32 = 1

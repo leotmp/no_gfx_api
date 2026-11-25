@@ -1,0 +1,43 @@
+vec2 :: [2]f32
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+	uv:  [2]f32,
+}
+
+OFFSET :: 0.5
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	// Nested type + proc; unordered local `::`
+	p := make_pos(1.0)
+	out.pos = p
+	out.uv = vec2(OFFSET, OFFSET)
+
+	Inner :: struct {
+		a: f32,
+	}
+
+	// Uses enclosing module constant OFFSET; values from outer passed as args
+	make_pos :: proc(s: f32) -> [4]f32 {
+		h := Inner{a = s}
+		return vec4(h.a + OFFSET, h.a, 0, 1)
+	}
+
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = data.color
+	return out
+}

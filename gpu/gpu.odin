@@ -310,7 +310,7 @@ Spec_Constant :: struct
 // Procedures
 
 // Initialization and interaction with the OS.
-init: proc(validation := true, loc := #caller_location) -> bool : _init
+init: proc(validation := true, gpu_validation := true, loc := #caller_location) -> bool : _init
 cleanup: proc(loc := #caller_location) : _cleanup
 set_logger: proc(logger: log.Logger) : _set_logger
 wait_idle: proc() : _wait_idle

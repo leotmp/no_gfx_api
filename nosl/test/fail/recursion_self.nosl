@@ -1,0 +1,17 @@
+// Expected: checker error — direct self-recursion
+vec4 :: [4]f32
+
+foo :: proc(n: i32) -> i32 {
+	if n <= 0 {
+		return 0
+	}
+	return foo(n - 1)
+}
+
+vs :: proc "vertex"(
+	vertex_id: u32 | SV_Vertex,
+) -> (out: vec4 | SV_Position) {
+	_ = foo(3)
+	out = vec4(0, 0, 0, 1)
+	return out
+}

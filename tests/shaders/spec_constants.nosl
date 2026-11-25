@@ -1,40 +1,46 @@
+COLOR :: #inout(f32x4, 0)
 
-Vertex :: struct
-{
-    pos: vec3,
-    color: vec3
+Vertex :: struct {
+	pos:   f32x3,
+	color: f32x3,
 }
 
-Data :: struct
-{
-    verts: []Vertex,
+Data :: struct {
+	verts: [^]Vertex,
 }
 
-Vert_Output :: struct
-{
-    pos: vec4 @position,
-    color: vec4 @io(0),
+VS_Out :: struct {
+	pos:   f32x4 | SV_Position,
+	color: f32x4 | COLOR,
 }
 
-spec_const_int := 4     @spec(0);
-mask_out_red   := false @spec(1);
-mask_out_green := true  @spec(2);
-mask_out_blue  := false @spec(3);
+@(specialization_constant = 0)
+spec_const_int: u32 = 4
 
-vert :: #vertex (vert_id: uint @vert_id, data: ^Data @data) -> Vert_Output
-{
-    out: Vert_Output;
-    out.pos = vec4(data.verts[vert_id].pos, 1.0);
-    out.color = vec4(data.verts[vert_id].color, 1.0);
-    return out;
+@(specialization_constant = 1)
+mask_out_red: b32 = false
+
+@(specialization_constant = 2)
+mask_out_green: b32 = true
+
+@(specialization_constant = 3)
+mask_out_blue: b32 = false
+
+vert :: proc "vertex"(
+	vert_id: u32 | SV_Vertex,
+	data: ^Data | SV_Data,
+) -> (out: VS_Out) {
+	v := data.verts[vert_id]
+	out.pos = f32x4(v.pos, 1)
+	out.color = f32x4(v.color, 1)
+	return out
 }
 
-frag :: #fragment (input: Vert_Output) -> vec4 @io(0)
-{
-    out := input.color;
-    if mask_out_red   { out.r = 0; }
-    if mask_out_green { out.g = 0; }
-    if mask_out_blue  { out.b = 0; }
-    if spec_const_int != 1 { out = vec4(0); }
-    return out;
+frag :: proc "fragment"(input: VS_Out) -> (out: f32x4 | SV_Target) {
+	out = input.color
+	if mask_out_red do out.r = 0
+	if mask_out_green do out.g = 0
+	if mask_out_blue do out.b = 0
+	if spec_const_int != 1 do out = f32x4(0, 0, 0, 0)
+	return out
 }

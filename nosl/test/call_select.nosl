@@ -1,0 +1,49 @@
+// 1-result calls are values: struct field and vector swizzle on the call.
+vec3 :: [3]f32
+vec4 :: [4]f32
+
+Pair :: struct {
+	val: f32,
+	pad: f32,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+foo :: proc() -> Pair {
+	out: Pair
+	out.val = 1
+	return out
+}
+
+foo2 :: proc() -> [3]f32 {
+	return vec3(1, 2, 3)
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = data
+	_ = vertex_id
+	x := foo().val
+	v := foo2().xyz
+	_ = x
+	_ = v
+	out.pos = vec4(x, v.x, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	_ = fsin
+	out = data.color
+	return out
+}

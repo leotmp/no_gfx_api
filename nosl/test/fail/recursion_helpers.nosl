@@ -1,0 +1,21 @@
+// Expected: checker error — entry calls helper that calls back into entry
+vec4 :: [4]f32
+
+helper :: proc(n: i32) -> i32 {
+	return vs_helper(n)
+}
+
+vs_helper :: proc(n: i32) -> i32 {
+	if n <= 0 {
+		return 0
+	}
+	return helper(n - 1)
+}
+
+vs :: proc "vertex"(
+	vertex_id: u32 | SV_Vertex,
+) -> (out: vec4 | SV_Position) {
+	_ = helper(2)
+	out = vec4(0, 0, 0, 1)
+	return out
+}

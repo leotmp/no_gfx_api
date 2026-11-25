@@ -1,0 +1,33 @@
+// &&= / ||= on b32 (GLSL expands to a = a && b / a = a || b).
+vec4 :: [4]f32
+
+Data :: struct #align(16) {
+	flag: b32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	a: b32 = true
+	b: b32 = false
+	a &&= data.flag
+	a ||= b
+	a &&= true
+	a ||= false
+	_ = a
+	out.pos = vec4(0, 0, 0, 1)
+	return out
+}
+
+fs :: proc "fragment"(
+	fsin: VS_Out,
+	data: ^Data | SV_Data,
+) -> (out: [4]f32 | SV_Target) {
+	out = vec4(0, 0, 0, 1) if data.flag else vec4(1, 0, 0, 1)
+	return out
+}

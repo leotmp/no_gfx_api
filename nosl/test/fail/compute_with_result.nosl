@@ -1,0 +1,12 @@
+Data :: struct #align(16) {
+	count: u32,
+}
+
+@(size = 1)
+cs :: proc "compute"(
+	data: ^Data | SV_Data,
+	gid: [3]u32 | SV_Global_Thread,
+) -> (out: u32) {
+	out = data.count
+	return out
+}

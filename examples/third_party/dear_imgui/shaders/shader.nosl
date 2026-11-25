@@ -1,30 +1,32 @@
+COLOR :: #inout(f32x4, 0)
 
 Vertex :: struct
 {
-    pos: vec4,
-    color: vec4
+    pos:   f32x4,
+    color: f32x4,
 }
 
 Vert_Data :: struct
 {
-    verts: []Vertex,
+    verts: [^]Vertex,
 }
 
-Vert_Output :: struct
+VS_Out :: struct
 {
-    pos: vec4 @position,
-    color: vec4 @io(0),
+    pos:   f32x4 | SV_Position,
+    color: f32x4 | COLOR,
 }
 
-vert :: #vertex (vert_id: uint @vert_id, data: ^Vert_Data @data) -> Vert_Output
+vert :: proc "vertex"(vid: u32 | SV_Vertex, data: ^Vert_Data | SV_Data) -> (out: VS_Out)
 {
-    out: Vert_Output;
-    out.pos = vec4(data.verts[vert_id].pos.xyz, 1.0);
-    out.color = data.verts[vert_id].color;
-    return out;
+    v := data.verts[vid]
+    out.pos = f32x4(v.pos.xyz, 1)
+    out.color = v.color
+    return out
 }
 
-frag :: #fragment (input: Vert_Output) -> vec4 @io(0)
+frag :: proc "fragment"(input: VS_Out) -> (out: f32x4 | SV_Target)
 {
-    return input.color;
+    out = input.color
+    return out
 }

@@ -1,0 +1,20 @@
+// Expected: checker error — nested procedure self-recursion
+vec4 :: [4]f32
+
+outer :: proc(n: i32) -> i32 {
+	rec :: proc(k: i32) -> i32 {
+		if k <= 0 {
+			return 0
+		}
+		return rec(k - 1)
+	}
+	return rec(n)
+}
+
+vs :: proc "vertex"(
+	vertex_id: u32 | SV_Vertex,
+) -> (out: vec4 | SV_Position) {
+	_ = outer(3)
+	out = vec4(0, 0, 0, 1)
+	return out
+}

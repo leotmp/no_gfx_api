@@ -1,59 +1,63 @@
+UV :: #inout(f32x2, 0)
 
 Vertex :: struct
 {
-    pos: vec3,
-    uv: vec2,
+    pos: f32x3,
+    uv:  f32x2,
 }
 
 Vert_Data :: struct
 {
-    verts: []Vertex,
+    verts: [^]Vertex,
 }
 
-Vert_Output :: struct
+VS_Out :: struct
 {
-    pos: vec4 @position,
-    uv: vec2 @io(0),
+    pos: f32x4 | SV_Position,
+    uv:  f32x2 | UV,
 }
 
-vert :: #vertex (vert_id: uint @vert_id, data: ^Vert_Data @data) -> Vert_Output
+vert :: proc "vertex"(vid: u32 | SV_Vertex, data: ^Vert_Data | SV_Data) -> (out: VS_Out)
 {
-    out: Vert_Output;
-    out.pos = vec4(data.verts[vert_id].pos.xyz, 1.0);
-    out.uv = data.verts[vert_id].uv;
-    return out;
+    v := data.verts[vid]
+    out.pos = f32x4(v.pos, 1)
+    out.uv = v.uv
+    return out
 }
 
 Frag_Data :: struct
 {
-    texture: texture_id,
-    sampler: sampler_id,
+    tex:  t32_2d,
+    samp: s32,
 }
 
-frag :: #fragment (input: Vert_Output, data: ^Frag_Data @data) -> vec4 @io(0)
+linear_to_srgb :: proc(color: f32x4) -> f32x4
 {
-    uv := input.uv;
-    linear := texture_sample(data.texture, data.sampler, uv);
-    return linear_to_srgb(hdr_to_ldr(max(vec4(0, 0, 0, 0), linear)));
+    cutoff := f32x3(
+        f32(1) if color.x < 0.0031308 else f32(0),
+        f32(1) if color.y < 0.0031308 else f32(0),
+        f32(1) if color.z < 0.0031308 else f32(0),
+    )
+    higher := f32x3(1.055) * pow(color.xyz, f32x3(1 / 2.4)) - f32x3(0.055)
+    lower := color.xyz * f32x3(12.92)
+    return f32x4(lerp(higher, lower, cutoff), color.w)
 }
 
-linear_to_srgb :: (color: vec4) -> vec4
+filmic :: proc(x: f32x3) -> f32x3
 {
-    cutoff := vec3(float(color.x < 0.0031308), float(color.y < 0.0031308), float(color.z < 0.0031308));
-    higher := vec3(1.055) * pow(color.xyz, vec3(1.0/2.4)) - vec3(0.055);
-    lower := color.xyz * vec3(12.92);
-
-    return vec4(mix(higher, lower, cutoff), color.w);
+    X := max(f32x3(0), x - 0.004)
+    result := (X * (6.2 * X + 0.5)) / (X * (6.2 * X + 1.7) + 0.06)
+    return pow(result, f32x3(2.2))
 }
 
-filmic :: (x: vec3) -> vec3
+hdr_to_ldr :: proc(color: f32x4) -> f32x4
 {
-    X := max(vec3(0.0), x - 0.004);
-    result := (X * (6.2 * X + 0.5)) / (X * (6.2 * X + 1.7) + 0.06);
-    return pow(result, vec3(2.2));
+    return f32x4(filmic(color.xyz), color.w)
 }
 
-hdr_to_ldr :: (color: vec4) -> vec4
+frag :: proc "fragment"(input: VS_Out, data: ^Frag_Data | SV_Data) -> (out: f32x4 | SV_Target)
 {
-    return vec4(filmic(color.xyz), color.w);
+    linear := sample(data.tex, data.samp, input.uv)
+    out = linear_to_srgb(hdr_to_ldr(max(f32x4(0, 0, 0, 0), linear)))
+    return out
 }

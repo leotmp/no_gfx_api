@@ -1,0 +1,3 @@
+fn main(x: f32) -> f32 {
+	return x * 1.1 * 1.1
+}

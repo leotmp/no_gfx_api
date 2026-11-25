@@ -1,0 +1,6 @@
+// Expect: an #inout is one location; give each name its own
+NORMAL :: #inout([3]f32, 0)
+Out :: struct {
+	pos: [4]f32 | SV_Position,
+	a, b: [3]f32 | NORMAL,
+}

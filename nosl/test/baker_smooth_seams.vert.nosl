@@ -1,0 +1,67 @@
+TO_SAMPLE :: #inout(f32x2, 0)
+
+Seam :: struct {
+	line_a_0: u32,
+	line_a_1: u32,
+	line_b_0: u32,
+	line_b_1: u32,
+}
+
+Data :: struct {
+	lm_uvs:     [^]f32x2,
+	seams:      [^]Seam,
+	resolution: f32x2,
+	a_to_b:     b32,
+	_pad:       u32, // alignment tail (struct align is 8)
+}
+
+VS_Out :: struct {
+	pos:       f32x4 | SV_Position,
+	to_sample: f32x2 | TO_SAMPLE,
+}
+
+main :: proc "vertex"(
+	vert_id: u32 | SV_Vertex,
+	data: ^Data | SV_Data,
+) -> (out: VS_Out) {
+	// Each quad is 6 vertices (2 triangles, no index buffer).
+	segment := vert_id / 6
+	local := vert_id % 6
+
+	p0: f32x2
+	p1: f32x2
+	other_p0: f32x2
+	other_p1: f32x2
+	seam := data.seams[segment]
+	if data.a_to_b {
+		p0 = data.lm_uvs[seam.line_a_0]
+		other_p0 = data.lm_uvs[seam.line_b_0]
+		p1 = data.lm_uvs[seam.line_a_1]
+		other_p1 = data.lm_uvs[seam.line_b_1]
+	} else {
+		p0 = data.lm_uvs[seam.line_b_0]
+		other_p0 = data.lm_uvs[seam.line_a_0]
+		p1 = data.lm_uvs[seam.line_b_1]
+		other_p1 = data.lm_uvs[seam.line_a_1]
+	}
+
+	dir := normalize(p1 - p0)
+	thickness := f32(1.5)
+	normal := f32x2(-dir.y, dir.x) * (thickness / data.resolution)
+
+	// 0──2  4
+	// │ ╱  ╱│
+	// 1  3──5
+	corner_x := [6]i32 {0, 0, 1, 1, 1, 0}
+	corner_y := [6]i32 {0, 1, 0, 1, 0, 1}
+
+	cap := dir * (0.5 / data.resolution)
+	base := lerp(p0 - cap, p1 + cap, f32x2(f32(corner_x[local])))
+	side := f32(-1) if corner_y[local] == 0 else f32(1)
+	pos := base + side * normal
+	pos = pos * 2 - f32x2(1)
+
+	out.pos = f32x4(pos, 0, 1)
+	out.to_sample = other_p0 if corner_x[local] == 0 else other_p1
+	return out
+}

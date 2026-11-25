@@ -1,0 +1,13 @@
+// Default params must diagnose, not assert
+helper :: proc(x: i32 = 0) -> i32 {
+	return x
+}
+
+vs :: proc "vertex"(
+	vid: u32 | SV_Vertex,
+) -> (out: [4]f32 | SV_Position) {
+	_ = helper()
+	_ = vid
+	out = [4]f32{0, 0, 0, 1}
+	return out
+}

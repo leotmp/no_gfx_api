@@ -1,0 +1,6 @@
+// Expect: expected a semantic after '|'
+LIMIT :: 4
+Out :: struct {
+	pos: [4]f32 | SV_Position,
+	n: f32 | LIMIT,
+}

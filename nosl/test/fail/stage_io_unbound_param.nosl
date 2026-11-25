@@ -1,0 +1,4 @@
+// Expect: stage parameter 'tail' needs a semantic
+fs :: proc "fragment"(tail: [3]f32) -> (out: [4]f32 | SV_Target) {
+	return [4]f32{tail.x, 0, 0, 1}
+}

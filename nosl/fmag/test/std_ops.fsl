@@ -1,0 +1,3 @@
+fn main(x: f32, y: f32) -> f32 {
+	return sin(x) + sqrt(y) + x / y
+}

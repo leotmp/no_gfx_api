@@ -1,0 +1,26 @@
+// ^Data is not ^Other even though both are device pointers.
+Other :: struct #align(16) {
+	x: u32,
+}
+
+Data :: struct #align(16) {
+	color: [4]f32,
+}
+
+VS_Out :: struct {
+	pos: [4]f32 | SV_Position,
+}
+
+take :: proc(p: ^Other) {
+	_ = p.x
+}
+
+vs :: proc "vertex"(
+	data: ^Data | SV_Data,
+	vertex_id: u32 | SV_Vertex,
+) -> (out: VS_Out) {
+	_ = vertex_id
+	take(data)
+	out.pos = [4]f32{0, 0, 0, 1}
+	return out
+}

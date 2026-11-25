@@ -1,0 +1,46 @@
+WORLD_POS :: #inout(f32x3, 0)
+WORLD_NORMAL :: #inout(f32x3, 1)
+UV :: #inout(f32x2, 2)
+
+VS_Out :: struct {
+	pos:          f32x4 | SV_Position,
+	world_pos:    f32x3 | WORLD_POS,
+	world_normal: f32x3 | WORLD_NORMAL,
+	uv:           f32x2 | UV,
+}
+
+Data :: struct {
+	pos:                     [^]f32x3,
+	normals:                 [^]f32x3,
+	uvs:                     [^]f32x2,
+	lightmap_uvs:            [^]f32x2,
+	resolution:              f32x2,
+	model_to_world:          f32x4x4,
+	model_to_world_normals:  f32x4x4,
+}
+
+main :: proc "vertex"(
+	vert_id: u32 | SV_Vertex,
+	instance_id: u32 | SV_Instance,
+	data: ^Data | SV_Data,
+) -> (out: VS_Out) {
+	// Conservative-rasterization stand-in: 25 instance offsets in UV pixels.
+	offsets := [25]f32x2 {
+		f32x2(-2, -2), f32x2(2, -2), f32x2(-2, 2), f32x2(2, 2),
+		f32x2(-1, -2), f32x2(1, -2), f32x2(-2, -1), f32x2(2, -1),
+		f32x2(-2, 1), f32x2(2, 1), f32x2(-1, 2), f32x2(1, 2),
+		f32x2(-2, 0), f32x2(2, 0), f32x2(0, -2), f32x2(0, 2),
+		f32x2(-1, -1), f32x2(1, -1), f32x2(-1, 0), f32x2(1, 0),
+		f32x2(-1, 1), f32x2(1, 1), f32x2(0, -1), f32x2(0, 1),
+		f32x2(0, 0),
+	}
+
+	uv_offset := offsets[instance_id % 25]
+	ndc_offset := (uv_offset / data.resolution) / 2
+
+	out.pos = f32x4((data.lightmap_uvs[vert_id] * 2 - 1) + ndc_offset, 0, 1)
+	out.world_pos = (data.model_to_world * f32x4(data.pos[vert_id], 1)).xyz
+	out.world_normal = (data.model_to_world_normals * f32x4(data.normals[vert_id], 0)).xyz
+	out.uv = data.uvs[vert_id]
+	return out
+}
