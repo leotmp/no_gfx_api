@@ -990,10 +990,11 @@ _cleanup :: proc(loc := #caller_location)
             }
         }
 
-        print_leaked_resources(&ctx.textures,   "Texture_Handle", &can_destroy_device, loc)
-        print_leaked_resources(&ctx.bvhs,       "BVH",            &can_destroy_device, loc)
-        print_leaked_resources(&ctx.shaders,    "Shader",         &can_destroy_device, loc)
-        print_leaked_resources(&ctx.semaphores, "Semaphore",      &can_destroy_device, loc)
+        print_leaked_resources(&ctx.textures,   "Texture_Handle",  &can_destroy_device, loc)
+        print_leaked_resources(&ctx.bvhs,       "BVH",             &can_destroy_device, loc)
+        print_leaked_resources(&ctx.shaders,    "Shader",          &can_destroy_device, loc)
+        print_leaked_resources(&ctx.semaphores, "Semaphore",       &can_destroy_device, loc)
+        print_leaked_resources(&ctx.desc_heaps, "Descriptor_Heap", &can_destroy_device, loc)
 
         print_leaked_resources :: proc(pool: ^Resource_Pool($Handle_T, $Info_T), handle_name: string, can_destroy_device: ^bool, loc: runtime.Source_Code_Location)
         {
