@@ -209,7 +209,10 @@ Raster_State :: struct
 Depth_State :: struct
 {
     mode: Depth_Flags,
-    compare: Compare_Op
+    compare: Compare_Op,
+    bias_constant: f32,  // Depth value added to each fragment
+    bias_clamp: f32,     // Max depth bias of a fragment
+    bias_slope: f32,     // Gets multiplied by the fragment's slope and then added to the bias
 }
 
 Blend_State :: struct
