@@ -611,6 +611,7 @@ _init :: proc(validation := true, gpu_validation := true, loc := #caller_locatio
                 vertexPipelineStoresAndAtomics = true,
                 samplerAnisotropy = true,
                 imageCubeArray = true,
+                depthBiasClamp = true,
             }
         }
         raytracing_features := &vk.PhysicalDeviceAccelerationStructureFeaturesKHR {
@@ -2896,7 +2897,11 @@ _cmd_set_depth_state :: proc(cmd_buf: Command_Buffer, state: Depth_State, loc :=
     vk.CmdSetDepthCompareOp(vk_cmd_buf, to_vk_compare_op(state.compare))
     vk.CmdSetDepthTestEnable(vk_cmd_buf, .Read in state.mode)
     vk.CmdSetDepthWriteEnable(vk_cmd_buf, .Write in state.mode)
-    vk.CmdSetDepthBiasEnable(vk_cmd_buf, false)
+
+    enable_depth_bias := state.bias_constant != 0.0 || state.bias_slope != 0.0
+
+    vk.CmdSetDepthBiasEnable(vk_cmd_buf, b32(enable_depth_bias))
+    vk.CmdSetDepthBias(vk_cmd_buf, state.bias_constant, state.bias_clamp, state.bias_slope)
     vk.CmdSetStencilTestEnable(vk_cmd_buf, false)
     when ODIN_OS != .Darwin {
         vk.CmdSetDepthClipEnableEXT(vk_cmd_buf, true)
